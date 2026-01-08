@@ -13,6 +13,7 @@ import { Button } from "@/components/Button";
 import { Input } from "@/components/Input";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import { useWallet } from "@/lib/wallet-context";
+import { saveSeedPhrase } from "@/lib/secure-storage";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 
 type Props = NativeStackScreenProps<RootStackParamList, "CreateWallet">;
@@ -64,14 +65,16 @@ export default function CreateWalletScreen({ navigation }: Props) {
     try {
       const seedPhrase = generateSeedPhrase();
       const address = generateAddress();
+      const walletId = Date.now().toString();
       
       const wallet = {
-        id: Date.now().toString(),
+        id: walletId,
         name: walletName.trim(),
         address,
         createdAt: Date.now(),
       };
 
+      await saveSeedPhrase(walletId, seedPhrase);
       await addWallet(wallet);
       unlock();
       

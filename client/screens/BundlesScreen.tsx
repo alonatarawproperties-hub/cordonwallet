@@ -1,4 +1,4 @@
-import { View, StyleSheet, ScrollView, Pressable, Image } from "react-native";
+import { View, StyleSheet, ScrollView, Pressable } from "react-native";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -16,20 +16,6 @@ import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
-interface MockBundle {
-  id: string;
-  name: string;
-  walletCount: number;
-  totalBalance: string;
-  change: string;
-  changePositive: boolean;
-}
-
-const MOCK_BUNDLES: MockBundle[] = [
-  { id: "1", name: "Trading Wallets", walletCount: 3, totalBalance: "$12,450.00", change: "+5.2%", changePositive: true },
-  { id: "2", name: "Cold Storage", walletCount: 2, totalBalance: "$45,000.00", change: "+2.1%", changePositive: true },
-];
-
 export default function BundlesScreen() {
   const headerHeight = useHeaderHeight();
   const tabBarHeight = useBottomTabBarHeight();
@@ -37,6 +23,12 @@ export default function BundlesScreen() {
   const { theme } = useTheme();
   const navigation = useNavigation<Navigation>();
   const { wallets, bundles } = useWallet();
+
+  const getWalletNamesForBundle = (walletIds: string[]) => {
+    return walletIds
+      .map(id => wallets.find(w => w.id === id)?.name || "Unknown")
+      .join(", ");
+  };
 
   const totalPortfolio = "$57,450.00";
 
@@ -61,7 +53,7 @@ export default function BundlesScreen() {
         <View style={styles.statsRow}>
           <View style={styles.stat}>
             <ThemedText type="h3" style={{ color: theme.accent }}>
-              {wallets.length || 1}
+              {wallets.length}
             </ThemedText>
             <ThemedText type="caption" style={{ color: theme.textSecondary }}>
               Wallets
@@ -70,7 +62,7 @@ export default function BundlesScreen() {
           <View style={[styles.divider, { backgroundColor: theme.border }]} />
           <View style={styles.stat}>
             <ThemedText type="h3" style={{ color: theme.success }}>
-              {MOCK_BUNDLES.length}
+              {bundles.length}
             </ThemedText>
             <ThemedText type="caption" style={{ color: theme.textSecondary }}>
               Bundles
@@ -93,9 +85,9 @@ export default function BundlesScreen() {
           </Pressable>
         </View>
 
-        {MOCK_BUNDLES.length > 0 ? (
+        {bundles.length > 0 ? (
           <View style={styles.bundleList}>
-            {MOCK_BUNDLES.map((bundle) => (
+            {bundles.map((bundle) => (
               <Pressable
                 key={bundle.id}
                 style={[styles.bundleCard, { backgroundColor: theme.backgroundDefault }]}
@@ -110,24 +102,21 @@ export default function BundlesScreen() {
                       {bundle.name}
                     </ThemedText>
                     <ThemedText type="caption" style={{ color: theme.textSecondary }}>
-                      {bundle.walletCount} wallets
+                      {bundle.walletIds.length} wallet{bundle.walletIds.length !== 1 ? "s" : ""}
                     </ThemedText>
                   </View>
                   <Feather name="chevron-right" size={20} color={theme.textSecondary} />
                 </View>
                 <View style={[styles.bundleFooter, { borderTopColor: theme.border }]}>
-                  <View>
+                  <View style={{ flex: 1 }}>
                     <ThemedText type="caption" style={{ color: theme.textSecondary }}>
-                      Total Value
+                      Wallets
                     </ThemedText>
-                    <ThemedText type="body" style={{ fontWeight: "600" }}>
-                      {bundle.totalBalance}
+                    <ThemedText type="small" numberOfLines={1}>
+                      {getWalletNamesForBundle(bundle.walletIds)}
                     </ThemedText>
                   </View>
-                  <Badge 
-                    label={bundle.change} 
-                    variant={bundle.changePositive ? "success" : "danger"} 
-                  />
+                  <Badge label="Active" variant="success" />
                 </View>
               </Pressable>
             ))}
@@ -145,6 +134,9 @@ export default function BundlesScreen() {
       <View style={[styles.actionsCard, { backgroundColor: theme.backgroundDefault }]}>
         <ThemedText type="h4" style={styles.actionsTitle}>
           Batch Actions
+        </ThemedText>
+        <ThemedText type="caption" style={{ color: theme.textSecondary, marginBottom: Spacing.lg }}>
+          Perform operations across all wallets in a bundle
         </ThemedText>
         <View style={styles.actionButtons}>
           <Pressable style={[styles.actionButton, { backgroundColor: theme.backgroundSecondary }]}>
@@ -248,7 +240,7 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.lg,
   },
   actionsTitle: {
-    marginBottom: Spacing.lg,
+    marginBottom: Spacing.xs,
   },
   actionButtons: {
     flexDirection: "row",

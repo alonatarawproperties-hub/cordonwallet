@@ -1,4 +1,4 @@
-import { View, StyleSheet, FlatList, Pressable, Alert, Image } from "react-native";
+import { View, StyleSheet, FlatList, Pressable, Alert } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { Feather } from "@expo/vector-icons";
@@ -9,6 +9,7 @@ import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
 import { Badge } from "@/components/Badge";
 import { EmptyState } from "@/components/EmptyState";
+import { useWallet } from "@/lib/wallet-context";
 
 interface MockApproval {
   id: string;
@@ -30,6 +31,7 @@ export default function ApprovalsScreen() {
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
   const { theme } = useTheme();
+  const { policySettings } = useWallet();
 
   const handleRevoke = (approval: MockApproval) => {
     Alert.alert(
@@ -49,54 +51,68 @@ export default function ApprovalsScreen() {
   };
 
   const unlimitedCount = MOCK_APPROVALS.filter(a => a.isUnlimited).length;
+  const isBlockingUnlimited = policySettings.blockUnlimitedApprovals;
 
-  const renderApproval = ({ item }: { item: MockApproval }) => (
-    <View style={[styles.approvalCard, { backgroundColor: theme.backgroundDefault }]}>
-      <View style={styles.approvalHeader}>
-        <View style={[styles.tokenIcon, { backgroundColor: theme.accent + "15" }]}>
-          <ThemedText type="body" style={{ fontWeight: "700", color: theme.accent }}>
-            {item.tokenSymbol.slice(0, 2)}
-          </ThemedText>
-        </View>
-        <View style={styles.tokenInfo}>
-          <ThemedText type="body" style={{ fontWeight: "600" }}>
-            {item.tokenSymbol}
-          </ThemedText>
-          <ThemedText type="caption" style={{ color: theme.textSecondary }}>
-            {item.tokenName}
-          </ThemedText>
-        </View>
-        {item.isUnlimited ? (
-          <Badge label="Unlimited" variant="danger" />
-        ) : (
-          <Badge label={item.allowance} variant="neutral" />
-        )}
-      </View>
-
-      <View style={[styles.spenderRow, { borderTopColor: theme.border }]}>
-        <View style={styles.spenderInfo}>
-          <ThemedText type="small" style={{ color: theme.textSecondary }}>
-            Approved Spender
-          </ThemedText>
-          <View style={styles.spenderName}>
-            <ThemedText type="body">{item.spenderName}</ThemedText>
-            <ThemedText type="caption" style={{ color: theme.textSecondary }}>
-              {item.spenderAddress}
+  const renderApproval = ({ item }: { item: MockApproval }) => {
+    const isBlocked = item.isUnlimited && isBlockingUnlimited;
+    
+    return (
+      <View style={[styles.approvalCard, { backgroundColor: theme.backgroundDefault }]}>
+        <View style={styles.approvalHeader}>
+          <View style={[styles.tokenIcon, { backgroundColor: theme.accent + "15" }]}>
+            <ThemedText type="body" style={{ fontWeight: "700", color: theme.accent }}>
+              {item.tokenSymbol.slice(0, 2)}
             </ThemedText>
           </View>
+          <View style={styles.tokenInfo}>
+            <ThemedText type="body" style={{ fontWeight: "600" }}>
+              {item.tokenSymbol}
+            </ThemedText>
+            <ThemedText type="caption" style={{ color: theme.textSecondary }}>
+              {item.tokenName}
+            </ThemedText>
+          </View>
+          {item.isUnlimited ? (
+            <Badge label={isBlocked ? "Blocked" : "Unlimited"} variant="danger" />
+          ) : (
+            <Badge label={item.allowance} variant="neutral" />
+          )}
         </View>
-        <Pressable 
-          style={[styles.revokeButton, { backgroundColor: theme.danger + "15" }]}
-          onPress={() => handleRevoke(item)}
-        >
-          <Feather name="x" size={16} color={theme.danger} />
-          <ThemedText type="small" style={{ color: theme.danger, fontWeight: "600" }}>
-            Revoke
-          </ThemedText>
-        </Pressable>
+
+        {isBlocked ? (
+          <View style={[styles.blockedRow, { backgroundColor: theme.danger + "10", borderTopColor: theme.border }]}>
+            <Feather name="shield-off" size={16} color={theme.danger} />
+            <ThemedText type="small" style={{ color: theme.danger, flex: 1 }}>
+              This approval is blocked by your Wallet Firewall policy. Revoke it to stay safe.
+            </ThemedText>
+          </View>
+        ) : null}
+
+        <View style={[styles.spenderRow, { borderTopColor: theme.border }]}>
+          <View style={styles.spenderInfo}>
+            <ThemedText type="small" style={{ color: theme.textSecondary }}>
+              Approved Spender
+            </ThemedText>
+            <View style={styles.spenderName}>
+              <ThemedText type="body">{item.spenderName}</ThemedText>
+              <ThemedText type="caption" style={{ color: theme.textSecondary }}>
+                {item.spenderAddress}
+              </ThemedText>
+            </View>
+          </View>
+          <Pressable 
+            style={[styles.revokeButton, { backgroundColor: theme.danger + "15" }]}
+            onPress={() => handleRevoke(item)}
+          >
+            <Feather name="x" size={16} color={theme.danger} />
+            <ThemedText type="small" style={{ color: theme.danger, fontWeight: "600" }}>
+              Revoke
+            </ThemedText>
+          </Pressable>
+        </View>
       </View>
-    </View>
-  );
+    );
+  };
 
   return (
     <ThemedView style={styles.container}>
@@ -109,19 +125,35 @@ export default function ApprovalsScreen() {
         keyExtractor={(item) => item.id}
         renderItem={renderApproval}
         ListHeaderComponent={
-          unlimitedCount > 0 ? (
-            <View style={[styles.warningCard, { backgroundColor: theme.danger + "15", borderColor: theme.danger + "40" }]}>
-              <Feather name="alert-triangle" size={20} color={theme.danger} />
-              <View style={styles.warningContent}>
-                <ThemedText type="body" style={{ color: theme.danger, fontWeight: "600" }}>
-                  {unlimitedCount} Unlimited Approvals
-                </ThemedText>
-                <ThemedText type="small" style={{ color: theme.danger }}>
-                  These contracts can spend all your tokens. Consider revoking unnecessary approvals.
-                </ThemedText>
+          <View>
+            {isBlockingUnlimited && unlimitedCount > 0 ? (
+              <View style={[styles.policyCard, { backgroundColor: theme.accent + "15", borderColor: theme.accent + "40" }]}>
+                <Feather name="shield" size={20} color={theme.accent} />
+                <View style={styles.policyContent}>
+                  <ThemedText type="body" style={{ color: theme.accent, fontWeight: "600" }}>
+                    Wallet Firewall Active
+                  </ThemedText>
+                  <ThemedText type="small" style={{ color: theme.accent }}>
+                    {unlimitedCount} unlimited approval{unlimitedCount !== 1 ? "s" : ""} blocked by policy. New unlimited approvals will be rejected.
+                  </ThemedText>
+                </View>
               </View>
-            </View>
-          ) : null
+            ) : null}
+            
+            {unlimitedCount > 0 && !isBlockingUnlimited ? (
+              <View style={[styles.warningCard, { backgroundColor: theme.danger + "15", borderColor: theme.danger + "40" }]}>
+                <Feather name="alert-triangle" size={20} color={theme.danger} />
+                <View style={styles.warningContent}>
+                  <ThemedText type="body" style={{ color: theme.danger, fontWeight: "600" }}>
+                    {unlimitedCount} Unlimited Approvals
+                  </ThemedText>
+                  <ThemedText type="small" style={{ color: theme.danger }}>
+                    These contracts can spend all your tokens. Consider revoking unnecessary approvals or enabling the block policy.
+                  </ThemedText>
+                </View>
+              </View>
+            ) : null}
+          </View>
         }
         ListEmptyComponent={
           <EmptyState
@@ -141,6 +173,19 @@ const styles = StyleSheet.create({
   },
   listContent: {
     paddingHorizontal: Spacing.lg,
+  },
+  policyCard: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    padding: Spacing.lg,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    gap: Spacing.md,
+    marginBottom: Spacing.xl,
+  },
+  policyContent: {
+    flex: 1,
+    gap: Spacing.xs,
   },
   warningCard: {
     flexDirection: "row",
@@ -175,6 +220,13 @@ const styles = StyleSheet.create({
   tokenInfo: {
     flex: 1,
     gap: Spacing.xs,
+  },
+  blockedRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: Spacing.md,
+    borderTopWidth: 1,
+    gap: Spacing.sm,
   },
   spenderRow: {
     flexDirection: "row",

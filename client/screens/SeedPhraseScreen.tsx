@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { View, StyleSheet, ScrollView, Pressable, Alert } from "react-native";
+import { View, StyleSheet, ScrollView, Pressable } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
@@ -32,22 +32,10 @@ export default function SeedPhraseScreen({ navigation, route }: Props) {
   };
 
   const handleContinue = () => {
-    Alert.alert(
-      "Have you backed up your seed phrase?",
-      "Make sure you have written down your seed phrase before continuing. You will not see it again.",
-      [
-        { text: "Go Back", style: "cancel" },
-        { 
-          text: "Yes, I've backed it up", 
-          onPress: () => {
-            navigation.reset({
-              index: 0,
-              routes: [{ name: "Main" }],
-            });
-          }
-        },
-      ]
-    );
+    navigation.reset({
+      index: 0,
+      routes: [{ name: "Main" }],
+    });
   };
 
   return (

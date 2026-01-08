@@ -13,6 +13,7 @@ import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
 import { Button } from "@/components/Button";
 import { useWallet } from "@/lib/wallet-context";
+import { deleteSeedPhrase } from "@/lib/secure-storage";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
@@ -39,6 +40,7 @@ export default function WalletManagerScreen() {
           text: "Remove", 
           style: "destructive",
           onPress: async () => {
+            await deleteSeedPhrase(walletId);
             await removeWallet(walletId);
             if (wallets.length <= 1) {
               navigation.reset({
