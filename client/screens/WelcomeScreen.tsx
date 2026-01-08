@@ -95,10 +95,10 @@ const styles = StyleSheet.create({
     marginTop: Spacing["2xl"],
   },
   logo: {
-    width: 80,
-    height: 80,
-    borderRadius: BorderRadius.lg,
-    marginBottom: Spacing["2xl"],
+    width: 120,
+    height: 120,
+    borderRadius: BorderRadius.xl,
+    marginBottom: Spacing.lg,
   },
   title: {
     marginBottom: Spacing.sm,
