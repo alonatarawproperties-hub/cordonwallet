@@ -1,6 +1,7 @@
 import { View, StyleSheet, Image } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
+import { Feather } from "@expo/vector-icons";
 
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius } from "@/constants/theme";
@@ -34,7 +35,7 @@ export default function WelcomeScreen({ navigation }: Props) {
       <View style={styles.features}>
         <View style={[styles.featureCard, { backgroundColor: theme.backgroundDefault }]}>
           <View style={[styles.featureIcon, { backgroundColor: theme.accent + "20" }]}>
-            <ThemedText style={{ color: theme.accent, fontSize: 20 }}>{"⛡"}</ThemedText>
+            <Feather name="shield" size={24} color={theme.accent} />
           </View>
           <View style={styles.featureText}>
             <ThemedText type="h4">Wallet Firewall</ThemedText>
@@ -46,12 +47,24 @@ export default function WelcomeScreen({ navigation }: Props) {
 
         <View style={[styles.featureCard, { backgroundColor: theme.backgroundDefault }]}>
           <View style={[styles.featureIcon, { backgroundColor: theme.success + "20" }]}>
-            <ThemedText style={{ color: theme.success, fontSize: 20 }}>{"⚡"}</ThemedText>
+            <Feather name="layers" size={24} color={theme.success} />
           </View>
           <View style={styles.featureText}>
             <ThemedText type="h4">Multi-Wallet Bundles</ThemedText>
             <ThemedText type="small" style={{ color: theme.textSecondary }}>
               Manage multiple wallets with ease
+            </ThemedText>
+          </View>
+        </View>
+
+        <View style={[styles.featureCard, { backgroundColor: theme.backgroundDefault }]}>
+          <View style={[styles.featureIcon, { backgroundColor: theme.warning + "20" }]}>
+            <Feather name="cpu" size={24} color={theme.warning} />
+          </View>
+          <View style={styles.featureText}>
+            <ThemedText type="h4">AI Explainer</ThemedText>
+            <ThemedText type="small" style={{ color: theme.textSecondary }}>
+              Plain-English transaction explanations
             </ThemedText>
           </View>
         </View>
@@ -79,7 +92,7 @@ const styles = StyleSheet.create({
   },
   content: {
     alignItems: "center",
-    marginTop: Spacing["4xl"],
+    marginTop: Spacing["2xl"],
   },
   logo: {
     width: 80,
@@ -98,7 +111,7 @@ const styles = StyleSheet.create({
   features: {
     flex: 1,
     justifyContent: "center",
-    gap: Spacing.lg,
+    gap: Spacing.md,
   },
   featureCard: {
     flexDirection: "row",

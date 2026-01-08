@@ -28,7 +28,7 @@ export type RootStackParamList = {
   SeedPhrase: { seedPhrase: string[] };
   Unlock: undefined;
   Main: undefined;
-  Send: { walletAddress?: string; tokenSymbol?: string };
+  Send: { tokenSymbol?: string } | undefined;
   Receive: { walletAddress: string };
   AssetDetail: { tokenSymbol: string; balance: string };
   TransactionDetail: { txHash: string };

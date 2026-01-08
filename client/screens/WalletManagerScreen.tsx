@@ -1,23 +1,164 @@
-import { View, StyleSheet } from "react-native";
+import { View, StyleSheet, FlatList, Pressable, Alert } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useHeaderHeight } from "@react-navigation/elements";
+import { useNavigation } from "@react-navigation/native";
+import { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import { Feather } from "@expo/vector-icons";
+import * as Clipboard from "expo-clipboard";
+import * as Haptics from "expo-haptics";
 
 import { useTheme } from "@/hooks/useTheme";
-import { Spacing } from "@/constants/theme";
+import { Spacing, BorderRadius } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
+import { Button } from "@/components/Button";
+import { useWallet } from "@/lib/wallet-context";
+import type { RootStackParamList } from "@/navigation/RootStackNavigator";
+
+type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
 export default function WalletManagerScreen() {
   const insets = useSafeAreaInsets();
+  const headerHeight = useHeaderHeight();
   const { theme } = useTheme();
+  const navigation = useNavigation<Navigation>();
+  const { wallets, activeWallet, setActiveWallet, removeWallet } = useWallet();
+
+  const handleCopyAddress = async (address: string) => {
+    await Clipboard.setStringAsync(address);
+    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  };
+
+  const handleRemoveWallet = (walletId: string, walletName: string) => {
+    Alert.alert(
+      "Remove Wallet",
+      `Are you sure you want to remove "${walletName}"? Make sure you have backed up the seed phrase.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        { 
+          text: "Remove", 
+          style: "destructive",
+          onPress: async () => {
+            await removeWallet(walletId);
+            if (wallets.length <= 1) {
+              navigation.reset({
+                index: 0,
+                routes: [{ name: "Welcome" }],
+              });
+            }
+          }
+        },
+      ]
+    );
+  };
+
+  const mockWallets = wallets.length > 0 ? wallets : [
+    { id: "1", name: "Main Wallet", address: "0x1234567890abcdef1234567890abcdef12345678", createdAt: Date.now() },
+  ];
+
+  const renderWallet = ({ item }: { item: typeof mockWallets[0] }) => {
+    const isActive = activeWallet?.id === item.id;
+    const truncatedAddress = `${item.address.slice(0, 6)}...${item.address.slice(-4)}`;
+
+    return (
+      <Pressable
+        style={[
+          styles.walletCard,
+          { 
+            backgroundColor: theme.backgroundDefault,
+            borderColor: isActive ? theme.accent : theme.border,
+          }
+        ]}
+        onPress={() => setActiveWallet(item as any)}
+      >
+        <View style={styles.walletHeader}>
+          <View style={[
+            styles.walletIcon, 
+            { backgroundColor: isActive ? theme.accent + "20" : theme.backgroundSecondary }
+          ]}>
+            <Feather name="credit-card" size={20} color={isActive ? theme.accent : theme.textSecondary} />
+          </View>
+          <View style={styles.walletInfo}>
+            <View style={styles.walletNameRow}>
+              <ThemedText type="body" style={{ fontWeight: "600" }}>
+                {item.name}
+              </ThemedText>
+              {isActive ? (
+                <View style={[styles.activeBadge, { backgroundColor: theme.accent }]}>
+                  <ThemedText style={{ color: "#FFFFFF", fontSize: 10, fontWeight: "700" }}>
+                    ACTIVE
+                  </ThemedText>
+                </View>
+              ) : null}
+            </View>
+            <Pressable 
+              style={styles.addressRow}
+              onPress={() => handleCopyAddress(item.address)}
+            >
+              <ThemedText type="caption" style={{ color: theme.textSecondary }}>
+                {truncatedAddress}
+              </ThemedText>
+              <Feather name="copy" size={12} color={theme.accent} />
+            </Pressable>
+          </View>
+        </View>
+
+        <View style={[styles.walletActions, { borderTopColor: theme.border }]}>
+          <Pressable 
+            style={styles.actionButton}
+            onPress={() => handleCopyAddress(item.address)}
+          >
+            <Feather name="copy" size={16} color={theme.accent} />
+            <ThemedText type="small" style={{ color: theme.accent }}>Copy</ThemedText>
+          </Pressable>
+          <View style={[styles.actionDivider, { backgroundColor: theme.border }]} />
+          <Pressable 
+            style={styles.actionButton}
+            onPress={() => handleRemoveWallet(item.id, item.name)}
+          >
+            <Feather name="trash-2" size={16} color={theme.danger} />
+            <ThemedText type="small" style={{ color: theme.danger }}>Remove</ThemedText>
+          </Pressable>
+        </View>
+      </Pressable>
+    );
+  };
 
   return (
-    <ThemedView style={[styles.container, { paddingBottom: insets.bottom + Spacing["2xl"] }]}>
-      <View style={styles.placeholder}>
-        <ThemedText type="h3">Wallet Manager</ThemedText>
-        <ThemedText type="body" style={{ color: theme.textSecondary }}>
-          Wallet manager coming soon
-        </ThemedText>
-      </View>
+    <ThemedView style={styles.container}>
+      <FlatList
+        contentContainerStyle={[
+          styles.listContent,
+          { paddingTop: headerHeight + Spacing.xl, paddingBottom: insets.bottom + Spacing["2xl"] },
+        ]}
+        data={mockWallets}
+        keyExtractor={(item) => item.id}
+        renderItem={renderWallet}
+        ListHeaderComponent={
+          <View style={styles.header}>
+            <ThemedText type="body" style={{ color: theme.textSecondary }}>
+              Manage your wallets. Tap a wallet to make it active.
+            </ThemedText>
+          </View>
+        }
+        ListFooterComponent={
+          <View style={styles.footer}>
+            <Button onPress={() => navigation.navigate("CreateWallet")}>
+              Add New Wallet
+            </Button>
+            <Pressable 
+              style={[styles.importButton, { borderColor: theme.border }]}
+              onPress={() => navigation.navigate("ImportWallet")}
+            >
+              <Feather name="download" size={18} color={theme.text} />
+              <ThemedText type="body" style={{ fontWeight: "600" }}>
+                Import Wallet
+              </ThemedText>
+            </Pressable>
+          </View>
+        }
+        ItemSeparatorComponent={() => <View style={{ height: Spacing.md }} />}
+      />
     </ThemedView>
   );
 }
@@ -25,12 +166,76 @@ export default function WalletManagerScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    paddingHorizontal: Spacing["2xl"],
   },
-  placeholder: {
-    flex: 1,
+  listContent: {
+    paddingHorizontal: Spacing.lg,
+  },
+  header: {
+    marginBottom: Spacing.xl,
+  },
+  walletCard: {
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    overflow: "hidden",
+  },
+  walletHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: Spacing.lg,
+    gap: Spacing.md,
+  },
+  walletIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: BorderRadius.sm,
     alignItems: "center",
     justifyContent: "center",
+  },
+  walletInfo: {
+    flex: 1,
+    gap: Spacing.xs,
+  },
+  walletNameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+  },
+  activeBadge: {
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 2,
+    borderRadius: BorderRadius.full,
+  },
+  addressRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.xs,
+  },
+  walletActions: {
+    flexDirection: "row",
+    borderTopWidth: 1,
+  },
+  actionButton: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: Spacing.md,
+    gap: Spacing.sm,
+  },
+  actionDivider: {
+    width: 1,
+  },
+  footer: {
+    marginTop: Spacing["2xl"],
+    gap: Spacing.md,
+  },
+  importButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: Spacing.lg,
+    borderRadius: BorderRadius.full,
+    borderWidth: 1,
     gap: Spacing.sm,
   },
 });
