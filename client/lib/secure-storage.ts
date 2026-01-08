@@ -1,7 +1,7 @@
 import * as SecureStore from "expo-secure-store";
 import { Platform } from "react-native";
 
-const SEED_PREFIX = "shieldwallet_seed_";
+const SEED_PREFIX = "cordon_seed_";
 
 export async function saveSeedPhrase(walletId: string, seedPhrase: string[]): Promise<void> {
   const key = `${SEED_PREFIX}${walletId}`;

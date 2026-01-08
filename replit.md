@@ -1,8 +1,8 @@
-# ShieldWallet
+# Cordon
 
 ## Overview
 
-ShieldWallet is a production-grade, non-custodial EVM wallet application built as a monorepo. The project consists of a React Native mobile app (via Expo) and a lightweight Express backend. The core differentiators are:
+Cordon is a production-grade, non-custodial EVM wallet application built as a monorepo. The project consists of a React Native mobile app (via Expo) and a lightweight Express backend. The core differentiators are:
 
 1. **Wallet Firewall** - Explain-before-sign functionality with enforceable transaction policies
 2. **Bundles** - Multi-wallet management with batch operations

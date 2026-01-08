@@ -1,16 +1,16 @@
 {
   "expo": {
-    "name": "ShieldWallet",
-    "slug": "shieldwallet",
+    "name": "Cordon",
+    "slug": "cordon",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "shieldwallet",
+    "scheme": "cordon",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.shieldwallet.app"
+      "bundleIdentifier": "com.cordon.app"
     },
     "android": {
       "adaptiveIcon": {
@@ -19,7 +19,7 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.shieldwallet.app"
+      "package": "com.cordon.app"
     },
     "web": {
       "output": "single",
@@ -42,7 +42,7 @@
       [
         "expo-local-authentication",
         {
-          "faceIDPermission": "Allow ShieldWallet to use Face ID for secure access."
+          "faceIDPermission": "Allow Cordon to use Face ID for secure access."
         }
       ],
       "expo-secure-store"

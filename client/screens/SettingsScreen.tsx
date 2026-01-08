@@ -57,7 +57,7 @@ export default function SettingsScreen() {
   ];
 
   const aboutItems = [
-    { title: "Help & Support", subtitle: "Get help with ShieldWallet", icon: "help-circle", onPress: () => {} },
+    { title: "Help & Support", subtitle: "Get help with Cordon", icon: "help-circle", onPress: () => {} },
     { title: "Terms of Service", subtitle: "Legal information", icon: "file-text", onPress: () => {} },
     { title: "Version", subtitle: "1.0.0", icon: "info", onPress: () => {} },
   ];

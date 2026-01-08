@@ -23,7 +23,7 @@ export default function BackupWarningScreen({ navigation, route }: Props) {
 
   const warnings = [
     { icon: "eye-off" as const, text: "Your seed phrase is the only way to recover your wallet" },
-    { icon: "lock" as const, text: "Never share it with anyone, not even ShieldWallet support" },
+    { icon: "lock" as const, text: "Never share it with anyone, not even Cordon support" },
     { icon: "file-text" as const, text: "Write it down on paper and store it securely" },
     { icon: "alert-circle" as const, text: "If you lose it, your funds cannot be recovered" },
   ];

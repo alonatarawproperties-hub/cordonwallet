@@ -8,7 +8,7 @@ interface HeaderTitleProps {
   title?: string;
 }
 
-export default function HeaderTitle({ title = "ShieldWallet" }: HeaderTitleProps) {
+export default function HeaderTitle({ title = "Cordon" }: HeaderTitleProps) {
   return (
     <View style={styles.container}>
       <Image

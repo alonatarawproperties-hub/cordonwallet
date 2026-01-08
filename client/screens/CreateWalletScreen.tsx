@@ -119,7 +119,7 @@ export default function CreateWalletScreen({ navigation }: Props) {
         <View style={[styles.warningCard, { backgroundColor: theme.warning + "15", borderColor: theme.warning + "40" }]}>
           <Feather name="alert-triangle" size={20} color={theme.warning} />
           <ThemedText type="small" style={{ color: theme.warning, flex: 1 }}>
-            Never share your seed phrase with anyone. ShieldWallet will never ask for it.
+            Never share your seed phrase with anyone. Cordon will never ask for it.
           </ThemedText>
         </View>
 

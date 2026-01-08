@@ -25,7 +25,7 @@ export default function WelcomeScreen({ navigation }: Props) {
           resizeMode="contain"
         />
         <ThemedText type="h1" style={styles.title}>
-          ShieldWallet
+          Cordon
         </ThemedText>
         <ThemedText type="body" style={[styles.subtitle, { color: theme.textSecondary }]}>
           Your secure gateway to Web3. Non-custodial, with built-in protection.
