@@ -89,6 +89,10 @@ Preferred communication style: Simple, everyday language.
 - **Balance Fetchers**: `client/lib/blockchain/balances.ts` - Native and ERC-20 balance reads
 - **Token List**: `client/lib/blockchain/tokens.ts` - Default tokens per chain (USDC, USDT, DAI, WBTC, etc.)
 - **Portfolio Hook**: `client/hooks/usePortfolio.ts` - React hook for fetching real balances with caching
+- **Transaction Module**: `client/lib/blockchain/transactions.ts` - sendNative/sendERC20 with gas estimation
+  - EIP-1559 support with legacy chain fallback (BSC uses gasPrice)
+  - Private keys derived on-demand from mnemonics for signing, never stored
+- **Transaction History**: `client/lib/transaction-history.ts` - Local AsyncStorage for activity tracking
 
 ### Planned Integrations (Architecture Ready)
 
