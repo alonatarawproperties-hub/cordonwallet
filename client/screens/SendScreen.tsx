@@ -1,9 +1,12 @@
-import { useState, useMemo } from "react";
-import { View, StyleSheet, Pressable, Alert } from "react-native";
+import { useState, useMemo, useEffect, useCallback } from "react";
+import { View, StyleSheet, Pressable, Alert, ActivityIndicator } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { Feather } from "@expo/vector-icons";
+import * as WebBrowser from "expo-web-browser";
+import * as Clipboard from "expo-clipboard";
+import * as Haptics from "expo-haptics";
 
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius } from "@/constants/theme";
@@ -13,8 +16,18 @@ import { Button } from "@/components/Button";
 import { Input } from "@/components/Input";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import { NetworkBadge } from "@/components/NetworkBadge";
-import { Badge } from "@/components/Badge";
 import { useWallet } from "@/lib/wallet-context";
+import { usePortfolio } from "@/hooks/usePortfolio";
+import { NETWORKS } from "@/lib/types";
+import {
+  sendNative,
+  sendERC20,
+  estimateNativeGas,
+  estimateERC20Gas,
+  GasEstimate,
+} from "@/lib/blockchain/transactions";
+import { saveTransaction } from "@/lib/transaction-history";
+import { getExplorerTxUrl } from "@/lib/blockchain/chains";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Send">;
@@ -27,24 +40,101 @@ interface RiskAssessment {
   canProceed: boolean;
 }
 
-export default function SendScreen({ navigation }: Props) {
+interface TokenOption {
+  symbol: string;
+  balance: string;
+  address?: `0x${string}`;
+  decimals: number;
+  isNative: boolean;
+}
+
+export default function SendScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
   const { theme } = useTheme();
   const { activeWallet, selectedNetwork, policySettings } = useWallet();
   const [recipient, setRecipient] = useState("");
   const [amount, setAmount] = useState("");
-  const [selectedToken, setSelectedToken] = useState("ETH");
+  const [selectedToken, setSelectedToken] = useState<string>("");
   const [isSending, setIsSending] = useState(false);
+  const [gasEstimate, setGasEstimate] = useState<GasEstimate | null>(null);
+  const [gasLoading, setGasLoading] = useState(false);
+  const [gasError, setGasError] = useState<string | null>(null);
+  const [txSuccess, setTxSuccess] = useState<{ hash: string; explorerUrl: string } | null>(null);
 
-  const tokens = [
-    { symbol: "ETH", balance: "2.5421", priceUsd: 1780 },
-    { symbol: "USDC", balance: "1,250.00", priceUsd: 1 },
-    { symbol: "MATIC", balance: "5,421.32", priceUsd: 0.85 },
-  ];
+  const chainId = NETWORKS[selectedNetwork].chainId;
+
+  const { assets } = usePortfolio(activeWallet?.address, selectedNetwork);
+
+  const tokens: TokenOption[] = useMemo(() => {
+    return assets.map((asset) => ({
+      symbol: asset.symbol,
+      balance: asset.balance,
+      address: asset.isNative ? undefined : (asset.address as `0x${string}`),
+      decimals: asset.decimals,
+      isNative: asset.isNative,
+    }));
+  }, [assets]);
+
+  useEffect(() => {
+    if (tokens.length > 0 && !selectedToken) {
+      const preselected = route.params?.tokenSymbol;
+      if (preselected && tokens.find(t => t.symbol === preselected)) {
+        setSelectedToken(preselected);
+      } else {
+        setSelectedToken(tokens[0].symbol);
+      }
+    }
+  }, [tokens, selectedToken, route.params?.tokenSymbol]);
 
   const selectedTokenData = tokens.find(t => t.symbol === selectedToken);
-  const amountUsd = parseFloat(amount || "0") * (selectedTokenData?.priceUsd || 0);
+
+  const estimateGas = useCallback(async () => {
+    if (!activeWallet || !recipient || !amount || !selectedTokenData) return;
+    if (!recipient.startsWith("0x") || recipient.length !== 42) return;
+    
+    const parsedAmount = parseFloat(amount);
+    if (isNaN(parsedAmount) || parsedAmount <= 0) return;
+
+    setGasLoading(true);
+    setGasError(null);
+
+    try {
+      let estimate: GasEstimate;
+      
+      if (selectedTokenData.isNative) {
+        estimate = await estimateNativeGas(
+          chainId,
+          activeWallet.address as `0x${string}`,
+          recipient as `0x${string}`,
+          amount
+        );
+      } else {
+        estimate = await estimateERC20Gas(
+          chainId,
+          activeWallet.address as `0x${string}`,
+          selectedTokenData.address!,
+          recipient as `0x${string}`,
+          amount,
+          selectedTokenData.decimals
+        );
+      }
+
+      setGasEstimate(estimate);
+    } catch (error) {
+      console.error("Gas estimation failed:", error);
+      setGasError("Could not estimate fee. Transaction may fail.");
+    } finally {
+      setGasLoading(false);
+    }
+  }, [activeWallet, recipient, amount, selectedTokenData, chainId]);
+
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      estimateGas();
+    }, 500);
+    return () => clearTimeout(timeout);
+  }, [estimateGas]);
 
   const riskAssessment = useMemo((): RiskAssessment => {
     const reasons: string[] = [];
@@ -79,33 +169,21 @@ export default function SendScreen({ navigation }: Props) {
       return { level, reasons, canProceed };
     }
 
-    const maxSpend = parseFloat(policySettings.maxSpendPerTransaction) || Infinity;
-    const dailyLimit = parseFloat(policySettings.dailySpendLimit) || Infinity;
-
-    if (amountUsd > maxSpend) {
-      reasons.push(`Exceeds max per-transaction limit ($${maxSpend})`);
-      level = "high";
-    }
-
-    if (amountUsd > dailyLimit * 0.5) {
-      reasons.push(`Uses more than 50% of daily limit ($${dailyLimit})`);
-      if (level === "low") level = "medium";
-    }
-
     const balance = parseFloat(selectedTokenData?.balance.replace(",", "") || "0");
-    if (parseFloat(amount) > balance) {
+    const sendAmount = parseFloat(amount);
+    if (sendAmount > balance) {
       reasons.push("Insufficient balance");
       level = "blocked";
       canProceed = false;
     }
 
-    if (amountUsd > 10000) {
+    if (sendAmount > 10000) {
       reasons.push("Large transaction - extra caution advised");
       if (level === "low") level = "medium";
     }
 
     return { level, reasons, canProceed };
-  }, [recipient, amount, amountUsd, policySettings, selectedTokenData]);
+  }, [recipient, amount, policySettings, selectedTokenData]);
 
   const getRiskColor = (level: RiskLevel) => {
     switch (level) {
@@ -122,6 +200,58 @@ export default function SendScreen({ navigation }: Props) {
       case "medium": return "Medium Risk";
       case "high": return "High Risk";
       case "blocked": return "Blocked";
+    }
+  };
+
+  const handleSend = async () => {
+    if (!activeWallet || !selectedTokenData) return;
+
+    setIsSending(true);
+
+    try {
+      let result;
+
+      if (selectedTokenData.isNative) {
+        result = await sendNative({
+          chainId,
+          walletId: activeWallet.id,
+          to: recipient as `0x${string}`,
+          amountNative: amount,
+        });
+      } else {
+        result = await sendERC20({
+          chainId,
+          walletId: activeWallet.id,
+          tokenAddress: selectedTokenData.address!,
+          tokenDecimals: selectedTokenData.decimals,
+          to: recipient as `0x${string}`,
+          amount,
+        });
+      }
+
+      await saveTransaction({
+        chainId,
+        walletAddress: activeWallet.address,
+        hash: result.hash,
+        type: selectedTokenData.isNative ? "native" : "erc20",
+        tokenAddress: selectedTokenData.address,
+        tokenSymbol: selectedTokenData.symbol,
+        to: recipient,
+        amount,
+        explorerUrl: result.explorerUrl,
+      });
+
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setTxSuccess({ hash: result.hash, explorerUrl: result.explorerUrl });
+    } catch (error) {
+      console.error("Transaction failed:", error);
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      Alert.alert(
+        "Transaction Failed",
+        error instanceof Error ? error.message : "An unexpected error occurred"
+      );
+    } finally {
+      setIsSending(false);
     }
   };
 
@@ -148,26 +278,80 @@ export default function SendScreen({ navigation }: Props) {
       ? `\n\nWarnings:\n${riskAssessment.reasons.map(r => `- ${r}`).join("\n")}`
       : "";
 
+    const feeText = gasEstimate 
+      ? `Gas Fee: ~${gasEstimate.estimatedFeeFormatted}`
+      : "Gas Fee: Estimating...";
+
     Alert.alert(
       "Wallet Firewall - Before You Sign",
-      `Transaction Summary:\n\nSending: ${amount} ${selectedToken}\nValue: ~$${amountUsd.toFixed(2)}\nTo: ${recipient.slice(0, 10)}...${recipient.slice(-4)}\nNetwork: ${selectedNetwork}\nGas Fee: ~0.002 ETH (~$3.50)\n\nRisk Level: ${getRiskLabel(riskAssessment.level)}${warningText}`,
+      `Transaction Summary:\n\nSending: ${amount} ${selectedToken}\nTo: ${recipient.slice(0, 10)}...${recipient.slice(-4)}\nNetwork: ${NETWORKS[selectedNetwork].name}\n${feeText}\n\nRisk Level: ${getRiskLabel(riskAssessment.level)}${warningText}`,
       [
         { text: "Cancel", style: "cancel" },
         { 
           text: riskAssessment.level === "high" ? "I Understand, Send" : "Confirm Send",
           style: riskAssessment.level === "high" ? "destructive" : "default",
-          onPress: async () => {
-            setIsSending(true);
-            setTimeout(() => {
-              setIsSending(false);
-              navigation.goBack();
-              Alert.alert("Success", "Transaction submitted successfully!");
-            }, 1500);
-          }
+          onPress: handleSend
         },
       ]
     );
   };
+
+  const handleCopyHash = async () => {
+    if (txSuccess) {
+      await Clipboard.setStringAsync(txSuccess.hash);
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    }
+  };
+
+  const handleViewExplorer = async () => {
+    if (txSuccess) {
+      await WebBrowser.openBrowserAsync(txSuccess.explorerUrl);
+    }
+  };
+
+  if (txSuccess) {
+    return (
+      <ThemedView style={[styles.container, { justifyContent: "center", alignItems: "center" }]}>
+        <View style={[styles.successCard, { backgroundColor: theme.backgroundDefault }]}>
+          <View style={[styles.successIcon, { backgroundColor: theme.success + "20" }]}>
+            <Feather name="check-circle" size={48} color={theme.success} />
+          </View>
+          <ThemedText type="h2" style={{ textAlign: "center" }}>
+            Transaction Sent
+          </ThemedText>
+          <ThemedText type="body" style={{ color: theme.textSecondary, textAlign: "center" }}>
+            Your transaction has been broadcast to the network
+          </ThemedText>
+
+          <View style={styles.hashContainer}>
+            <ThemedText type="caption" style={{ color: theme.textSecondary }}>
+              Transaction Hash
+            </ThemedText>
+            <Pressable onPress={handleCopyHash} style={styles.hashRow}>
+              <ThemedText type="small" style={{ fontFamily: "monospace" }}>
+                {txSuccess.hash.slice(0, 16)}...{txSuccess.hash.slice(-8)}
+              </ThemedText>
+              <Feather name="copy" size={14} color={theme.accent} />
+            </Pressable>
+          </View>
+
+          <View style={styles.successButtons}>
+            <Button onPress={handleViewExplorer} style={{ flex: 1 }}>
+              View on Explorer
+            </Button>
+            <Pressable
+              style={[styles.doneButton, { borderColor: theme.border }]}
+              onPress={() => navigation.goBack()}
+            >
+              <ThemedText type="body" style={{ fontWeight: "600" }}>
+                Done
+              </ThemedText>
+            </Pressable>
+          </View>
+        </View>
+      </ThemedView>
+    );
+  }
 
   return (
     <ThemedView style={styles.container}>
@@ -199,7 +383,7 @@ export default function SendScreen({ navigation }: Props) {
               Token
             </ThemedText>
             <View style={styles.tokenButtons}>
-              {tokens.map((token) => (
+              {tokens.slice(0, 3).map((token) => (
                 <Pressable
                   key={token.symbol}
                   style={[
@@ -245,11 +429,6 @@ export default function SendScreen({ navigation }: Props) {
               placeholder="0.00"
               keyboardType="decimal-pad"
             />
-            {amountUsd > 0 ? (
-              <ThemedText type="caption" style={{ color: theme.textSecondary }}>
-                ~${amountUsd.toFixed(2)} USD
-              </ThemedText>
-            ) : null}
           </View>
         </View>
 
@@ -282,31 +461,45 @@ export default function SendScreen({ navigation }: Props) {
         <View style={[styles.feeCard, { backgroundColor: theme.backgroundDefault }]}>
           <View style={styles.feeRow}>
             <ThemedText type="body">Estimated Gas Fee</ThemedText>
-            <ThemedText type="body" style={{ fontWeight: "600" }}>
-              ~0.002 ETH
-            </ThemedText>
+            {gasLoading ? (
+              <ActivityIndicator size="small" color={theme.accent} />
+            ) : gasError ? (
+              <ThemedText type="small" style={{ color: theme.warning }}>
+                Unable to estimate
+              </ThemedText>
+            ) : gasEstimate ? (
+              <ThemedText type="body" style={{ fontWeight: "600" }}>
+                ~{gasEstimate.estimatedFeeFormatted}
+              </ThemedText>
+            ) : (
+              <ThemedText type="small" style={{ color: theme.textSecondary }}>
+                Enter amount to estimate
+              </ThemedText>
+            )}
           </View>
-          <View style={styles.feeRow}>
-            <ThemedText type="small" style={{ color: theme.textSecondary }}>
-              Network
-            </ThemedText>
-            <ThemedText type="small" style={{ color: theme.textSecondary }}>
-              ~$3.50
-            </ThemedText>
-          </View>
+          {gasError ? (
+            <View style={styles.feeRow}>
+              <ThemedText type="caption" style={{ color: theme.warning }}>
+                {gasError}
+              </ThemedText>
+              <Pressable onPress={estimateGas}>
+                <ThemedText type="small" style={{ color: theme.accent }}>Retry</ThemedText>
+              </Pressable>
+            </View>
+          ) : null}
         </View>
 
         <View style={[styles.policyCard, { backgroundColor: theme.accent + "10" }]}>
           <Feather name="shield" size={16} color={theme.accent} />
           <ThemedText type="caption" style={{ color: theme.accent, flex: 1 }}>
-            Wallet Firewall is active. Max per-tx: ${policySettings.maxSpendPerTransaction || "No limit"}, Daily: ${policySettings.dailySpendLimit || "No limit"}
+            Wallet Firewall is active. Transactions are reviewed before signing.
           </ThemedText>
         </View>
 
         <View style={styles.footer}>
           <Button 
             onPress={handleReview} 
-            disabled={isSending || !riskAssessment.canProceed}
+            disabled={isSending || !riskAssessment.canProceed || !selectedTokenData}
           >
             {isSending ? "Sending..." : "Review Transaction"}
           </Button>
@@ -392,5 +585,42 @@ const styles = StyleSheet.create({
   },
   footer: {
     marginTop: "auto",
+  },
+  successCard: {
+    padding: Spacing["2xl"],
+    borderRadius: BorderRadius.lg,
+    alignItems: "center",
+    gap: Spacing.lg,
+    marginHorizontal: Spacing.lg,
+  },
+  successIcon: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: Spacing.md,
+  },
+  hashContainer: {
+    alignItems: "center",
+    gap: Spacing.sm,
+    padding: Spacing.lg,
+    width: "100%",
+  },
+  hashRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+  },
+  successButtons: {
+    flexDirection: "column",
+    gap: Spacing.md,
+    width: "100%",
+  },
+  doneButton: {
+    padding: Spacing.lg,
+    borderRadius: BorderRadius.full,
+    borderWidth: 1,
+    alignItems: "center",
   },
 });

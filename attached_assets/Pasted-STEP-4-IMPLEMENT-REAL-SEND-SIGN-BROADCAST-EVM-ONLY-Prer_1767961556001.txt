@@ -1,0 +1,71 @@
+STEP 4: IMPLEMENT REAL SEND (SIGN + BROADCAST) — EVM ONLY
+
+Prereqs:
+- Wallet core is real + persisted (done)
+- RPC clients + balance fetchers are real (Step 3)
+
+GOAL:
+User can send native and ERC20 tokens and receive a REAL tx hash that appears on the correct explorer.
+Remove all send placeholders (setTimeout / fake success).
+
+A) Core transaction module (packages/core)
+Create /packages/core/src/tx/send.ts with:
+
+1) sendNative({
+  chainId,
+  fromWalletId (or from address resolved from active wallet),
+  to: `0x${string}`,
+  amountNative: string (decimal, e.g. "0.01"),
+}) -> returns { hash, chainId, explorerUrl }
+
+Implementation details:
+- Validate 'to' address (0x + checksum optional)
+- Convert amountNative -> bigint using viem parseEther/parseUnits based on chain native decimals (18)
+- Create a wallet client using viem with the account derived from the stored secret (mnemonic/private key)
+- Estimate gas, get maxFeePerGas/maxPriorityFeePerGas if supported; otherwise fallback to gasPrice
+- Send transaction using walletClient.sendTransaction
+- Return real tx hash + explorer link (from registry)
+
+2) sendERC20({
+  chainId,
+  fromWalletId,
+  tokenAddress: `0x${string}`,
+  to: `0x${string}`,
+  amount: string (decimal, e.g. "12.5"),
+}) -> returns { hash, chainId, explorerUrl }
+
+Implementation details:
+- Read token decimals (from token list; if missing, call decimals() once and cache)
+- Encode ERC20 transfer(to, amount) via viem encodeFunctionData
+- Estimate gas and send via walletClient.sendTransaction({ to: tokenAddress, data, value: 0n })
+
+B) Gas + UX
+- Add “Fee estimate” in UI:
+  - show estimated fee in native token (approx is fine)
+- If estimation fails, show friendly error with retry option.
+- Never show raw RPC errors to users; map to human-friendly.
+
+C) Wire mobile Send screens to real tx module
+- Remove any placeholder send service.
+- On confirm:
+  1) (for now) show a simple “Review & Send” screen
+  2) call sendNative or sendERC20
+  3) show success screen with:
+     - tx hash (copy)
+     - “View on Explorer” link
+- On failure: show error toast/banner.
+
+D) Minimal local Activity logging (required for MVP)
+- After sending succeeds, save a record locally (SecureStore or local storage):
+  TxRecord = { id, chainId, walletAddress, hash, type: 'native'|'erc20', tokenAddress?, to, amount, createdAt }
+- Activity screen must render from this log (even if status is unknown at first).
+
+E) Verification mode: testnet support
+- Ensure this works on testnets if USE_TESTNETS=true (recommended during dev).
+- Explorer links must match chain config.
+
+DONE WHEN:
+- A real native send returns a real tx hash visible on explorer
+- A real ERC20 send returns a real tx hash visible on explorer
+- Activity screen shows the tx immediately after send
+- No setTimeout/fake send placeholders remain anywhere

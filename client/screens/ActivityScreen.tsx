@@ -1,10 +1,10 @@
-import { useState, useCallback } from "react";
-import { View, StyleSheet, FlatList, Pressable, RefreshControl, Image } from "react-native";
+import { useState, useCallback, useEffect } from "react";
+import { View, StyleSheet, FlatList, Pressable, RefreshControl } from "react-native";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useNavigation } from "@react-navigation/native";
-import { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import { useFocusEffect } from "@react-navigation/native";
+import * as WebBrowser from "expo-web-browser";
 import { Feather } from "@expo/vector-icons";
 
 import { useTheme } from "@/hooks/useTheme";
@@ -13,73 +13,55 @@ import { ThemedText } from "@/components/ThemedText";
 import { Badge } from "@/components/Badge";
 import { EmptyState } from "@/components/EmptyState";
 import { useWallet } from "@/lib/wallet-context";
-import type { RootStackParamList } from "@/navigation/RootStackNavigator";
-
-type Navigation = NativeStackNavigationProp<RootStackParamList>;
-
-interface MockTransaction {
-  id: string;
-  type: "send" | "receive" | "approve" | "swap";
-  status: "success" | "pending" | "failed";
-  tokenSymbol: string;
-  amount: string;
-  address: string;
-  timestamp: string;
-  hash: string;
-}
-
-const MOCK_TRANSACTIONS: MockTransaction[] = [
-  { id: "1", type: "receive", status: "success", tokenSymbol: "ETH", amount: "+0.5", address: "0x1234...5678", timestamp: "2 hours ago", hash: "0xabc...123" },
-  { id: "2", type: "send", status: "success", tokenSymbol: "USDC", amount: "-250.00", address: "0x8765...4321", timestamp: "5 hours ago", hash: "0xdef...456" },
-  { id: "3", type: "approve", status: "success", tokenSymbol: "USDC", amount: "Unlimited", address: "Uniswap V3", timestamp: "1 day ago", hash: "0xghi...789" },
-  { id: "4", type: "swap", status: "success", tokenSymbol: "ETH", amount: "0.1 -> 180 USDC", address: "Uniswap", timestamp: "2 days ago", hash: "0xjkl...012" },
-  { id: "5", type: "send", status: "pending", tokenSymbol: "MATIC", amount: "-100.00", address: "0x9999...1111", timestamp: "Just now", hash: "0xmno...345" },
-];
+import {
+  getTransactionsByWallet,
+  TxRecord,
+  formatTransactionDate,
+} from "@/lib/transaction-history";
 
 export default function ActivityScreen() {
   const headerHeight = useHeaderHeight();
   const tabBarHeight = useBottomTabBarHeight();
   const insets = useSafeAreaInsets();
   const { theme } = useTheme();
-  const navigation = useNavigation<Navigation>();
   const { activeWallet } = useWallet();
   const [refreshing, setRefreshing] = useState(false);
+  const [transactions, setTransactions] = useState<TxRecord[]>([]);
 
-  const onRefresh = useCallback(() => {
+  const loadTransactions = useCallback(async () => {
+    if (!activeWallet) {
+      setTransactions([]);
+      return;
+    }
+
+    try {
+      const txs = await getTransactionsByWallet(activeWallet.address);
+      setTransactions(txs);
+    } catch (error) {
+      console.error("Failed to load transactions:", error);
+    }
+  }, [activeWallet]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadTransactions();
+    }, [loadTransactions])
+  );
+
+  const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    setTimeout(() => setRefreshing(false), 1000);
-  }, []);
+    await loadTransactions();
+    setRefreshing(false);
+  }, [loadTransactions]);
 
-  const getTransactionIcon = (type: MockTransaction["type"]) => {
-    switch (type) {
-      case "send":
-        return "arrow-up-right";
-      case "receive":
-        return "arrow-down-left";
-      case "approve":
-        return "check-circle";
-      case "swap":
-        return "repeat";
-    }
+  const getTransactionIcon = (type: TxRecord["type"]): keyof typeof Feather.glyphMap => {
+    return "arrow-up-right";
   };
 
-  const getTransactionColor = (type: MockTransaction["type"]) => {
-    switch (type) {
-      case "send":
-        return theme.danger;
-      case "receive":
-        return theme.success;
-      case "approve":
-        return theme.warning;
-      case "swap":
-        return theme.accent;
-    }
-  };
-
-  const getStatusBadge = (status: MockTransaction["status"]) => {
+  const getStatusBadge = (status: TxRecord["status"]) => {
     switch (status) {
-      case "success":
-        return <Badge label="Success" variant="success" />;
+      case "confirmed":
+        return <Badge label="Confirmed" variant="success" />;
       case "pending":
         return <Badge label="Pending" variant="warning" />;
       case "failed":
@@ -87,26 +69,30 @@ export default function ActivityScreen() {
     }
   };
 
-  const renderTransaction = ({ item }: { item: MockTransaction }) => {
-    const iconColor = getTransactionColor(item.type);
+  const handleViewExplorer = async (explorerUrl: string) => {
+    await WebBrowser.openBrowserAsync(explorerUrl);
+  };
+
+  const renderTransaction = ({ item }: { item: TxRecord }) => {
+    const truncatedTo = `${item.to.slice(0, 6)}...${item.to.slice(-4)}`;
     
     return (
       <Pressable
         style={[styles.transactionRow, { backgroundColor: theme.backgroundDefault }]}
-        onPress={() => navigation.navigate("TransactionDetail", { txHash: item.hash })}
+        onPress={() => handleViewExplorer(item.explorerUrl)}
       >
-        <View style={[styles.txIcon, { backgroundColor: iconColor + "20" }]}>
-          <Feather name={getTransactionIcon(item.type)} size={20} color={iconColor} />
+        <View style={[styles.txIcon, { backgroundColor: theme.accent + "20" }]}>
+          <Feather name={getTransactionIcon(item.type)} size={20} color={theme.accent} />
         </View>
         <View style={styles.txInfo}>
           <View style={styles.txHeader}>
-            <ThemedText type="body" style={{ fontWeight: "600", textTransform: "capitalize" }}>
-              {item.type}
+            <ThemedText type="body" style={{ fontWeight: "600" }}>
+              Send
             </ThemedText>
             {getStatusBadge(item.status)}
           </View>
           <ThemedText type="caption" style={{ color: theme.textSecondary }}>
-            {item.address}
+            To: {truncatedTo}
           </ThemedText>
         </View>
         <View style={styles.txAmount}>
@@ -115,16 +101,15 @@ export default function ActivityScreen() {
             style={{ 
               fontWeight: "600", 
               textAlign: "right",
-              color: item.type === "receive" ? theme.success : theme.text,
             }}
           >
-            {item.amount} {item.type !== "swap" && item.type !== "approve" ? item.tokenSymbol : ""}
+            -{item.amount} {item.tokenSymbol}
           </ThemedText>
           <ThemedText type="caption" style={{ color: theme.textSecondary, textAlign: "right" }}>
-            {item.timestamp}
+            {formatTransactionDate(item.createdAt)}
           </ThemedText>
         </View>
-        <Feather name="chevron-right" size={20} color={theme.textSecondary} />
+        <Feather name="external-link" size={16} color={theme.textSecondary} />
       </Pressable>
     );
   };
@@ -151,7 +136,7 @@ export default function ActivityScreen() {
         flexGrow: 1,
       }}
       scrollIndicatorInsets={{ bottom: insets.bottom }}
-      data={MOCK_TRANSACTIONS}
+      data={transactions}
       keyExtractor={(item) => item.id}
       renderItem={renderTransaction}
       refreshControl={
@@ -161,7 +146,7 @@ export default function ActivityScreen() {
         <EmptyState
           image={require("../../assets/images/empty-activity.png")}
           title="No Activity Yet"
-          message="Your transaction history will appear here"
+          message="Your transaction history will appear here after you send tokens"
         />
       }
     />
