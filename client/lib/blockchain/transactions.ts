@@ -18,7 +18,7 @@ import { mnemonicToSeed } from "@scure/bip39";
 
 import { getChainById, getExplorerTxUrl, ChainConfig } from "./chains";
 import { getPublicClient, formatRpcError } from "./client";
-import { getMnemonic } from "../wallet-engine";
+import { getMnemonic, requireUnlocked, isUnlocked, WalletLockedError } from "../wallet-engine";
 
 const ERC20_TRANSFER_ABI = [
   {
@@ -75,10 +75,38 @@ export interface TransactionError {
   details?: string;
 }
 
+export class TransactionFailedError extends Error {
+  code: string;
+  details?: string;
+  
+  constructor(error: TransactionError) {
+    super(error.message);
+    this.name = "TransactionFailedError";
+    this.code = error.code;
+    this.details = error.details;
+  }
+}
+
 async function derivePrivateKey(walletId: string): Promise<`0x${string}`> {
+  if (__DEV__) {
+    console.log("[Transactions] derivePrivateKey called", {
+      walletId,
+      isWalletUnlocked: isUnlocked(),
+    });
+  }
+  
+  requireUnlocked();
+  
   const mnemonic = await getMnemonic(walletId);
   if (!mnemonic) {
-    throw new Error("Wallet is locked or mnemonic not found");
+    if (__DEV__) {
+      console.log("[Transactions] No mnemonic found for wallet", walletId);
+    }
+    throw new WalletLockedError();
+  }
+
+  if (__DEV__) {
+    console.log("[Transactions] Mnemonic found, deriving private key");
   }
 
   const seed = await mnemonicToSeed(mnemonic);
@@ -107,6 +135,13 @@ function createWalletClientForChain(
 }
 
 function formatTransactionError(error: unknown): TransactionError {
+  if (error instanceof WalletLockedError) {
+    return {
+      code: "WALLET_LOCKED",
+      message: "Please unlock your wallet first",
+    };
+  }
+  
   if (error instanceof Error) {
     const msg = error.message.toLowerCase();
     
@@ -277,14 +312,12 @@ export async function sendNative(params: SendNativeParams): Promise<TransactionR
     throw new Error("Invalid recipient address");
   }
 
-  const privateKey = await derivePrivateKey(walletId);
-  const account = privateKeyToAccount(privateKey);
-  const walletClient = createWalletClientForChain(chainConfig, account);
-  const publicClient = getPublicClient(chainId);
-
-  const value = parseEther(amountNative);
-
   try {
+    const privateKey = await derivePrivateKey(walletId);
+    const account = privateKeyToAccount(privateKey);
+    const walletClient = createWalletClientForChain(chainConfig, account);
+
+    const value = parseEther(amountNative);
     const gasEstimate = await estimateNativeGas(chainId, account.address, to, amountNative);
 
     const isLegacyChain = gasEstimate.maxPriorityFeePerGas === BigInt(0);
@@ -317,7 +350,7 @@ export async function sendNative(params: SendNativeParams): Promise<TransactionR
     };
   } catch (error) {
     const txError = formatTransactionError(error);
-    throw new Error(txError.message);
+    throw new TransactionFailedError(txError);
   }
 }
 
@@ -337,19 +370,19 @@ export async function sendERC20(params: SendERC20Params): Promise<TransactionRes
     throw new Error("Invalid token address");
   }
 
-  const privateKey = await derivePrivateKey(walletId);
-  const account = privateKeyToAccount(privateKey);
-  const walletClient = createWalletClientForChain(chainConfig, account);
-
-  const parsedAmount = parseUnits(amount, tokenDecimals);
-
-  const data = encodeFunctionData({
-    abi: ERC20_TRANSFER_ABI,
-    functionName: "transfer",
-    args: [to, parsedAmount],
-  });
-
   try {
+    const privateKey = await derivePrivateKey(walletId);
+    const account = privateKeyToAccount(privateKey);
+    const walletClient = createWalletClientForChain(chainConfig, account);
+
+    const parsedAmount = parseUnits(amount, tokenDecimals);
+
+    const data = encodeFunctionData({
+      abi: ERC20_TRANSFER_ABI,
+      functionName: "transfer",
+      args: [to, parsedAmount],
+    });
+
     const gasEstimate = await estimateERC20Gas(
       chainId,
       account.address,
@@ -389,7 +422,7 @@ export async function sendERC20(params: SendERC20Params): Promise<TransactionRes
     };
   } catch (error) {
     const txError = formatTransactionError(error);
-    throw new Error(txError.message);
+    throw new TransactionFailedError(txError);
   }
 }
 

@@ -11,7 +11,7 @@ import { Spacing, BorderRadius } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
 import { useWallet } from "@/lib/wallet-context";
-import { unlockWithPin, verifyPin } from "@/lib/wallet-engine";
+import { unlockWithPin, verifyPin, VaultCorruptedError, repairCorruptedVault } from "@/lib/wallet-engine";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Unlock">;
@@ -21,7 +21,7 @@ const PIN_LENGTH = 6;
 export default function UnlockScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
   const { theme } = useTheme();
-  const { unlock, refreshWallets } = useWallet();
+  const { unlock, refreshWallets, resetWalletState } = useWallet();
   
   const [pin, setPin] = useState("");
   const [isUnlocking, setIsUnlocking] = useState(false);
@@ -29,8 +29,14 @@ export default function UnlockScreen({ navigation }: Props) {
   const inputRef = useRef<TextInput>(null);
 
   useEffect(() => {
-    setTimeout(() => inputRef.current?.focus(), 100);
-    tryBiometric();
+    const init = async () => {
+      setTimeout(() => inputRef.current?.focus(), 100);
+      const hasVault = await import("@/lib/wallet-engine").then(m => m.hasVault());
+      if (hasVault) {
+        tryBiometric();
+      }
+    };
+    init();
   }, []);
 
   const tryBiometric = async () => {
@@ -104,8 +110,31 @@ export default function UnlockScreen({ navigation }: Props) {
       }
     } catch (error) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      Alert.alert("Error", "Failed to unlock. Please try again.");
       setPin("");
+      
+      if (error instanceof VaultCorruptedError) {
+        Alert.alert(
+          "Wallet Data Corrupted",
+          "Your wallet data appears to be corrupted. You can restore your wallet using your backup seed phrase.",
+          [
+            { text: "Cancel", style: "cancel" },
+            {
+              text: "Reset & Restore",
+              style: "destructive",
+              onPress: async () => {
+                await repairCorruptedVault();
+                resetWalletState();
+                navigation.reset({
+                  index: 0,
+                  routes: [{ name: "Welcome" }],
+                });
+              },
+            },
+          ]
+        );
+      } else {
+        Alert.alert("Error", "Failed to unlock. Please try again.");
+      }
     } finally {
       setIsUnlocking(false);
     }

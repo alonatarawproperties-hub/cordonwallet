@@ -25,6 +25,7 @@ import {
   estimateNativeGas,
   estimateERC20Gas,
   GasEstimate,
+  TransactionFailedError,
 } from "@/lib/blockchain/transactions";
 import { saveTransaction } from "@/lib/transaction-history";
 import { getExplorerTxUrl } from "@/lib/blockchain/chains";
@@ -261,10 +262,21 @@ export default function SendScreen({ navigation, route }: Props) {
     } catch (error) {
       console.error("Transaction failed:", error);
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      Alert.alert(
-        "Transaction Failed",
-        error instanceof Error ? error.message : "An unexpected error occurred"
-      );
+      
+      if (error instanceof TransactionFailedError && error.code === "WALLET_LOCKED") {
+        Alert.alert(
+          "Wallet Locked",
+          "Please unlock your wallet and try again.",
+          [
+            { text: "OK", onPress: () => navigation.navigate("Unlock") },
+          ]
+        );
+      } else {
+        Alert.alert(
+          "Transaction Failed",
+          error instanceof Error ? error.message : "An unexpected error occurred"
+        );
+      }
     } finally {
       setIsSending(false);
     }

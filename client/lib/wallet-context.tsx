@@ -26,6 +26,7 @@ interface WalletContextType {
   lock: () => void;
   logout: () => Promise<void>;
   refreshWallets: () => Promise<void>;
+  resetWalletState: () => void;
 }
 
 const defaultPolicySettings: PolicySettings = {
@@ -191,6 +192,13 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     setIsUnlocked(false);
   };
 
+  const resetWalletState = () => {
+    setWallets([]);
+    setActiveWalletState(null);
+    setHasWallet(false);
+    setIsUnlocked(false);
+  };
+
   return (
     <WalletContext.Provider
       value={{
@@ -216,6 +224,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         lock,
         logout,
         refreshWallets,
+        resetWalletState,
       }}
     >
       {children}

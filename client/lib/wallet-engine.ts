@@ -198,9 +198,42 @@ export function deriveAddress(mnemonic: string): `0x${string}` {
   return mnemonicToAddress(mnemonic);
 }
 
+function isValidVaultFormat(vault: unknown): vault is EncryptedVault {
+  if (!vault || typeof vault !== "object") return false;
+  const v = vault as Record<string, unknown>;
+  return (
+    v.version === 1 &&
+    typeof v.salt === "string" &&
+    v.salt.length > 0 &&
+    typeof v.iv === "string" &&
+    v.iv.length > 0 &&
+    typeof v.ciphertext === "string" &&
+    v.ciphertext.length > 0
+  );
+}
+
 export async function hasExistingVault(): Promise<boolean> {
   const vault = await getSecureItem(STORAGE_KEYS.VAULT);
   return vault !== null;
+}
+
+export async function isVaultCorrupted(): Promise<boolean> {
+  const vaultJson = await getSecureItem(STORAGE_KEYS.VAULT);
+  if (!vaultJson) return false;
+  
+  try {
+    const vault = JSON.parse(vaultJson);
+    return !isValidVaultFormat(vault);
+  } catch {
+    return true;
+  }
+}
+
+export async function repairCorruptedVault(): Promise<void> {
+  if (__DEV__) {
+    console.log("[WalletEngine] Repairing corrupted vault - clearing all wallet data");
+  }
+  await deleteVault();
 }
 
 export async function createWallet(
@@ -235,7 +268,7 @@ export async function createWallet(
     wallets = [wallet];
   }
   
-  const encryptedVault = encryptSecrets(secrets, pin);
+  const encryptedVault = await encryptSecrets(secrets, pin);
   await setSecureItem(STORAGE_KEYS.VAULT, JSON.stringify(encryptedVault));
   await saveVaultMeta(wallets, walletId);
   
@@ -262,21 +295,56 @@ export async function importWallet(
   return createWallet(normalizedMnemonic, name, pin);
 }
 
+export class VaultCorruptedError extends Error {
+  code = "VAULT_CORRUPTED";
+  constructor() {
+    super("Your wallet data appears to be corrupted. Please restore from your backup seed phrase.");
+    this.name = "VaultCorruptedError";
+  }
+}
+
 export async function unlockWithPin(pin: string): Promise<boolean> {
   const vaultJson = await getSecureItem(STORAGE_KEYS.VAULT);
   if (!vaultJson) {
+    if (__DEV__) {
+      console.log("[WalletEngine] unlockWithPin: No vault found");
+    }
     return false;
   }
   
-  const vault: EncryptedVault = JSON.parse(vaultJson);
+  let vault: unknown;
+  try {
+    vault = JSON.parse(vaultJson);
+  } catch {
+    if (__DEV__) {
+      console.log("[WalletEngine] unlockWithPin: Failed to parse vault JSON");
+    }
+    throw new VaultCorruptedError();
+  }
+  
+  if (!isValidVaultFormat(vault)) {
+    if (__DEV__) {
+      console.log("[WalletEngine] unlockWithPin: Vault has invalid format", vault);
+    }
+    throw new VaultCorruptedError();
+  }
+  
   const secrets = await decryptSecrets(vault, pin);
   
   if (secrets) {
+    if (__DEV__) {
+      console.log("[WalletEngine] unlockWithPin: Successfully decrypted vault", {
+        walletCount: Object.keys(secrets.mnemonics).length,
+      });
+    }
     cachedSecrets = secrets;
     isVaultUnlocked = true;
     return true;
   }
   
+  if (__DEV__) {
+    console.log("[WalletEngine] unlockWithPin: Failed to decrypt (wrong PIN?)");
+  }
   return false;
 }
 
@@ -309,10 +377,52 @@ export async function setActiveWalletById(walletId: string): Promise<void> {
 }
 
 export async function getMnemonic(walletId: string): Promise<string | null> {
+  if (__DEV__) {
+    console.log("[WalletEngine] getMnemonic called", {
+      walletId,
+      isUnlocked: isVaultUnlocked,
+      hasCachedSecrets: !!cachedSecrets,
+      hasSecretForWallet: cachedSecrets ? !!cachedSecrets.mnemonics[walletId] : false,
+    });
+  }
+  
   if (!cachedSecrets) {
+    if (__DEV__) {
+      console.log("[WalletEngine] getMnemonic returning null - no cached secrets");
+    }
     return null;
   }
   return cachedSecrets.mnemonics[walletId] || null;
+}
+
+export class WalletLockedError extends Error {
+  code = "WALLET_LOCKED";
+  constructor() {
+    super("Wallet is locked. Please unlock first.");
+    this.name = "WalletLockedError";
+  }
+}
+
+export function requireUnlocked(): void {
+  if (!isVaultUnlocked || !cachedSecrets) {
+    throw new WalletLockedError();
+  }
+}
+
+export async function getActiveWalletMnemonic(): Promise<string> {
+  requireUnlocked();
+  
+  const meta = await loadVaultMeta();
+  if (!meta.activeWalletId) {
+    throw new Error("No active wallet selected");
+  }
+  
+  const mnemonic = cachedSecrets!.mnemonics[meta.activeWalletId];
+  if (!mnemonic) {
+    throw new Error("Mnemonic not found for active wallet");
+  }
+  
+  return mnemonic;
 }
 
 export async function deleteVault(): Promise<void> {
