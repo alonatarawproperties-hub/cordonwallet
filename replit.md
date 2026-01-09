@@ -65,10 +65,26 @@ Preferred communication style: Simple, everyday language.
 - **expo-haptics**: Tactile feedback for user actions
 - **expo-web-browser**: dApp browser integration
 
+### Cryptography Libraries (Implemented)
+
+- **@scure/bip39**: BIP39-compliant mnemonic generation and validation (wordlist: english)
+- **@scure/bip32**: HD key derivation (BIP32/BIP44) using m/44'/60'/0'/0/0 path
+- **@noble/hashes**: Cryptographic hashing (SHA-256, PBKDF2, keccak_256)
+- **@noble/ciphers**: AES-256-GCM encryption for vault storage
+- **viem**: EVM blockchain interactions (address utilities)
+- **react-native-qrcode-svg**: QR code generation for receive addresses
+
+### Wallet Security Model
+
+- **Mnemonic Generation**: BIP39 12-word seed phrases using cryptographic entropy
+- **Key Derivation**: Standard EVM HD path m/44'/60'/0'/0/0 for Ethereum-compatible addresses
+- **Vault Encryption**: PBKDF2 (150,000 iterations) + AES-256-GCM with random salt/IV
+- **PIN Storage**: SHA-256 hash stored separately from encrypted vault
+- **Secure Storage**: Expo SecureStore (iOS Keychain / Android Keystore)
+
 ### Planned Integrations (Architecture Ready)
 
 - **WalletConnect v2**: dApp connection protocol (not yet implemented)
-- **viem**: EVM blockchain interactions (not yet implemented)
 
 ### Database
 
