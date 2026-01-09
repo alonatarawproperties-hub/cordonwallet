@@ -82,6 +82,18 @@ Preferred communication style: Simple, everyday language.
 - **PIN Storage**: SHA-256 hash stored separately from encrypted vault
 - **Secure Storage**: Expo SecureStore (iOS Keychain / Android Keystore)
 
+### Session Model
+
+- **Unlock Flow**: `unlockWithPin()` decrypts vault and caches secrets in memory (`cachedSecrets`)
+- **Session State**: `isVaultUnlocked` boolean tracks whether wallet is unlocked
+- **Lock Flow**: `lock()` clears `cachedSecrets` and sets `isVaultUnlocked = false`
+- **Guard Function**: `requireUnlocked()` throws `WalletLockedError` if session is invalid
+- **Error Types**:
+  - `WalletLockedError` (code: `WALLET_LOCKED`) - thrown when signing attempted while locked
+  - `VaultCorruptedError` (code: `VAULT_CORRUPTED`) - thrown when vault decryption yields malformed data
+  - `TransactionFailedError` - wraps blockchain errors, preserves original error code
+- **Recovery Flow**: `repairCorruptedVault()` + `resetWalletState()` clears all storage and context
+
 ### Blockchain Infrastructure
 
 - **Chain Registry**: `client/lib/blockchain/chains.ts` - Ethereum, Polygon, BSC configs with RPC URLs
