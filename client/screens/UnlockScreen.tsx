@@ -11,7 +11,7 @@ import { Spacing, BorderRadius } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
 import { useWallet } from "@/lib/wallet-context";
-import { unlockWithPin } from "@/lib/wallet-engine";
+import { unlockWithPin, verifyPin } from "@/lib/wallet-engine";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Unlock">;
@@ -21,7 +21,7 @@ const PIN_LENGTH = 6;
 export default function UnlockScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
   const { theme } = useTheme();
-  const { unlock } = useWallet();
+  const { unlock, refreshWallets } = useWallet();
   
   const [pin, setPin] = useState("");
   const [isUnlocking, setIsUnlocking] = useState(false);
@@ -56,6 +56,7 @@ export default function UnlockScreen({ navigation }: Props) {
 
   const handleBiometricSuccess = async () => {
     unlock();
+    await refreshWallets();
     navigation.reset({
       index: 0,
       routes: [{ name: "Main" }],
@@ -81,6 +82,7 @@ export default function UnlockScreen({ navigation }: Props) {
       if (success) {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         unlock();
+        await refreshWallets();
         navigation.reset({
           index: 0,
           routes: [{ name: "Main" }],

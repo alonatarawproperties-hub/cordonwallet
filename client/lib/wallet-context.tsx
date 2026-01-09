@@ -1,6 +1,7 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { Wallet, Bundle, NetworkId, PolicySettings, Transaction, Approval, TokenBalance } from "./types";
+import { listWallets, getActiveWallet, setActiveWalletById, WalletRecord } from "./wallet-engine";
 
 interface WalletContextType {
   isInitialized: boolean;
@@ -24,6 +25,7 @@ interface WalletContextType {
   unlock: () => void;
   lock: () => void;
   logout: () => Promise<void>;
+  refreshWallets: () => Promise<void>;
 }
 
 const defaultPolicySettings: PolicySettings = {
@@ -35,13 +37,19 @@ const defaultPolicySettings: PolicySettings = {
 };
 
 const STORAGE_KEYS = {
-  WALLETS: "@cordon/wallets",
   BUNDLES: "@cordon/bundles",
-  ACTIVE_WALLET_ID: "@cordon/active_wallet_id",
   POLICY_SETTINGS: "@cordon/policy_settings",
   SELECTED_NETWORK: "@cordon/selected_network",
-  HAS_SETUP: "@cordon/has_setup",
 };
+
+function walletRecordToWallet(record: WalletRecord): Wallet {
+  return {
+    id: record.id,
+    name: record.name,
+    address: record.address,
+    createdAt: record.createdAt,
+  };
+}
 
 const WalletContext = createContext<WalletContextType | undefined>(undefined);
 
@@ -58,22 +66,38 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [approvals, setApprovals] = useState<Approval[]>([]);
 
+  const refreshWallets = useCallback(async () => {
+    try {
+      const walletRecords = await listWallets();
+      const loadedWallets = walletRecords.map(walletRecordToWallet);
+      setWallets(loadedWallets);
+      setHasWallet(loadedWallets.length > 0);
+
+      const activeRecord = await getActiveWallet();
+      if (activeRecord) {
+        setActiveWalletState(walletRecordToWallet(activeRecord));
+      } else if (loadedWallets.length > 0) {
+        setActiveWalletState(loadedWallets[0]);
+      }
+    } catch (error) {
+      console.error("Failed to refresh wallets:", error);
+    }
+  }, []);
+
   useEffect(() => {
     loadData();
   }, []);
 
   const loadData = async () => {
     try {
-      const [walletsJson, bundlesJson, activeWalletId, policyJson, networkId, hasSetup] = await Promise.all([
-        AsyncStorage.getItem(STORAGE_KEYS.WALLETS),
+      const [bundlesJson, policyJson, networkId] = await Promise.all([
         AsyncStorage.getItem(STORAGE_KEYS.BUNDLES),
-        AsyncStorage.getItem(STORAGE_KEYS.ACTIVE_WALLET_ID),
         AsyncStorage.getItem(STORAGE_KEYS.POLICY_SETTINGS),
         AsyncStorage.getItem(STORAGE_KEYS.SELECTED_NETWORK),
-        AsyncStorage.getItem(STORAGE_KEYS.HAS_SETUP),
       ]);
 
-      const loadedWallets: Wallet[] = walletsJson ? JSON.parse(walletsJson) : [];
+      const walletRecords = await listWallets();
+      const loadedWallets = walletRecords.map(walletRecordToWallet);
       const loadedBundles: Bundle[] = bundlesJson ? JSON.parse(bundlesJson) : [];
       const loadedPolicy: PolicySettings = policyJson ? JSON.parse(policyJson) : defaultPolicySettings;
 
@@ -86,19 +110,11 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         setSelectedNetworkState(networkId as NetworkId);
       }
 
-      if (activeWalletId && loadedWallets.length > 0) {
-        const wallet = loadedWallets.find((w) => w.id === activeWalletId);
-        if (wallet) {
-          setActiveWalletState(wallet);
-        } else {
-          setActiveWalletState(loadedWallets[0]);
-        }
+      const activeRecord = await getActiveWallet();
+      if (activeRecord && loadedWallets.length > 0) {
+        setActiveWalletState(walletRecordToWallet(activeRecord));
       } else if (loadedWallets.length > 0) {
         setActiveWalletState(loadedWallets[0]);
-      }
-
-      if (hasSetup === "true" && loadedWallets.length > 0) {
-        setHasWallet(true);
       }
     } catch (error) {
       console.error("Failed to load wallet data:", error);
@@ -110,7 +126,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const setActiveWallet = async (wallet: Wallet | null) => {
     setActiveWalletState(wallet);
     if (wallet) {
-      await AsyncStorage.setItem(STORAGE_KEYS.ACTIVE_WALLET_ID, wallet.id);
+      await setActiveWalletById(wallet.id);
     }
   };
 
@@ -123,8 +139,6 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     const newWallets = [...wallets, wallet];
     setWallets(newWallets);
     setHasWallet(true);
-    await AsyncStorage.setItem(STORAGE_KEYS.WALLETS, JSON.stringify(newWallets));
-    await AsyncStorage.setItem(STORAGE_KEYS.HAS_SETUP, "true");
     if (!activeWallet) {
       setActiveWallet(wallet);
     }
@@ -133,7 +147,6 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const removeWallet = async (walletId: string) => {
     const newWallets = wallets.filter((w) => w.id !== walletId);
     setWallets(newWallets);
-    await AsyncStorage.setItem(STORAGE_KEYS.WALLETS, JSON.stringify(newWallets));
     if (activeWallet?.id === walletId) {
       setActiveWallet(newWallets[0] || null);
     }
@@ -202,6 +215,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         unlock,
         lock,
         logout,
+        refreshWallets,
       }}
     >
       {children}

@@ -1,7 +1,10 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
+import { View, ActivityIndicator, StyleSheet } from "react-native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import MainTabNavigator from "@/navigation/MainTabNavigator";
 import { useScreenOptions } from "@/hooks/useScreenOptions";
+import { hasVault } from "@/lib/wallet-engine";
+import { useTheme } from "@/hooks/useTheme";
 
 import WelcomeScreen from "@/screens/WelcomeScreen";
 import CreateWalletScreen from "@/screens/CreateWalletScreen";
@@ -42,9 +45,35 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 
 export default function RootStackNavigator() {
   const screenOptions = useScreenOptions();
+  const { theme } = useTheme();
+  const [isLoading, setIsLoading] = useState(true);
+  const [hasExistingWallet, setHasExistingWallet] = useState(false);
+
+  useEffect(() => {
+    checkWalletExists();
+  }, []);
+
+  const checkWalletExists = async () => {
+    try {
+      const exists = await hasVault();
+      setHasExistingWallet(exists);
+    } catch (error) {
+      console.error("Failed to check vault:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <View style={[styles.loadingContainer, { backgroundColor: theme.backgroundRoot }]}>
+        <ActivityIndicator size="large" color={theme.accent} />
+      </View>
+    );
+  }
 
   return (
-    <Stack.Navigator screenOptions={screenOptions} initialRouteName="Welcome">
+    <Stack.Navigator screenOptions={screenOptions} initialRouteName={hasExistingWallet ? "Unlock" : "Welcome"}>
       <Stack.Screen
         name="Welcome"
         component={WelcomeScreen}
@@ -128,3 +157,11 @@ export default function RootStackNavigator() {
     </Stack.Navigator>
   );
 }
+
+const styles = StyleSheet.create({
+  loadingContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+});

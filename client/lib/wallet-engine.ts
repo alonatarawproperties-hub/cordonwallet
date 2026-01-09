@@ -331,3 +331,8 @@ export async function verifyPin(pin: string): Promise<boolean> {
   const inputHash = bytesToHex(sha256(new TextEncoder().encode(pin)));
   return inputHash === storedHash;
 }
+
+export async function hasVault(): Promise<boolean> {
+  const vaultJson = await getSecureItem(STORAGE_KEYS.VAULT);
+  return vaultJson !== null;
+}
