@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { View, StyleSheet, ScrollView, Pressable, RefreshControl, Image } from "react-native";
+import { View, StyleSheet, ScrollView, Pressable, RefreshControl, ActivityIndicator } from "react-native";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -8,23 +8,35 @@ import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Feather } from "@expo/vector-icons";
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
+import * as WebBrowser from "expo-web-browser";
 
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
 import { NetworkBadge, NetworkId } from "@/components/NetworkBadge";
-import { IconButton } from "@/components/IconButton";
 import { EmptyState } from "@/components/EmptyState";
 import { useWallet } from "@/lib/wallet-context";
+import { usePortfolio, formatTimeSince } from "@/hooks/usePortfolio";
+import { getExplorerAddressUrl } from "@/lib/blockchain/chains";
+import { NETWORKS } from "@/lib/types";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
-const MOCK_TOKENS = [
-  { symbol: "ETH", name: "Ethereum", balance: "2.5421", balanceUsd: "$4,523.12", icon: "circle" },
-  { symbol: "USDC", name: "USD Coin", balance: "1,250.00", balanceUsd: "$1,250.00", icon: "dollar-sign" },
-  { symbol: "MATIC", name: "Polygon", balance: "5,421.32", balanceUsd: "$3,252.79", icon: "hexagon" },
-];
+function getTokenIcon(symbol: string): keyof typeof Feather.glyphMap {
+  const iconMap: Record<string, keyof typeof Feather.glyphMap> = {
+    ETH: "hexagon",
+    MATIC: "octagon",
+    BNB: "circle",
+    USDC: "dollar-sign",
+    USDT: "dollar-sign",
+    DAI: "disc",
+    WBTC: "box",
+    BTCB: "box",
+    WETH: "hexagon",
+  };
+  return iconMap[symbol] || "disc";
+}
 
 export default function PortfolioScreen() {
   const headerHeight = useHeaderHeight();
@@ -33,15 +45,25 @@ export default function PortfolioScreen() {
   const { theme } = useTheme();
   const navigation = useNavigation<Navigation>();
   const { activeWallet, selectedNetwork, setSelectedNetwork } = useWallet();
-  const [refreshing, setRefreshing] = useState(false);
   const [copied, setCopied] = useState(false);
+
+  const { assets, isLoading, isRefreshing, error, lastUpdated, refresh } = usePortfolio(
+    activeWallet?.address,
+    selectedNetwork
+  );
 
   const networks: NetworkId[] = ["ethereum", "polygon", "bsc"];
 
-  const onRefresh = useCallback(() => {
-    setRefreshing(true);
-    setTimeout(() => setRefreshing(false), 1000);
-  }, []);
+  const chainId = NETWORKS[selectedNetwork].chainId;
+
+  const handleViewExplorer = async () => {
+    if (activeWallet) {
+      const url = getExplorerAddressUrl(chainId, activeWallet.address);
+      if (url) {
+        await WebBrowser.openBrowserAsync(url);
+      }
+    }
+  };
 
   const handleCopyAddress = async () => {
     if (activeWallet) {
@@ -80,7 +102,7 @@ export default function PortfolioScreen() {
       }}
       scrollIndicatorInsets={{ bottom: insets.bottom }}
       refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.accent} />
+        <RefreshControl refreshing={isRefreshing} onRefresh={refresh} tintColor={theme.accent} />
       }
     >
       <View style={[styles.balanceCard, { backgroundColor: theme.backgroundDefault }]}>
@@ -99,15 +121,16 @@ export default function PortfolioScreen() {
               <Feather name={copied ? "check" : "copy"} size={12} color={theme.accent} />
             </Pressable>
           </View>
-          <Feather name="chevron-down" size={20} color={theme.textSecondary} />
+          <Pressable onPress={handleViewExplorer} style={styles.explorerButton}>
+            <Feather name="external-link" size={16} color={theme.accent} />
+          </Pressable>
         </Pressable>
 
-        <ThemedText type="h1" style={styles.totalBalance}>
-          $9,025.91
-        </ThemedText>
-        <ThemedText type="small" style={[styles.changeText, { color: theme.success }]}>
-          +$245.32 (2.79%) today
-        </ThemedText>
+        {lastUpdated ? (
+          <ThemedText type="caption" style={[styles.lastUpdated, { color: theme.textSecondary }]}>
+            Updated {formatTimeSince(lastUpdated)}
+          </ThemedText>
+        ) : null}
 
         <View style={styles.actionButtons}>
           <Pressable 
@@ -170,34 +193,72 @@ export default function PortfolioScreen() {
           </Pressable>
         </View>
 
-        {MOCK_TOKENS.map((token, index) => (
-          <Pressable
-            key={token.symbol}
-            style={[styles.tokenRow, { backgroundColor: theme.backgroundDefault }]}
-            onPress={() => navigation.navigate("AssetDetail", { tokenSymbol: token.symbol, balance: token.balance })}
-          >
-            <View style={[styles.tokenIcon, { backgroundColor: theme.accent + "15" }]}>
-              <Feather name={token.icon as any} size={20} color={theme.accent} />
+        {error ? (
+          <View style={[styles.errorBanner, { backgroundColor: theme.danger + "20" }]}>
+            <Feather name="alert-circle" size={16} color={theme.danger} />
+            <ThemedText type="small" style={{ color: theme.danger, flex: 1 }}>
+              {error}
+            </ThemedText>
+            <Pressable onPress={refresh}>
+              <ThemedText type="small" style={{ color: theme.accent }}>Retry</ThemedText>
+            </Pressable>
+          </View>
+        ) : null}
+
+        {isLoading ? (
+          <View style={styles.loadingContainer}>
+            <View style={[styles.skeletonRow, { backgroundColor: theme.backgroundDefault }]}>
+              <View style={[styles.skeletonIcon, { backgroundColor: theme.backgroundSecondary }]} />
+              <View style={styles.skeletonInfo}>
+                <View style={[styles.skeletonText, { backgroundColor: theme.backgroundSecondary, width: 80 }]} />
+                <View style={[styles.skeletonText, { backgroundColor: theme.backgroundSecondary, width: 120 }]} />
+              </View>
             </View>
-            <View style={styles.tokenInfo}>
-              <ThemedText type="body" style={{ fontWeight: "600" }}>
-                {token.symbol}
-              </ThemedText>
-              <ThemedText type="caption" style={{ color: theme.textSecondary }}>
-                {token.name}
-              </ThemedText>
+            <View style={[styles.skeletonRow, { backgroundColor: theme.backgroundDefault }]}>
+              <View style={[styles.skeletonIcon, { backgroundColor: theme.backgroundSecondary }]} />
+              <View style={styles.skeletonInfo}>
+                <View style={[styles.skeletonText, { backgroundColor: theme.backgroundSecondary, width: 60 }]} />
+                <View style={[styles.skeletonText, { backgroundColor: theme.backgroundSecondary, width: 100 }]} />
+              </View>
             </View>
-            <View style={styles.tokenBalance}>
-              <ThemedText type="body" style={{ fontWeight: "600", textAlign: "right" }}>
-                {token.balanceUsd}
-              </ThemedText>
-              <ThemedText type="caption" style={{ color: theme.textSecondary, textAlign: "right" }}>
-                {token.balance} {token.symbol}
-              </ThemedText>
-            </View>
-            <Feather name="chevron-right" size={20} color={theme.textSecondary} />
-          </Pressable>
-        ))}
+          </View>
+        ) : assets.length === 0 && !error ? (
+          <View style={[styles.emptyAssets, { backgroundColor: theme.backgroundDefault }]}>
+            <Feather name="inbox" size={32} color={theme.textSecondary} />
+            <ThemedText type="body" style={{ color: theme.textSecondary }}>
+              No assets found
+            </ThemedText>
+            <ThemedText type="caption" style={{ color: theme.textSecondary, textAlign: "center" }}>
+              This wallet has no tokens on {NETWORKS[selectedNetwork].name}
+            </ThemedText>
+          </View>
+        ) : assets.length > 0 ? (
+          assets.map((asset) => (
+            <Pressable
+              key={asset.isNative ? "native" : asset.address}
+              style={[styles.tokenRow, { backgroundColor: theme.backgroundDefault }]}
+              onPress={() => navigation.navigate("AssetDetail", { tokenSymbol: asset.symbol, balance: asset.balance })}
+            >
+              <View style={[styles.tokenIcon, { backgroundColor: theme.accent + "15" }]}>
+                <Feather name={getTokenIcon(asset.symbol)} size={20} color={theme.accent} />
+              </View>
+              <View style={styles.tokenInfo}>
+                <ThemedText type="body" style={{ fontWeight: "600" }}>
+                  {asset.symbol}
+                </ThemedText>
+                <ThemedText type="caption" style={{ color: theme.textSecondary }}>
+                  {asset.name}
+                </ThemedText>
+              </View>
+              <View style={styles.tokenBalance}>
+                <ThemedText type="body" style={{ fontWeight: "600", textAlign: "right" }}>
+                  {asset.balance} {asset.symbol}
+                </ThemedText>
+              </View>
+              <Feather name="chevron-right" size={20} color={theme.textSecondary} />
+            </Pressable>
+          ))
+        ) : null}
       </View>
     </ScrollView>
   );
@@ -303,5 +364,50 @@ const styles = StyleSheet.create({
   },
   tokenBalance: {
     gap: Spacing.xs,
+  },
+  explorerButton: {
+    padding: Spacing.sm,
+  },
+  lastUpdated: {
+    textAlign: "center",
+    marginBottom: Spacing.md,
+  },
+  errorBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+    padding: Spacing.md,
+    borderRadius: BorderRadius.md,
+    marginBottom: Spacing.md,
+  },
+  loadingContainer: {
+    gap: Spacing.md,
+  },
+  skeletonRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: Spacing.lg,
+    borderRadius: BorderRadius.md,
+    gap: Spacing.md,
+  },
+  skeletonIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: BorderRadius.sm,
+  },
+  skeletonInfo: {
+    flex: 1,
+    gap: Spacing.sm,
+  },
+  skeletonText: {
+    height: 14,
+    borderRadius: BorderRadius.xs,
+  },
+  emptyAssets: {
+    alignItems: "center",
+    justifyContent: "center",
+    padding: Spacing.xl,
+    borderRadius: BorderRadius.md,
+    gap: Spacing.sm,
   },
 });

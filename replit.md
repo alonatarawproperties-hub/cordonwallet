@@ -82,6 +82,14 @@ Preferred communication style: Simple, everyday language.
 - **PIN Storage**: SHA-256 hash stored separately from encrypted vault
 - **Secure Storage**: Expo SecureStore (iOS Keychain / Android Keystore)
 
+### Blockchain Infrastructure
+
+- **Chain Registry**: `client/lib/blockchain/chains.ts` - Ethereum, Polygon, BSC configs with RPC URLs
+- **RPC Client**: `client/lib/blockchain/client.ts` - viem public client with caching and error handling
+- **Balance Fetchers**: `client/lib/blockchain/balances.ts` - Native and ERC-20 balance reads
+- **Token List**: `client/lib/blockchain/tokens.ts` - Default tokens per chain (USDC, USDT, DAI, WBTC, etc.)
+- **Portfolio Hook**: `client/hooks/usePortfolio.ts` - React hook for fetching real balances with caching
+
 ### Planned Integrations (Architecture Ready)
 
 - **WalletConnect v2**: dApp connection protocol (not yet implemented)

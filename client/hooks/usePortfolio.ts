@@ -1,0 +1,251 @@
+import { useState, useEffect, useCallback, useRef } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { getNativeBalance, getERC20Balance, isBalanceError, BalanceResult } from "@/lib/blockchain/balances";
+import { getTokensForChain, TokenInfo } from "@/lib/blockchain/tokens";
+import { getChainById } from "@/lib/blockchain/chains";
+import { NETWORKS, NetworkId } from "@/lib/types";
+
+export interface PortfolioAsset {
+  symbol: string;
+  name: string;
+  balance: string;
+  rawBalance: bigint;
+  decimals: number;
+  isNative: boolean;
+  address?: string;
+}
+
+export interface PortfolioState {
+  assets: PortfolioAsset[];
+  isLoading: boolean;
+  isRefreshing: boolean;
+  error: string | null;
+  lastUpdated: number | null;
+  rpcLatency: number | null;
+}
+
+const CACHE_KEY_PREFIX = "@cordon/portfolio_cache_";
+const CACHE_DURATION = 30000;
+
+function getChainIdFromNetworkId(networkId: NetworkId): number {
+  return NETWORKS[networkId].chainId;
+}
+
+export function usePortfolio(address: string | undefined, networkId: NetworkId) {
+  const [state, setState] = useState<PortfolioState>({
+    assets: [],
+    isLoading: true,
+    isRefreshing: false,
+    error: null,
+    lastUpdated: null,
+    rpcLatency: null,
+  });
+  
+  const isMounted = useRef(true);
+  const lastFetchRef = useRef<string>("");
+
+  const fetchBalances = useCallback(async (isRefresh = false) => {
+    if (!address) {
+      setState(prev => ({ ...prev, isLoading: false, assets: [] }));
+      return;
+    }
+
+    const chainId = getChainIdFromNetworkId(networkId);
+    const chain = getChainById(chainId);
+    
+    if (!chain) {
+      setState(prev => ({ 
+        ...prev, 
+        isLoading: false, 
+        error: "Unsupported network" 
+      }));
+      return;
+    }
+
+    const fetchKey = `${address}_${chainId}`;
+    
+    if (!isRefresh && fetchKey === lastFetchRef.current && state.assets.length > 0) {
+      return;
+    }
+    
+    lastFetchRef.current = fetchKey;
+
+    setState(prev => ({ 
+      ...prev, 
+      isLoading: !isRefresh, 
+      isRefreshing: isRefresh,
+      error: null 
+    }));
+
+    const cacheKey = `${CACHE_KEY_PREFIX}${chainId}_${address}`;
+    
+    if (!isRefresh) {
+      try {
+        const cached = await AsyncStorage.getItem(cacheKey);
+        if (cached) {
+          const { assets, timestamp } = JSON.parse(cached);
+          if (Date.now() - timestamp < CACHE_DURATION) {
+            if (isMounted.current) {
+              setState(prev => ({
+                ...prev,
+                assets: assets.map((a: any) => ({ ...a, rawBalance: BigInt(a.rawBalance) })),
+                isLoading: false,
+                lastUpdated: timestamp,
+              }));
+            }
+            return;
+          }
+        }
+      } catch {}
+    }
+
+    const startTime = Date.now();
+    const assets: PortfolioAsset[] = [];
+    let hasRpcError = false;
+    let errorMessage = "";
+
+    try {
+      const nativeResult = await getNativeBalance(address, chainId);
+      
+      if (!isMounted.current) return;
+      
+      if (isBalanceError(nativeResult)) {
+        hasRpcError = true;
+        errorMessage = nativeResult.error.message;
+      } else {
+        assets.push({
+          symbol: chain.nativeSymbol,
+          name: chain.name,
+          balance: formatBalance(nativeResult.formatted),
+          rawBalance: nativeResult.raw,
+          decimals: nativeResult.decimals,
+          isNative: true,
+        });
+      }
+
+      const tokens = getTokensForChain(chainId);
+      
+      const tokenResults = await Promise.allSettled(
+        tokens.map(token => 
+          getERC20Balance({
+            tokenAddress: token.address,
+            owner: address,
+            chainId,
+            decimals: token.decimals,
+            symbol: token.symbol,
+          })
+        )
+      );
+
+      if (!isMounted.current) return;
+
+      let tokenErrors = 0;
+      tokenResults.forEach((result, index) => {
+        if (result.status === "fulfilled") {
+          if (isBalanceError(result.value)) {
+            tokenErrors++;
+          } else {
+            const token = tokens[index];
+            const balanceResult = result.value as BalanceResult;
+            if (balanceResult.raw > 0n) {
+              assets.push({
+                symbol: token.symbol,
+                name: token.name,
+                balance: formatBalance(balanceResult.formatted),
+                rawBalance: balanceResult.raw,
+                decimals: token.decimals,
+                isNative: false,
+                address: token.address,
+              });
+            }
+          }
+        } else {
+          tokenErrors++;
+        }
+      });
+
+      if (tokenErrors > 0 && !hasRpcError) {
+        errorMessage = `Failed to load ${tokenErrors} token${tokenErrors > 1 ? "s" : ""}`;
+      }
+
+      const rpcLatency = Date.now() - startTime;
+      const now = Date.now();
+
+      try {
+        await AsyncStorage.setItem(cacheKey, JSON.stringify({
+          assets: assets.map(a => ({ ...a, rawBalance: a.rawBalance.toString() })),
+          timestamp: now,
+        }));
+      } catch {}
+
+      if (isMounted.current) {
+        if (hasRpcError && assets.length === 0) {
+          setState({
+            assets: [],
+            isLoading: false,
+            isRefreshing: false,
+            error: errorMessage || "Failed to connect to network",
+            lastUpdated: null,
+            rpcLatency,
+          });
+        } else {
+          setState({
+            assets,
+            isLoading: false,
+            isRefreshing: false,
+            error: errorMessage || null,
+            lastUpdated: now,
+            rpcLatency,
+          });
+        }
+      }
+    } catch (error) {
+      if (isMounted.current) {
+        setState(prev => ({
+          ...prev,
+          isLoading: false,
+          isRefreshing: false,
+          error: error instanceof Error ? error.message : "Failed to fetch balances",
+        }));
+      }
+    }
+  }, [address, networkId]);
+
+  useEffect(() => {
+    isMounted.current = true;
+    lastFetchRef.current = "";
+    fetchBalances(false);
+    
+    return () => {
+      isMounted.current = false;
+    };
+  }, [fetchBalances]);
+
+  const refresh = useCallback(() => {
+    fetchBalances(true);
+  }, [fetchBalances]);
+
+  return {
+    ...state,
+    refresh,
+  };
+}
+
+function formatBalance(value: string): string {
+  const num = parseFloat(value);
+  if (num === 0) return "0";
+  if (num < 0.0001) return "<0.0001";
+  if (num < 1) return num.toFixed(4);
+  if (num < 1000) return num.toFixed(4);
+  return num.toLocaleString("en-US", { maximumFractionDigits: 2 });
+}
+
+export function formatTimeSince(timestamp: number | null): string {
+  if (!timestamp) return "";
+  const seconds = Math.floor((Date.now() - timestamp) / 1000);
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ago`;
+}

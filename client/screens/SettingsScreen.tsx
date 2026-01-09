@@ -1,3 +1,4 @@
+import { useState, useRef } from "react";
 import { View, StyleSheet, ScrollView, Pressable, Alert } from "react-native";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
@@ -11,6 +12,8 @@ import { Spacing, BorderRadius } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
 import { ListRow } from "@/components/ListRow";
 import { useWallet } from "@/lib/wallet-context";
+import { NETWORKS } from "@/lib/types";
+import { getChainById } from "@/lib/blockchain/chains";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
@@ -21,7 +24,27 @@ export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const { theme } = useTheme();
   const navigation = useNavigation<Navigation>();
-  const { activeWallet, logout } = useWallet();
+  const { activeWallet, logout, selectedNetwork } = useWallet();
+  const [showDebug, setShowDebug] = useState(false);
+  const tapCountRef = useRef(0);
+  const lastTapRef = useRef(0);
+
+  const handleVersionTap = () => {
+    const now = Date.now();
+    if (now - lastTapRef.current < 500) {
+      tapCountRef.current += 1;
+      if (tapCountRef.current >= 5) {
+        setShowDebug(!showDebug);
+        tapCountRef.current = 0;
+      }
+    } else {
+      tapCountRef.current = 1;
+    }
+    lastTapRef.current = now;
+  };
+
+  const chainId = NETWORKS[selectedNetwork].chainId;
+  const chainConfig = getChainById(chainId);
 
   const handleLogout = () => {
     Alert.alert(
@@ -59,7 +82,7 @@ export default function SettingsScreen() {
   const aboutItems = [
     { title: "Help & Support", subtitle: "Get help with Cordon", icon: "help-circle", onPress: () => {} },
     { title: "Terms of Service", subtitle: "Legal information", icon: "file-text", onPress: () => {} },
-    { title: "Version", subtitle: "1.0.0", icon: "info", onPress: () => {} },
+    { title: "Version", subtitle: "1.0.0", icon: "info", onPress: handleVersionTap },
   ];
 
   return (
@@ -153,6 +176,40 @@ export default function SettingsScreen() {
         </View>
       </View>
 
+      {showDebug ? (
+        <View style={styles.section}>
+          <ThemedText type="small" style={[styles.sectionTitle, { color: theme.warning }]}>
+            Developer Debug
+          </ThemedText>
+          <View style={[styles.debugPanel, { backgroundColor: theme.backgroundDefault }]}>
+            <View style={styles.debugRow}>
+              <ThemedText type="caption" style={{ color: theme.textSecondary }}>Chain ID</ThemedText>
+              <ThemedText type="small" style={{ fontFamily: "monospace" }}>{chainId}</ThemedText>
+            </View>
+            <View style={[styles.debugRow, { borderTopWidth: 1, borderTopColor: theme.border }]}>
+              <ThemedText type="caption" style={{ color: theme.textSecondary }}>Network</ThemedText>
+              <ThemedText type="small">{chainConfig?.name || "Unknown"}</ThemedText>
+            </View>
+            <View style={[styles.debugRow, { borderTopWidth: 1, borderTopColor: theme.border }]}>
+              <ThemedText type="caption" style={{ color: theme.textSecondary }}>RPC Host</ThemedText>
+              <ThemedText type="small" style={{ fontFamily: "monospace", fontSize: 10 }} numberOfLines={1}>
+                {chainConfig ? new URL(chainConfig.rpcUrl).host : "N/A"}
+              </ThemedText>
+            </View>
+            <View style={[styles.debugRow, { borderTopWidth: 1, borderTopColor: theme.border }]}>
+              <ThemedText type="caption" style={{ color: theme.textSecondary }}>Testnet</ThemedText>
+              <ThemedText type="small">{chainConfig?.isTestnet ? "Yes" : "No"}</ThemedText>
+            </View>
+            <View style={[styles.debugRow, { borderTopWidth: 1, borderTopColor: theme.border }]}>
+              <ThemedText type="caption" style={{ color: theme.textSecondary }}>Explorer</ThemedText>
+              <ThemedText type="small" style={{ fontFamily: "monospace", fontSize: 10 }} numberOfLines={1}>
+                {chainConfig?.explorerBaseUrl || "N/A"}
+              </ThemedText>
+            </View>
+          </View>
+        </View>
+      ) : null}
+
       <Pressable
         style={[styles.logoutButton, { backgroundColor: theme.danger + "15" }]}
         onPress={handleLogout}
@@ -203,5 +260,15 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.md,
     gap: Spacing.md,
     marginTop: Spacing.xl,
+  },
+  debugPanel: {
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+  },
+  debugRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: Spacing.sm,
   },
 });

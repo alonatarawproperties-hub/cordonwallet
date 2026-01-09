@@ -1,0 +1,67 @@
+STEP 3: REPLACE HARDCODED BALANCES WITH REAL RPC (EVM ONLY)
+
+Context:
+- Audit found balances are hardcoded (ETH: 2.54, USDC: 1250, etc.)
+We must replace ALL mock balances with real on-chain reads using viem.
+
+GOAL:
+Portfolio shows correct balances for the active wallet across selected chain:
+- native balance via getBalance
+- ERC20 balances via balanceOf + decimals
+No placeholders.
+
+A) Chain registry (single source of truth)
+1) Create /packages/core/src/chains/registry.ts exporting:
+- supportedChains: Ethereum, Polygon, BNB Chain
+Each chain entry MUST include:
+- chainId
+- name
+- rpcUrl (from env, with safe fallback)
+- explorerBaseUrl
+- nativeSymbol
+2) Add optional testnet support via env flag:
+- If USE_TESTNETS=true, use Sepolia / Polygon Amoy / BSC Testnet configs and explorers.
+
+B) RPC client layer
+1) Create /packages/core/src/rpc/client.ts:
+- getPublicClient(chainId) returns a viem public client using that chain’s rpcUrl.
+- Handle RPC errors and return friendly errors.
+
+C) Balance fetchers (REAL)
+1) Implement in /packages/core/src/balances:
+- getNativeBalance(address, chainId) -> formatted string + raw bigint
+- getERC20Balance({tokenAddress, owner, chainId, decimals}) -> formatted string + raw bigint
+Use viem:
+- publicClient.getBalance
+- publicClient.readContract for ERC20 balanceOf
+- read decimals (either from metadata list or readContract(decimals) once and cache)
+
+D) Default token list (small, clean, config-driven)
+Create /packages/core/src/tokens/defaultTokens.ts:
+- Per chain: a small list of well-known tokens with address + symbol + decimals.
+Keep it minimal (3–8 tokens per chain).
+Do NOT hardcode balances; only metadata.
+If uncertain about token addresses, implement it so tokens can be easily edited in one file.
+
+E) Replace UI placeholders
+1) Identify which screens/services currently provide hardcoded balances.
+2) Replace them to call the real balance fetchers from /packages/core.
+3) Implement:
+- loading skeleton state
+- pull-to-refresh
+- caching: keep last known balances and show “Last updated Xs ago”
+- friendly error banner with retry
+
+F) Verification helpers
+1) Add a “View on Explorer” link for the active address per chain.
+2) Add a dev-only debug panel (hidden in Settings) that shows:
+- chainId
+- rpcUrl host
+- last RPC latency
+- last error
+
+DONE WHEN:
+- Portfolio balance changes correctly when switching Ethereum/Polygon/BSC
+- Values match the chain explorer for the same address
+- No hardcoded balance numbers remain anywhere in repo
+- Pull-to-refresh triggers real RPC calls (you can see latency/debug)
