@@ -12,45 +12,15 @@ import { ThemedView } from "@/components/ThemedView";
 import { Button } from "@/components/Button";
 import { Input } from "@/components/Input";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
-import { useWallet } from "@/lib/wallet-context";
-import { saveSeedPhrase } from "@/lib/secure-storage";
+import { generateMnemonic } from "@/lib/wallet-engine";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 
 type Props = NativeStackScreenProps<RootStackParamList, "CreateWallet">;
-
-const generateSeedPhrase = (): string[] => {
-  const words = [
-    "abandon", "ability", "able", "about", "above", "absent", "absorb", "abstract",
-    "absurd", "abuse", "access", "accident", "account", "accuse", "achieve", "acid",
-    "acoustic", "acquire", "across", "act", "action", "actor", "actress", "actual",
-    "adapt", "add", "addict", "address", "adjust", "admit", "adult", "advance",
-    "advice", "aerobic", "affair", "afford", "afraid", "again", "age", "agent",
-    "agree", "ahead", "aim", "air", "airport", "aisle", "alarm", "album",
-    "alcohol", "alert", "alien", "all", "alley", "allow", "almost", "alone",
-    "alpha", "already", "also", "alter", "always", "amateur", "amazing", "among",
-  ];
-  
-  const phrase: string[] = [];
-  for (let i = 0; i < 12; i++) {
-    phrase.push(words[Math.floor(Math.random() * words.length)]);
-  }
-  return phrase;
-};
-
-const generateAddress = (): string => {
-  const chars = "0123456789abcdef";
-  let address = "0x";
-  for (let i = 0; i < 40; i++) {
-    address += chars[Math.floor(Math.random() * chars.length)];
-  }
-  return address;
-};
 
 export default function CreateWalletScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
   const { theme } = useTheme();
-  const { addWallet, unlock } = useWallet();
   const [walletName, setWalletName] = useState("Main Wallet");
   const [isCreating, setIsCreating] = useState(false);
 
@@ -63,24 +33,14 @@ export default function CreateWalletScreen({ navigation }: Props) {
     setIsCreating(true);
     
     try {
-      const seedPhrase = generateSeedPhrase();
-      const address = generateAddress();
-      const walletId = Date.now().toString();
-      
-      const wallet = {
-        id: walletId,
-        name: walletName.trim(),
-        address,
-        createdAt: Date.now(),
-      };
-
-      await saveSeedPhrase(walletId, seedPhrase);
-      await addWallet(wallet);
-      unlock();
-      
-      navigation.navigate("BackupWarning", { seedPhrase });
+      const mnemonic = generateMnemonic();
+      navigation.navigate("SetupPin", { 
+        mnemonic, 
+        walletName: walletName.trim(),
+        isImport: false 
+      });
     } catch (error) {
-      Alert.alert("Error", "Failed to create wallet. Please try again.");
+      Alert.alert("Error", "Failed to generate wallet. Please try again.");
     } finally {
       setIsCreating(false);
     }

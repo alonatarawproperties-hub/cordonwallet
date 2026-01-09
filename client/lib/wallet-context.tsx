@@ -35,12 +35,12 @@ const defaultPolicySettings: PolicySettings = {
 };
 
 const STORAGE_KEYS = {
-  WALLETS: "@shieldwallet/wallets",
-  BUNDLES: "@shieldwallet/bundles",
-  ACTIVE_WALLET_ID: "@shieldwallet/active_wallet_id",
-  POLICY_SETTINGS: "@shieldwallet/policy_settings",
-  SELECTED_NETWORK: "@shieldwallet/selected_network",
-  HAS_SETUP: "@shieldwallet/has_setup",
+  WALLETS: "@cordon/wallets",
+  BUNDLES: "@cordon/bundles",
+  ACTIVE_WALLET_ID: "@cordon/active_wallet_id",
+  POLICY_SETTINGS: "@cordon/policy_settings",
+  SELECTED_NETWORK: "@cordon/selected_network",
+  HAS_SETUP: "@cordon/has_setup",
 };
 
 const WalletContext = createContext<WalletContextType | undefined>(undefined);

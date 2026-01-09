@@ -12,28 +12,45 @@ import { ThemedView } from "@/components/ThemedView";
 import { Button } from "@/components/Button";
 import { Input } from "@/components/Input";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
-import { useWallet } from "@/lib/wallet-context";
+import { validateMnemonic, deriveAddress } from "@/lib/wallet-engine";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 
 type Props = NativeStackScreenProps<RootStackParamList, "ImportWallet">;
-
-const generateAddress = (): string => {
-  const chars = "0123456789abcdef";
-  let address = "0x";
-  for (let i = 0; i < 40; i++) {
-    address += chars[Math.floor(Math.random() * chars.length)];
-  }
-  return address;
-};
 
 export default function ImportWalletScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
   const { theme } = useTheme();
-  const { addWallet, unlock } = useWallet();
   const [walletName, setWalletName] = useState("Imported Wallet");
   const [seedPhrase, setSeedPhrase] = useState("");
-  const [isImporting, setIsImporting] = useState(false);
+  const [isValidating, setIsValidating] = useState(false);
+  const [previewAddress, setPreviewAddress] = useState<string | null>(null);
+
+  const handleValidate = () => {
+    const normalizedPhrase = seedPhrase.trim().toLowerCase().replace(/\s+/g, " ");
+    const words = normalizedPhrase.split(" ");
+    
+    if (words.length !== 12 && words.length !== 24) {
+      setPreviewAddress(null);
+      return;
+    }
+
+    if (validateMnemonic(normalizedPhrase)) {
+      try {
+        const address = deriveAddress(normalizedPhrase);
+        setPreviewAddress(address);
+      } catch {
+        setPreviewAddress(null);
+      }
+    } else {
+      setPreviewAddress(null);
+    }
+  };
+
+  const handleSeedPhraseChange = (text: string) => {
+    setSeedPhrase(text);
+    setPreviewAddress(null);
+  };
 
   const handleImport = async () => {
     if (!walletName.trim()) {
@@ -41,35 +58,31 @@ export default function ImportWalletScreen({ navigation }: Props) {
       return;
     }
 
-    const words = seedPhrase.trim().toLowerCase().split(/\s+/);
+    const normalizedPhrase = seedPhrase.trim().toLowerCase().replace(/\s+/g, " ");
+    const words = normalizedPhrase.split(" ");
+    
     if (words.length !== 12 && words.length !== 24) {
       Alert.alert("Error", "Please enter a valid 12 or 24 word seed phrase");
       return;
     }
 
-    setIsImporting(true);
+    if (!validateMnemonic(normalizedPhrase)) {
+      Alert.alert("Invalid Seed Phrase", "One or more words in your seed phrase are invalid. Please check and try again.");
+      return;
+    }
+
+    setIsValidating(true);
     
     try {
-      const address = generateAddress();
-      
-      const wallet = {
-        id: Date.now().toString(),
-        name: walletName.trim(),
-        address,
-        createdAt: Date.now(),
-      };
-
-      await addWallet(wallet);
-      unlock();
-      
-      navigation.reset({
-        index: 0,
-        routes: [{ name: "Main" }],
+      navigation.navigate("SetupPin", { 
+        mnemonic: normalizedPhrase, 
+        walletName: walletName.trim(),
+        isImport: true 
       });
     } catch (error) {
-      Alert.alert("Error", "Failed to import wallet. Please try again.");
+      Alert.alert("Error", "Failed to validate seed phrase. Please try again.");
     } finally {
-      setIsImporting(false);
+      setIsValidating(false);
     }
   };
 
@@ -106,7 +119,8 @@ export default function ImportWalletScreen({ navigation }: Props) {
             <Input
               label="Seed Phrase"
               value={seedPhrase}
-              onChangeText={setSeedPhrase}
+              onChangeText={handleSeedPhraseChange}
+              onBlur={handleValidate}
               placeholder="Enter your 12 or 24 word seed phrase..."
               multiline
               numberOfLines={4}
@@ -115,6 +129,20 @@ export default function ImportWalletScreen({ navigation }: Props) {
               style={styles.multilineInput}
             />
           </View>
+
+          {previewAddress ? (
+            <View style={[styles.previewCard, { backgroundColor: theme.success + "15", borderColor: theme.success + "40" }]}>
+              <Feather name="check-circle" size={20} color={theme.success} />
+              <View style={{ flex: 1 }}>
+                <ThemedText type="small" style={{ color: theme.success }}>
+                  Valid seed phrase detected
+                </ThemedText>
+                <ThemedText type="small" style={{ color: theme.textSecondary, marginTop: 4 }}>
+                  Address: {previewAddress.slice(0, 10)}...{previewAddress.slice(-8)}
+                </ThemedText>
+              </View>
+            </View>
+          ) : null}
         </View>
 
         <View style={[styles.warningCard, { backgroundColor: theme.danger + "15", borderColor: theme.danger + "40" }]}>
@@ -125,8 +153,8 @@ export default function ImportWalletScreen({ navigation }: Props) {
         </View>
 
         <View style={styles.footer}>
-          <Button onPress={handleImport} disabled={isImporting || !seedPhrase.trim()}>
-            {isImporting ? "Importing..." : "Import Wallet"}
+          <Button onPress={handleImport} disabled={isValidating || !seedPhrase.trim()}>
+            {isValidating ? "Validating..." : "Import Wallet"}
           </Button>
         </View>
       </KeyboardAwareScrollViewCompat>
@@ -174,6 +202,14 @@ const styles = StyleSheet.create({
     height: 100,
     textAlignVertical: "top",
     paddingTop: Spacing.md,
+  },
+  previewCard: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    padding: Spacing.lg,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    gap: Spacing.md,
   },
   warningCard: {
     flexDirection: "row",

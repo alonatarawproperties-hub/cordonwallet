@@ -23,9 +23,9 @@ export type RootStackParamList = {
   Welcome: undefined;
   CreateWallet: undefined;
   ImportWallet: undefined;
-  SetupPin: undefined;
-  BackupWarning: { seedPhrase: string[] };
-  SeedPhrase: { seedPhrase: string[] };
+  SetupPin: { mnemonic: string; walletName: string; isImport?: boolean };
+  BackupWarning: { seedPhrase: string[]; walletId: string };
+  SeedPhrase: { seedPhrase: string[]; walletId: string };
   Unlock: undefined;
   Main: undefined;
   Send: { tokenSymbol?: string } | undefined;

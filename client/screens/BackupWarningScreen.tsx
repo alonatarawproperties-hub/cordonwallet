@@ -18,7 +18,7 @@ export default function BackupWarningScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
   const { theme } = useTheme();
-  const { seedPhrase } = route.params;
+  const { seedPhrase, walletId } = route.params;
   const [acknowledged, setAcknowledged] = useState(false);
 
   const warnings = [
@@ -73,7 +73,7 @@ export default function BackupWarningScreen({ navigation, route }: Props) {
         </Pressable>
 
         <Button 
-          onPress={() => navigation.navigate("SeedPhrase", { seedPhrase })}
+          onPress={() => navigation.navigate("SeedPhrase", { seedPhrase, walletId })}
           disabled={!acknowledged}
         >
           Show Seed Phrase

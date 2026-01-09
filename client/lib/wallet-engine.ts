@@ -1,12 +1,11 @@
 import * as bip39 from "@scure/bip39";
-import { wordlist } from "@scure/bip39/wordlists/english";
+import { wordlist } from "@scure/bip39/wordlists/english.js";
 import { HDKey } from "@scure/bip32";
-import { pbkdf2 } from "@noble/hashes/pbkdf2";
-import { sha256 } from "@noble/hashes/sha256";
-import { gcm } from "@noble/ciphers/aes";
-import { randomBytes } from "@noble/ciphers/webcrypto";
-import { bytesToHex, hexToBytes } from "@noble/hashes/utils";
-import { keccak_256 } from "@noble/hashes/sha3";
+import { pbkdf2 } from "@noble/hashes/pbkdf2.js";
+import { sha256 } from "@noble/hashes/sha2.js";
+import { gcm } from "@noble/ciphers/aes.js";
+import { randomBytes, bytesToHex, hexToBytes } from "@noble/ciphers/utils.js";
+import { keccak_256 } from "@noble/hashes/sha3.js";
 import * as SecureStore from "expo-secure-store";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform } from "react-native";
@@ -23,13 +22,6 @@ interface EncryptedVault {
   salt: string;
   iv: string;
   ciphertext: string;
-}
-
-interface StoredVault {
-  version: 1;
-  wallets: WalletRecord[];
-  activeWalletId: string | null;
-  encryptedVault: EncryptedVault | null;
 }
 
 interface DecryptedSecrets {
@@ -80,18 +72,9 @@ function decryptSecrets(vault: EncryptedVault, pin: string): DecryptedSecrets | 
     const json = new TextDecoder().decode(plaintext);
     
     return JSON.parse(json);
-  } catch (error) {
-    console.error("Failed to decrypt vault:", error);
+  } catch {
     return null;
   }
-}
-
-function privateKeyToAddress(privateKey: Uint8Array): `0x${string}` {
-  const { getPublicKey } = require("@noble/secp256k1");
-  const publicKey = getPublicKey(privateKey, false).slice(1);
-  const hash = keccak_256(publicKey);
-  const address = bytesToHex(hash.slice(-20));
-  return `0x${address}` as `0x${string}`;
 }
 
 function mnemonicToAddress(mnemonic: string): `0x${string}` {
@@ -99,11 +82,57 @@ function mnemonicToAddress(mnemonic: string): `0x${string}` {
   const hdKey = HDKey.fromMasterSeed(seed);
   const childKey = hdKey.derive("m/44'/60'/0'/0/0");
   
-  if (!childKey.privateKey) {
-    throw new Error("Failed to derive private key");
+  if (!childKey.privateKey || !childKey.publicKey) {
+    throw new Error("Failed to derive keys");
   }
   
-  return privateKeyToAddress(childKey.privateKey);
+  const uncompressedPubKey = uncompressPublicKey(childKey.publicKey);
+  const pubKeyWithoutPrefix = uncompressedPubKey.slice(1);
+  const hash = keccak_256(pubKeyWithoutPrefix);
+  const address = bytesToHex(hash.slice(-20));
+  return `0x${address}` as `0x${string}`;
+}
+
+function uncompressPublicKey(compressedKey: Uint8Array): Uint8Array {
+  if (compressedKey.length === 65) {
+    return compressedKey;
+  }
+  
+  const p = BigInt("0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F");
+  const prefix = compressedKey[0];
+  const x = BigInt("0x" + bytesToHex(compressedKey.slice(1)));
+  
+  const ySquared = (modPow(x, 3n, p) + 7n) % p;
+  let y = modPow(ySquared, (p + 1n) / 4n, p);
+  
+  const isEven = (y & 1n) === 0n;
+  const needsEven = prefix === 0x02;
+  
+  if (isEven !== needsEven) {
+    y = p - y;
+  }
+  
+  const result = new Uint8Array(65);
+  result[0] = 0x04;
+  const xBytes = hexToBytes(x.toString(16).padStart(64, "0"));
+  const yBytes = hexToBytes(y.toString(16).padStart(64, "0"));
+  result.set(xBytes, 1);
+  result.set(yBytes, 33);
+  
+  return result;
+}
+
+function modPow(base: bigint, exp: bigint, mod: bigint): bigint {
+  let result = 1n;
+  base = base % mod;
+  while (exp > 0n) {
+    if (exp & 1n) {
+      result = (result * base) % mod;
+    }
+    exp = exp >> 1n;
+    base = (base * base) % mod;
+  }
+  return result;
 }
 
 async function getSecureItem(key: string): Promise<string | null> {
@@ -196,7 +225,7 @@ export async function createWallet(
   await setSecureItem(STORAGE_KEYS.VAULT, JSON.stringify(encryptedVault));
   await saveVaultMeta(wallets, walletId);
   
-  const pinHash = bytesToHex(sha256(pin));
+  const pinHash = bytesToHex(sha256(new TextEncoder().encode(pin)));
   await setSecureItem(STORAGE_KEYS.PIN_HASH, pinHash);
   
   cachedSecrets = secrets;
@@ -259,7 +288,7 @@ export async function getActiveWallet(): Promise<WalletRecord | null> {
   return meta.wallets.find(w => w.id === meta.activeWalletId) || meta.wallets[0];
 }
 
-export async function setActiveWallet(walletId: string): Promise<void> {
+export async function setActiveWalletById(walletId: string): Promise<void> {
   const meta = await loadVaultMeta();
   meta.activeWalletId = walletId;
   await saveVaultMeta(meta.wallets, walletId);
@@ -285,6 +314,6 @@ export async function verifyPin(pin: string): Promise<boolean> {
   if (!storedHash) {
     return false;
   }
-  const inputHash = bytesToHex(sha256(pin));
+  const inputHash = bytesToHex(sha256(new TextEncoder().encode(pin)));
   return inputHash === storedHash;
 }

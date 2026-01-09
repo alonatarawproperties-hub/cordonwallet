@@ -6,6 +6,7 @@ import { Feather } from "@expo/vector-icons";
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
 import { useState } from "react";
+import QRCode from "react-native-qrcode-svg";
 
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius } from "@/constants/theme";
@@ -43,9 +44,14 @@ export default function ReceiveScreen({ route }: Props) {
           <NetworkBadge networkId={selectedNetwork} selected />
         </View>
 
-        <View style={[styles.qrPlaceholder, { backgroundColor: theme.backgroundDefault, borderColor: theme.border }]}>
-          <View style={[styles.qrBox, { backgroundColor: theme.text }]}>
-            <View style={[styles.qrInner, { backgroundColor: theme.backgroundRoot }]} />
+        <View style={[styles.qrContainer, { backgroundColor: theme.backgroundDefault }]}>
+          <View style={styles.qrWrapper}>
+            <QRCode
+              value={walletAddress}
+              size={180}
+              backgroundColor="white"
+              color="black"
+            />
           </View>
           <ThemedText type="small" style={{ color: theme.textSecondary, marginTop: Spacing.lg }}>
             Scan QR code to receive funds
@@ -99,25 +105,15 @@ const styles = StyleSheet.create({
     padding: Spacing.lg,
     borderRadius: BorderRadius.md,
   },
-  qrPlaceholder: {
+  qrContainer: {
     alignItems: "center",
     padding: Spacing["2xl"],
     borderRadius: BorderRadius.lg,
-    borderWidth: 1,
-    borderStyle: "dashed",
   },
-  qrBox: {
-    width: 160,
-    height: 160,
+  qrWrapper: {
+    padding: Spacing.lg,
+    backgroundColor: "#FFFFFF",
     borderRadius: BorderRadius.md,
-    padding: Spacing["2xl"],
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  qrInner: {
-    width: 80,
-    height: 80,
-    borderRadius: BorderRadius.sm,
   },
   addressCard: {
     padding: Spacing.lg,
