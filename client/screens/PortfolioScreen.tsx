@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { View, StyleSheet, ScrollView, Pressable, RefreshControl, ActivityIndicator } from "react-native";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
@@ -78,16 +78,19 @@ export default function PortfolioScreen() {
     return `${address.slice(0, 6)}...${address.slice(-4)}`;
   };
 
+  useEffect(() => {
+    if (!activeWallet) {
+      navigation.reset({
+        index: 0,
+        routes: [{ name: "Welcome" }],
+      });
+    }
+  }, [activeWallet, navigation]);
+
   if (!activeWallet) {
     return (
       <View style={[styles.container, { backgroundColor: theme.backgroundRoot }]}>
-        <EmptyState
-          image={require("../../assets/images/empty-wallet.png")}
-          title="No Wallet"
-          message="Create or import a wallet to get started"
-          actionLabel="Add Wallet"
-          onAction={() => navigation.navigate("WalletManager")}
-        />
+        <ActivityIndicator size="large" color={theme.accent} />
       </View>
     );
   }
