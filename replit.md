@@ -78,7 +78,7 @@ Preferred communication style: Simple, everyday language.
 
 - **Mnemonic Generation**: BIP39 12-word seed phrases using cryptographic entropy
 - **Key Derivation**: Standard EVM HD path m/44'/60'/0'/0/0 for Ethereum-compatible addresses
-- **Vault Encryption**: PBKDF2 (150,000 iterations) + AES-256-GCM with random salt/IV
+- **Vault Encryption**: PBKDF2 (100,000 iterations) + AES-256-GCM with random salt/IV
 - **PIN Storage**: SHA-256 hash stored separately from encrypted vault
 - **Secure Storage**: Expo SecureStore (iOS Keychain / Android Keystore)
 

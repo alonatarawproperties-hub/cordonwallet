@@ -34,7 +34,7 @@ const STORAGE_KEYS = {
   VAULT_META: "@cordon/vault_meta",
 };
 
-const PBKDF2_ITERATIONS = 150000;
+const PBKDF2_ITERATIONS = 100000;
 
 let cachedSecrets: DecryptedSecrets | null = null;
 let isVaultUnlocked = false;
@@ -43,10 +43,23 @@ function deriveKeyFromPin(pin: string, salt: Uint8Array): Uint8Array {
   return pbkdf2(sha256, pin, salt, { c: PBKDF2_ITERATIONS, dkLen: 32 });
 }
 
-function encryptSecrets(secrets: DecryptedSecrets, pin: string): EncryptedVault {
+function runAsync<T>(fn: () => T): Promise<T> {
+  return new Promise((resolve, reject) => {
+    setTimeout(() => {
+      try {
+        resolve(fn());
+      } catch (e) {
+        reject(e);
+      }
+    }, 0);
+  });
+}
+
+async function encryptSecrets(secrets: DecryptedSecrets, pin: string): Promise<EncryptedVault> {
   const salt = randomBytes(16);
   const iv = randomBytes(12);
-  const key = deriveKeyFromPin(pin, salt);
+  
+  const key = await runAsync(() => deriveKeyFromPin(pin, salt));
   
   const plaintext = new TextEncoder().encode(JSON.stringify(secrets));
   const cipher = gcm(key, iv);
@@ -60,12 +73,13 @@ function encryptSecrets(secrets: DecryptedSecrets, pin: string): EncryptedVault 
   };
 }
 
-function decryptSecrets(vault: EncryptedVault, pin: string): DecryptedSecrets | null {
+async function decryptSecrets(vault: EncryptedVault, pin: string): Promise<DecryptedSecrets | null> {
   try {
     const salt = hexToBytes(vault.salt);
     const iv = hexToBytes(vault.iv);
     const ciphertext = hexToBytes(vault.ciphertext);
-    const key = deriveKeyFromPin(pin, salt);
+    
+    const key = await runAsync(() => deriveKeyFromPin(pin, salt));
     
     const cipher = gcm(key, iv);
     const plaintext = cipher.decrypt(ciphertext);
@@ -255,7 +269,7 @@ export async function unlockWithPin(pin: string): Promise<boolean> {
   }
   
   const vault: EncryptedVault = JSON.parse(vaultJson);
-  const secrets = decryptSecrets(vault, pin);
+  const secrets = await decryptSecrets(vault, pin);
   
   if (secrets) {
     cachedSecrets = secrets;
