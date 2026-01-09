@@ -17,6 +17,7 @@ import {
   getTransactionsByWallet,
   TxRecord,
   formatTransactionDate,
+  pollPendingTransactions,
 } from "@/lib/transaction-history";
 
 export default function ActivityScreen() {
@@ -28,13 +29,16 @@ export default function ActivityScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [transactions, setTransactions] = useState<TxRecord[]>([]);
 
-  const loadTransactions = useCallback(async () => {
+  const loadTransactions = useCallback(async (checkReceipts = false) => {
     if (!activeWallet) {
       setTransactions([]);
       return;
     }
 
     try {
+      if (checkReceipts) {
+        await pollPendingTransactions();
+      }
       const txs = await getTransactionsByWallet(activeWallet.address);
       setTransactions(txs);
     } catch (error) {
@@ -48,9 +52,20 @@ export default function ActivityScreen() {
     }, [loadTransactions])
   );
 
+  useEffect(() => {
+    const hasPending = transactions.some((tx) => tx.status === "pending");
+    if (!hasPending) return;
+
+    const interval = setInterval(async () => {
+      await loadTransactions(true);
+    }, 10000);
+
+    return () => clearInterval(interval);
+  }, [transactions, loadTransactions]);
+
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await loadTransactions();
+    await loadTransactions(true);
     setRefreshing(false);
   }, [loadTransactions]);
 

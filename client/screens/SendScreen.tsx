@@ -171,10 +171,25 @@ export default function SendScreen({ navigation, route }: Props) {
 
     const balance = parseFloat(selectedTokenData?.balance.replace(",", "") || "0");
     const sendAmount = parseFloat(amount);
-    if (sendAmount > balance) {
-      reasons.push("Insufficient balance");
-      level = "blocked";
-      canProceed = false;
+    
+    if (selectedTokenData?.isNative) {
+      const fee = parseFloat(gasEstimate?.estimatedFeeNative || "0");
+      const totalRequired = sendAmount + fee;
+      if (totalRequired > balance) {
+        if (sendAmount > balance) {
+          reasons.push("Insufficient balance");
+        } else {
+          reasons.push("Insufficient balance for amount + gas fee");
+        }
+        level = "blocked";
+        canProceed = false;
+      }
+    } else {
+      if (sendAmount > balance) {
+        reasons.push("Insufficient token balance");
+        level = "blocked";
+        canProceed = false;
+      }
     }
 
     if (sendAmount > 10000) {
@@ -183,7 +198,7 @@ export default function SendScreen({ navigation, route }: Props) {
     }
 
     return { level, reasons, canProceed };
-  }, [recipient, amount, policySettings, selectedTokenData]);
+  }, [recipient, amount, policySettings, selectedTokenData, gasEstimate]);
 
   const getRiskColor = (level: RiskLevel) => {
     switch (level) {

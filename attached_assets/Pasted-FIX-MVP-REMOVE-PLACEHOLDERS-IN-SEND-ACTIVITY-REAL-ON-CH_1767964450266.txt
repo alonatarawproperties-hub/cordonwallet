@@ -1,0 +1,69 @@
+FIX MVP: REMOVE PLACEHOLDERS IN SEND + ACTIVITY (REAL ON-CHAIN)
+
+Context:
+- Wallet + balances are now real (I can fund with MATIC and see it).
+- BUT Activity/history is still placeholder.
+- Send screen still relies on placeholder balance logic and blocks/doesn’t send.
+
+GOAL:
+1) Activity shows REAL transactions (at minimum: outgoing txs we broadcast + optionally inbound funding txs).
+2) Send uses REAL balances from RPC and can broadcast native transfers (MATIC) and ERC20 transfers.
+3) Remove all remaining placeholder/mock data from Send + Activity + Approvals screens.
+
+A) SEND: make it fully real (no placeholder balance checks)
+1) Update Send UI to use real data sources:
+   - Use the existing real balance fetchers in /packages/core (native + ERC20).
+   - The “available balance” displayed and validations MUST come from RPC (bigint/raw) not placeholder numbers.
+2) Validation rules:
+   - For native send: ensure amount + estimatedFee <= nativeBalance.
+   - For ERC20: ensure amount <= tokenBalance.
+   - If fee estimate fails, allow retry; show friendly error.
+3) Wire confirm action to real send module:
+   - sendNative(...) for MATIC/ETH/BNB (native)
+   - sendERC20(...) for ERC20 transfers
+4) On success:
+   - Show real tx hash
+   - Show “View on Explorer”
+   - Immediately log it into local tx history (see section B)
+
+B) ACTIVITY: replace placeholders with real history
+Implement a real Activity data source with two layers:
+
+Layer 1 (MUST): Local broadcast log (always works)
+1) Create /packages/core/src/activity/store.ts:
+   - saveTx(TxRecord)
+   - listTxs({address, chainId}) sorted desc
+   TxRecord = { hash, chainId, address, direction:'out', kind:'native'|'erc20', tokenAddress?, to, amount, createdAt, status:'pending'|'confirmed'|'failed' }
+
+2) After sendNative/sendERC20 succeeds, call saveTx().
+
+3) Add a receipt poller:
+   - For any pending tx in the log, periodically check getTransactionReceipt(hash).
+   - Update status to confirmed/failed when receipt arrives.
+
+4) Replace Activity screen placeholder list with listTxs() + status badges + explorer links.
+
+Layer 2 (OPTIONAL but recommended): Show inbound funding txs without API keys
+Because user funded MATIC and expects to see it:
+- Implement “Recent inbound scan” for native transfers by scanning the last N blocks:
+  - Get latest blockNumber
+  - For last N blocks (e.g. 50–200 max), fetch block with transactions (includeTransactions:true)
+  - Filter tx where tx.to == activeAddress
+  - Add these as direction:'in' activity items (store in cache; do NOT duplicate if already present)
+- This is only used on-demand (pull-to-refresh) to avoid performance issues.
+
+C) APPROVALS: remove placeholder
+- If Approvals screen is still mocked, either:
+  1) Hide it behind “Coming soon” for MVP, OR
+  2) Implement real approvals later.
+For now: ensure it does not block Send/Activity functionality.
+
+D) CLEANUP
+- Delete or disable any mock/mockData/demo services feeding Send/Activity.
+- No setTimeout simulation for “success”.
+
+DONE WHEN:
+- I can send 0.001 MATIC to another wallet and get a real tx hash visible on explorer.
+- Activity immediately shows that tx as pending then confirmed.
+- Pull-to-refresh can show inbound funding txs OR at least shows outgoing history correctly (no placeholder list).
+- No placeholder balance numbers remain in Send and Activity.
