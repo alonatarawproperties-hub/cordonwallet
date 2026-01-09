@@ -54,11 +54,7 @@ export default function WalletManagerScreen() {
     );
   };
 
-  const mockWallets = wallets.length > 0 ? wallets : [
-    { id: "1", name: "Main Wallet", address: "0x1234567890abcdef1234567890abcdef12345678", createdAt: Date.now() },
-  ];
-
-  const renderWallet = ({ item }: { item: typeof mockWallets[0] }) => {
+  const renderWallet = ({ item }: { item: typeof wallets[0] }) => {
     const isActive = activeWallet?.id === item.id;
     const truncatedAddress = `${item.address.slice(0, 6)}...${item.address.slice(-4)}`;
 
@@ -133,13 +129,24 @@ export default function WalletManagerScreen() {
           styles.listContent,
           { paddingTop: headerHeight + Spacing.xl, paddingBottom: insets.bottom + Spacing["2xl"] },
         ]}
-        data={mockWallets}
+        data={wallets}
         keyExtractor={(item) => item.id}
         renderItem={renderWallet}
         ListHeaderComponent={
           <View style={styles.header}>
             <ThemedText type="body" style={{ color: theme.textSecondary }}>
               Manage your wallets. Tap a wallet to make it active.
+            </ThemedText>
+          </View>
+        }
+        ListEmptyComponent={
+          <View style={[styles.emptyState, { backgroundColor: theme.backgroundDefault }]}>
+            <Feather name="credit-card" size={48} color={theme.textSecondary} />
+            <ThemedText type="body" style={{ color: theme.textSecondary, textAlign: "center" }}>
+              No wallets yet
+            </ThemedText>
+            <ThemedText type="caption" style={{ color: theme.textSecondary, textAlign: "center" }}>
+              Create or import a wallet to get started
             </ThemedText>
           </View>
         }
@@ -174,6 +181,13 @@ const styles = StyleSheet.create({
   },
   header: {
     marginBottom: Spacing.xl,
+  },
+  emptyState: {
+    alignItems: "center",
+    justifyContent: "center",
+    padding: Spacing["2xl"],
+    borderRadius: BorderRadius.md,
+    gap: Spacing.md,
   },
   walletCard: {
     borderRadius: BorderRadius.md,
