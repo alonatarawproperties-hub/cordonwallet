@@ -40,7 +40,7 @@ export default function WelcomeScreen({ navigation }: Props) {
           <View style={styles.featureText}>
             <ThemedText type="h4">Wallet Firewall</ThemedText>
             <ThemedText type="small" style={{ color: theme.textSecondary }}>
-              Explains transactions before you sign
+              Blocks risky transactions automatically
             </ThemedText>
           </View>
         </View>
