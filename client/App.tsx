@@ -1,3 +1,6 @@
+import "react-native-get-random-values";
+import "react-native-url-polyfill/auto";
+
 import React from "react";
 import { StyleSheet } from "react-native";
 import { NavigationContainer } from "@react-navigation/native";
