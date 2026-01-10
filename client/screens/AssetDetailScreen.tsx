@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useLayoutEffect } from "react";
 import { View, StyleSheet, ScrollView, Pressable, ActivityIndicator } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
@@ -6,6 +6,7 @@ import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp, NativeStackScreenProps } from "@react-navigation/native-stack";
 import { Feather } from "@expo/vector-icons";
 import * as WebBrowser from "expo-web-browser";
+import { GlassView } from "expo-glass-effect";
 
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius } from "@/constants/theme";
@@ -130,6 +131,26 @@ export default function AssetDetailScreen({ route }: Props) {
       calculatePnlData();
     }
   }, [transactions, priceUsd]);
+
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerTitle: () => (
+        <View style={styles.navHeaderTitle}>
+          <View style={[styles.navTokenIcon, { backgroundColor: theme.accent + "20" }]}>
+            <ThemedText type="small" style={{ color: theme.accent, fontWeight: "600" }}>
+              {tokenSymbol.slice(0, 2)}
+            </ThemedText>
+          </View>
+          <ThemedText type="body" style={{ fontWeight: "600" }}>{tokenSymbol}</ThemedText>
+          <View style={[styles.navChainPill, { backgroundColor: getChainColor(chainName) + "20" }]}>
+            <ThemedText type="small" style={{ color: getChainColor(chainName), fontSize: 10 }}>
+              {chainName}
+            </ThemedText>
+          </View>
+        </View>
+      ),
+    });
+  }, [navigation, tokenSymbol, chainName, theme]);
 
   const calculatePnlData = () => {
     const sortedTxs = [...transactions].sort((a, b) => a.createdAt - b.createdAt);
@@ -425,89 +446,19 @@ export default function AssetDetailScreen({ route }: Props) {
         ]}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.header}>
-          <View style={styles.headerCompact}>
-            <View style={[styles.tokenIconSmall, { backgroundColor: theme.accent + "15" }]}>
-              <ThemedText type="body" style={{ color: theme.accent, fontWeight: "600", fontSize: 16 }}>
-                {tokenSymbol.slice(0, 2)}
-              </ThemedText>
-            </View>
-            <ThemedText type="h4">{tokenSymbol}</ThemedText>
-            <View style={[styles.chainPill, { backgroundColor: getChainColor(chainName) + "15" }]}>
-              <ThemedText type="small" style={{ color: getChainColor(chainName), fontSize: 10 }}>
-                {chainName}
-              </ThemedText>
-            </View>
-          </View>
-
-          <View style={styles.pnlHeroSection}>
-            {pnlData.length >= 2 ? (
-              <>
-                <View style={styles.pnlHeroHeader}>
-                  <ThemedText type="small" style={{ color: theme.textSecondary, marginBottom: 4 }}>
-                    Profit / Loss
-                  </ThemedText>
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                    <ThemedText
-                      type="h3"
-                      style={{
-                        color: totalPnl >= 0 ? "#22C55E" : "#EF4444",
-                        fontSize: 22,
-                      }}
-                    >
-                      {totalPnl >= 0 ? "+" : ""}${Math.abs(totalPnl).toFixed(2)}
-                    </ThemedText>
-                    <View style={[styles.pnlBadgeSmall, { backgroundColor: totalPnl >= 0 ? "#22C55E15" : "#EF444415" }]}>
-                      <ThemedText
-                        type="small"
-                        style={{
-                          color: totalPnl >= 0 ? "#22C55E" : "#EF4444",
-                          fontSize: 11,
-                        }}
-                      >
-                        {pnlPercent >= 0 ? "+" : ""}{pnlPercent.toFixed(2)}%
-                      </ThemedText>
-                    </View>
-                  </View>
-                </View>
-                <PnlChart data={pnlData} height={140} />
-              </>
-            ) : isLoadingHistory ? (
-              <View style={[styles.chartPlaceholderCompact, { backgroundColor: theme.backgroundDefault }]}>
-                <ActivityIndicator size="small" color={theme.accent} />
-                <ThemedText type="small" style={{ color: theme.textSecondary, marginTop: Spacing.xs }}>
-                  Loading...
-                </ThemedText>
-              </View>
-            ) : (
-              <View style={[styles.chartPlaceholderCompact, { backgroundColor: theme.backgroundDefault }]}>
-                <Feather name="trending-up" size={20} color={theme.textSecondary} />
-                <ThemedText type="small" style={{ color: theme.textSecondary, marginTop: Spacing.xs, textAlign: "center" }}>
-                  PNL chart appears after trading
-                </ThemedText>
-              </View>
-            )}
-          </View>
-
-          <View style={[styles.priceStatsCompact, { backgroundColor: theme.backgroundDefault + "80" }]}>
-            <View style={styles.priceStatCompact}>
+        <View style={[styles.pnlCard, { backgroundColor: theme.backgroundDefault }]}>
+          <View style={styles.pnlCardHeader}>
+            <ThemedText type="small" style={{ color: theme.textSecondary }}>
+              Profit / Loss
+            </ThemedText>
+            <View style={[styles.priceChip, { backgroundColor: theme.border + "30" }]}>
               <ThemedText type="small" style={{ color: theme.textSecondary, fontSize: 11 }}>
-                Price
-              </ThemedText>
-              <ThemedText type="small" style={{ fontWeight: "600", fontSize: 13 }}>
                 ${priceUsd ? formatPrice(priceUsd) : "0.00"}
-              </ThemedText>
-            </View>
-            <View style={[styles.priceStatDivider, { backgroundColor: theme.border + "50" }]} />
-            <View style={styles.priceStatCompact}>
-              <ThemedText type="small" style={{ color: theme.textSecondary, fontSize: 11 }}>
-                24h
               </ThemedText>
               <ThemedText
                 type="small"
                 style={{
-                  fontWeight: "600",
-                  fontSize: 13,
+                  fontSize: 11,
                   color: priceChange24h && priceChange24h >= 0 ? "#22C55E" : "#EF4444",
                 }}
               >
@@ -515,6 +466,45 @@ export default function AssetDetailScreen({ route }: Props) {
               </ThemedText>
             </View>
           </View>
+          
+          <View style={styles.pnlValueRow}>
+            <ThemedText
+              type="h2"
+              style={{
+                color: totalPnl >= 0 ? "#22C55E" : "#EF4444",
+                fontSize: 28,
+                fontWeight: "700",
+              }}
+            >
+              {totalPnl >= 0 ? "+" : ""}${Math.abs(totalPnl).toFixed(2)}
+            </ThemedText>
+            <View style={[styles.pnlBadge, { backgroundColor: totalPnl >= 0 ? "#22C55E15" : "#EF444415" }]}>
+              <ThemedText
+                type="small"
+                style={{
+                  color: totalPnl >= 0 ? "#22C55E" : "#EF4444",
+                  fontSize: 12,
+                }}
+              >
+                {pnlPercent >= 0 ? "+" : ""}{pnlPercent.toFixed(2)}%
+              </ThemedText>
+            </View>
+          </View>
+
+          {pnlData.length >= 2 ? (
+            <PnlChart data={pnlData} height={120} />
+          ) : isLoadingHistory ? (
+            <View style={styles.chartPlaceholderSmall}>
+              <ActivityIndicator size="small" color={theme.accent} />
+            </View>
+          ) : (
+            <View style={styles.chartPlaceholderSmall}>
+              <Feather name="trending-up" size={18} color={theme.textSecondary} />
+              <ThemedText type="small" style={{ color: theme.textSecondary, marginLeft: 6 }}>
+                No trading activity yet
+              </ThemedText>
+            </View>
+          )}
         </View>
 
         <View style={[styles.tabsContainer, { borderBottomColor: theme.border }]}>
@@ -635,7 +625,59 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: Spacing.md,
+    paddingHorizontal: Spacing.sm,
+  },
+  navHeaderTitle: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  navTokenIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: BorderRadius.xs,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  navChainPill: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: BorderRadius.xs,
+  },
+  pnlCard: {
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+    marginBottom: Spacing.md,
+  },
+  pnlCardHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: Spacing.xs,
+  },
+  priceChip: {
+    flexDirection: "row",
+    gap: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: BorderRadius.xs,
+  },
+  pnlValueRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: Spacing.sm,
+  },
+  pnlBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: BorderRadius.xs,
+  },
+  chartPlaceholderSmall: {
+    height: 80,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
   },
   header: {
     width: "100%",
@@ -726,11 +768,6 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
     marginBottom: Spacing.sm,
-  },
-  pnlBadge: {
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 2,
-    borderRadius: BorderRadius.xs,
   },
   chartPlaceholder: {
     height: 140,
