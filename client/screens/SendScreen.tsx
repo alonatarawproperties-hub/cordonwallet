@@ -15,10 +15,10 @@ import { ThemedView } from "@/components/ThemedView";
 import { Button } from "@/components/Button";
 import { Input } from "@/components/Input";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
-import { NetworkBadge } from "@/components/NetworkBadge";
 import { useWallet } from "@/lib/wallet-context";
 import { usePortfolio } from "@/hooks/usePortfolio";
-import { NETWORKS } from "@/lib/types";
+import { useSolanaPortfolio } from "@/hooks/useSolanaPortfolio";
+import { NETWORKS, ChainType } from "@/lib/types";
 import {
   sendNative,
   sendERC20,
@@ -27,6 +27,8 @@ import {
   GasEstimate,
   TransactionFailedError,
 } from "@/lib/blockchain/transactions";
+import { sendSol, sendSplToken } from "@/lib/solana/transactions";
+import { getMnemonic } from "@/lib/wallet-engine";
 import { saveTransaction } from "@/lib/transaction-history";
 import { getExplorerTxUrl } from "@/lib/blockchain/chains";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
@@ -44,10 +46,26 @@ interface RiskAssessment {
 interface TokenOption {
   symbol: string;
   balance: string;
-  address?: `0x${string}`;
+  address?: string;
   decimals: number;
   isNative: boolean;
   priceUsd?: number;
+  mint?: string;
+}
+
+const CHAIN_OPTIONS: { id: ChainType; name: string; color: string }[] = [
+  { id: "evm", name: "EVM", color: "#627EEA" },
+  { id: "solana", name: "Solana", color: "#9945FF" },
+];
+
+function isValidSolanaAddress(address: string): boolean {
+  if (!address || address.length < 32 || address.length > 44) return false;
+  const base58Regex = /^[1-9A-HJ-NP-Za-km-z]+$/;
+  return base58Regex.test(address);
+}
+
+function isValidEvmAddress(address: string): boolean {
+  return address.startsWith("0x") && address.length === 42;
 }
 
 export default function SendScreen({ navigation, route }: Props) {
@@ -64,20 +82,50 @@ export default function SendScreen({ navigation, route }: Props) {
   const [gasError, setGasError] = useState<string | null>(null);
   const [txSuccess, setTxSuccess] = useState<{ hash: string; explorerUrl: string } | null>(null);
 
-  const chainId = NETWORKS[selectedNetwork].chainId;
+  const isSolanaOnly = activeWallet?.walletType === "solana-only";
+  const [selectedChainType, setSelectedChainType] = useState<ChainType>(
+    isSolanaOnly ? "solana" : "evm"
+  );
 
-  const { assets } = usePortfolio(activeWallet?.address, selectedNetwork);
+  const chainId = selectedChainType === "solana" ? 0 : NETWORKS[selectedNetwork].chainId;
+
+  const evmAddress = activeWallet?.addresses?.evm || activeWallet?.address || "";
+  const solanaAddress = activeWallet?.addresses?.solana || "";
+
+  const { assets: evmAssets } = usePortfolio(
+    selectedChainType === "evm" && evmAddress ? evmAddress : undefined,
+    selectedNetwork
+  );
+  const { assets: solanaAssets } = useSolanaPortfolio(
+    selectedChainType === "solana" ? solanaAddress : undefined
+  );
 
   const tokens: TokenOption[] = useMemo(() => {
-    return assets.map((asset) => ({
+    if (selectedChainType === "solana") {
+      return solanaAssets.map((asset) => ({
+        symbol: asset.symbol,
+        balance: asset.balance,
+        address: asset.mint,
+        mint: asset.mint,
+        decimals: asset.decimals,
+        isNative: asset.isNative,
+        priceUsd: asset.priceUsd,
+      }));
+    }
+    return evmAssets.map((asset) => ({
       symbol: asset.symbol,
       balance: asset.balance,
-      address: asset.isNative ? undefined : (asset.address as `0x${string}`),
+      address: asset.isNative ? undefined : asset.address,
       decimals: asset.decimals,
       isNative: asset.isNative,
       priceUsd: asset.priceUsd,
     }));
-  }, [assets]);
+  }, [selectedChainType, evmAssets, solanaAssets]);
+
+  useEffect(() => {
+    setSelectedToken("");
+    setGasEstimate(null);
+  }, [selectedChainType]);
 
   useEffect(() => {
     if (tokens.length > 0 && !selectedToken) {
@@ -93,8 +141,20 @@ export default function SendScreen({ navigation, route }: Props) {
   const selectedTokenData = tokens.find(t => t.symbol === selectedToken);
 
   const estimateGas = useCallback(async () => {
+    if (selectedChainType === "solana") {
+      setGasEstimate({
+        gasLimit: BigInt(5000),
+        maxFeePerGas: BigInt(1),
+        maxPriorityFeePerGas: BigInt(1),
+        estimatedFeeNative: "0.000005",
+        estimatedFeeFormatted: "~0.000005 SOL",
+        nativeSymbol: "SOL",
+      });
+      return;
+    }
+
     if (!activeWallet || !recipient || !amount || !selectedTokenData) return;
-    if (!recipient.startsWith("0x") || recipient.length !== 42) return;
+    if (!isValidEvmAddress(recipient)) return;
     
     const parsedAmount = parseFloat(amount);
     if (isNaN(parsedAmount) || parsedAmount <= 0) return;
@@ -108,15 +168,15 @@ export default function SendScreen({ navigation, route }: Props) {
       if (selectedTokenData.isNative) {
         estimate = await estimateNativeGas(
           chainId,
-          activeWallet.address as `0x${string}`,
+          evmAddress as `0x${string}`,
           recipient as `0x${string}`,
           amount
         );
       } else {
         estimate = await estimateERC20Gas(
           chainId,
-          activeWallet.address as `0x${string}`,
-          selectedTokenData.address!,
+          evmAddress as `0x${string}`,
+          selectedTokenData.address as `0x${string}`,
           recipient as `0x${string}`,
           amount,
           selectedTokenData.decimals
@@ -130,7 +190,7 @@ export default function SendScreen({ navigation, route }: Props) {
     } finally {
       setGasLoading(false);
     }
-  }, [activeWallet, recipient, amount, selectedTokenData, chainId]);
+  }, [activeWallet, recipient, amount, selectedTokenData, chainId, selectedChainType, evmAddress]);
 
   useEffect(() => {
     const timeout = setTimeout(() => {
@@ -138,6 +198,13 @@ export default function SendScreen({ navigation, route }: Props) {
     }, 500);
     return () => clearTimeout(timeout);
   }, [estimateGas]);
+
+  const isValidAddress = (addr: string) => {
+    if (selectedChainType === "solana") {
+      return isValidSolanaAddress(addr);
+    }
+    return isValidEvmAddress(addr);
+  };
 
   const riskAssessment = useMemo((): RiskAssessment => {
     const reasons: string[] = [];
@@ -165,14 +232,14 @@ export default function SendScreen({ navigation, route }: Props) {
       return { level: "low", reasons: ["Recipient is allowlisted - trusted address"], canProceed: true };
     }
 
-    if (!recipient.startsWith("0x") || recipient.length !== 42) {
-      reasons.push("Invalid recipient address format");
+    if (!isValidAddress(recipient)) {
+      reasons.push(`Invalid ${selectedChainType === "solana" ? "Solana" : "EVM"} address format`);
       level = "high";
       canProceed = false;
       return { level, reasons, canProceed };
     }
 
-    const balance = parseFloat(selectedTokenData?.balance.replace(",", "") || "0");
+    const balance = parseFloat(selectedTokenData?.balance.replace(/,/g, "") || "0");
     const sendAmount = parseFloat(amount);
     
     if (selectedTokenData?.isNative) {
@@ -182,7 +249,7 @@ export default function SendScreen({ navigation, route }: Props) {
         if (sendAmount > balance) {
           reasons.push("Insufficient balance");
         } else {
-          reasons.push("Insufficient balance for amount + gas fee");
+          reasons.push("Insufficient balance for amount + fee");
         }
         level = "blocked";
         canProceed = false;
@@ -201,7 +268,7 @@ export default function SendScreen({ navigation, route }: Props) {
     }
 
     return { level, reasons, canProceed };
-  }, [recipient, amount, policySettings, selectedTokenData, gasEstimate]);
+  }, [recipient, amount, policySettings, selectedTokenData, gasEstimate, selectedChainType]);
 
   const getRiskColor = (level: RiskLevel) => {
     switch (level) {
@@ -227,39 +294,74 @@ export default function SendScreen({ navigation, route }: Props) {
     setIsSending(true);
 
     try {
-      let result;
+      let result: { hash: string; explorerUrl: string };
 
-      if (selectedTokenData.isNative) {
-        result = await sendNative({
-          chainId,
-          walletId: activeWallet.id,
-          to: recipient as `0x${string}`,
-          amountNative: amount,
+      if (selectedChainType === "solana") {
+        const mnemonic = await getMnemonic(activeWallet.id);
+        if (!mnemonic) {
+          throw new Error("Wallet is locked. Please unlock and try again.");
+        }
+
+        if (selectedTokenData.isNative) {
+          const solResult = await sendSol(mnemonic, recipient, amount);
+          result = { hash: solResult.signature, explorerUrl: solResult.explorerUrl };
+        } else {
+          const splResult = await sendSplToken({
+            mnemonic,
+            mintAddress: selectedTokenData.mint!,
+            toAddress: recipient,
+            amount,
+            decimals: selectedTokenData.decimals,
+          });
+          result = { hash: splResult.signature, explorerUrl: splResult.explorerUrl };
+        }
+
+        await saveTransaction({
+          chainId: 0,
+          walletAddress: solanaAddress || "",
+          hash: result.hash,
+          type: selectedTokenData.isNative ? "native" : "spl",
+          activityType: "send",
+          tokenAddress: selectedTokenData.mint,
+          tokenSymbol: selectedTokenData.symbol,
+          to: recipient,
+          amount,
+          priceUsd: selectedTokenData.priceUsd,
+          explorerUrl: result.explorerUrl,
         });
       } else {
-        result = await sendERC20({
+        if (selectedTokenData.isNative) {
+          result = await sendNative({
+            chainId,
+            walletId: activeWallet.id,
+            to: recipient as `0x${string}`,
+            amountNative: amount,
+          });
+        } else {
+          result = await sendERC20({
+            chainId,
+            walletId: activeWallet.id,
+            tokenAddress: selectedTokenData.address as `0x${string}`,
+            tokenDecimals: selectedTokenData.decimals,
+            to: recipient as `0x${string}`,
+            amount,
+          });
+        }
+
+        await saveTransaction({
           chainId,
-          walletId: activeWallet.id,
-          tokenAddress: selectedTokenData.address!,
-          tokenDecimals: selectedTokenData.decimals,
-          to: recipient as `0x${string}`,
+          walletAddress: evmAddress || activeWallet.address,
+          hash: result.hash,
+          type: selectedTokenData.isNative ? "native" : "erc20",
+          activityType: "send",
+          tokenAddress: selectedTokenData.address,
+          tokenSymbol: selectedTokenData.symbol,
+          to: recipient,
           amount,
+          priceUsd: selectedTokenData.priceUsd,
+          explorerUrl: result.explorerUrl,
         });
       }
-
-      await saveTransaction({
-        chainId,
-        walletAddress: activeWallet.address,
-        hash: result.hash,
-        type: selectedTokenData.isNative ? "native" : "erc20",
-        activityType: "send",
-        tokenAddress: selectedTokenData.address,
-        tokenSymbol: selectedTokenData.symbol,
-        to: recipient,
-        amount,
-        priceUsd: selectedTokenData.priceUsd,
-        explorerUrl: result.explorerUrl,
-      });
 
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setTxSuccess({ hash: result.hash, explorerUrl: result.explorerUrl });
@@ -310,12 +412,14 @@ export default function SendScreen({ navigation, route }: Props) {
       : "";
 
     const feeText = gasEstimate 
-      ? `Gas Fee: ~${gasEstimate.estimatedFeeFormatted}`
-      : "Gas Fee: Estimating...";
+      ? `Fee: ~${gasEstimate.estimatedFeeFormatted}`
+      : "Fee: Estimating...";
+
+    const networkName = selectedChainType === "solana" ? "Solana" : NETWORKS[selectedNetwork].name;
 
     Alert.alert(
       "Wallet Firewall - Before You Sign",
-      `Transaction Summary:\n\nSending: ${amount} ${selectedToken}\nTo: ${recipient.slice(0, 10)}...${recipient.slice(-4)}\nNetwork: ${NETWORKS[selectedNetwork].name}\n${feeText}\n\nRisk Level: ${getRiskLabel(riskAssessment.level)}${warningText}`,
+      `Transaction Summary:\n\nSending: ${amount} ${selectedToken}\nTo: ${recipient.slice(0, 10)}...${recipient.slice(-4)}\nNetwork: ${networkName}\n${feeText}\n\nRisk Level: ${getRiskLabel(riskAssessment.level)}${warningText}`,
       [
         { text: "Cancel", style: "cancel" },
         { 
@@ -356,7 +460,7 @@ export default function SendScreen({ navigation, route }: Props) {
 
           <View style={styles.hashContainer}>
             <ThemedText type="caption" style={{ color: theme.textSecondary }}>
-              Transaction Hash
+              Transaction {selectedChainType === "solana" ? "Signature" : "Hash"}
             </ThemedText>
             <Pressable onPress={handleCopyHash} style={styles.hashRow}>
               <ThemedText type="small" style={{ fontFamily: "monospace" }}>
@@ -392,19 +496,58 @@ export default function SendScreen({ navigation, route }: Props) {
           { paddingTop: headerHeight + Spacing.lg, paddingBottom: insets.bottom + Spacing["2xl"] },
         ]}
       >
-        <View style={[styles.networkCard, { backgroundColor: theme.backgroundDefault }]}>
-          <ThemedText type="small" style={{ color: theme.textSecondary }}>
-            Sending on
-          </ThemedText>
-          <NetworkBadge networkId={selectedNetwork} selected />
-        </View>
+        {!isSolanaOnly ? (
+          <View style={[styles.chainSelectorCard, { backgroundColor: theme.backgroundDefault }]}>
+            <ThemedText type="small" style={{ color: theme.textSecondary }}>
+              Sending on
+            </ThemedText>
+            <View style={styles.chainSelector}>
+              {CHAIN_OPTIONS.map((chain) => (
+                <Pressable
+                  key={chain.id}
+                  style={[
+                    styles.chainOption,
+                    { 
+                      backgroundColor: selectedChainType === chain.id ? chain.color + "20" : "transparent",
+                      borderColor: selectedChainType === chain.id ? chain.color : theme.border,
+                    },
+                  ]}
+                  onPress={() => setSelectedChainType(chain.id)}
+                >
+                  <View style={[styles.chainDot, { backgroundColor: chain.color }]} />
+                  <ThemedText 
+                    type="small" 
+                    style={{ 
+                      color: selectedChainType === chain.id ? chain.color : theme.textSecondary,
+                      fontWeight: selectedChainType === chain.id ? "600" : "400",
+                    }}
+                  >
+                    {chain.name}
+                  </ThemedText>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+        ) : (
+          <View style={[styles.networkCard, { backgroundColor: theme.backgroundDefault }]}>
+            <ThemedText type="small" style={{ color: theme.textSecondary }}>
+              Sending on
+            </ThemedText>
+            <View style={[styles.solanaBadge, { backgroundColor: "#9945FF20" }]}>
+              <View style={[styles.chainDot, { backgroundColor: "#9945FF" }]} />
+              <ThemedText type="small" style={{ color: "#9945FF", fontWeight: "600" }}>
+                Solana
+              </ThemedText>
+            </View>
+          </View>
+        )}
 
         <View style={styles.form}>
           <Input
             label="Recipient Address"
             value={recipient}
             onChangeText={setRecipient}
-            placeholder="0x..."
+            placeholder={selectedChainType === "solana" ? "Solana address..." : "0x..."}
             autoCapitalize="none"
             autoCorrect={false}
           />
@@ -448,7 +591,7 @@ export default function SendScreen({ navigation, route }: Props) {
               <ThemedText type="small" style={{ color: theme.textSecondary }}>
                 Amount
               </ThemedText>
-              <Pressable onPress={() => setAmount(selectedTokenData?.balance.replace(",", "") || "")}>
+              <Pressable onPress={() => setAmount(selectedTokenData?.balance.replace(/,/g, "") || "")}>
                 <ThemedText type="small" style={{ color: theme.accent }}>
                   Max
                 </ThemedText>
@@ -491,7 +634,9 @@ export default function SendScreen({ navigation, route }: Props) {
 
         <View style={[styles.feeCard, { backgroundColor: theme.backgroundDefault }]}>
           <View style={styles.feeRow}>
-            <ThemedText type="body">Estimated Gas Fee</ThemedText>
+            <ThemedText type="body">
+              Estimated {selectedChainType === "solana" ? "Fee" : "Gas Fee"}
+            </ThemedText>
             {gasLoading ? (
               <ActivityIndicator size="small" color={theme.accent} />
             ) : gasError ? (
@@ -555,6 +700,38 @@ const styles = StyleSheet.create({
     padding: Spacing.lg,
     borderRadius: BorderRadius.md,
     marginBottom: Spacing.xl,
+  },
+  chainSelectorCard: {
+    padding: Spacing.lg,
+    borderRadius: BorderRadius.md,
+    gap: Spacing.md,
+    marginBottom: Spacing.xl,
+  },
+  chainSelector: {
+    flexDirection: "row",
+    gap: Spacing.sm,
+  },
+  chainOption: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    gap: Spacing.xs,
+  },
+  chainDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  solanaBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: Spacing.xs,
+    paddingHorizontal: Spacing.md,
+    borderRadius: BorderRadius.md,
+    gap: Spacing.xs,
   },
   form: {
     gap: Spacing.xl,

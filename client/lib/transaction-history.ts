@@ -11,7 +11,7 @@ export interface TxRecord {
   chainId: number;
   walletAddress: string;
   hash: string;
-  type: "native" | "erc20";
+  type: "native" | "erc20" | "spl";
   activityType: ActivityType;
   tokenAddress?: string;
   tokenSymbol: string;
