@@ -1,7 +1,9 @@
-import { View, StyleSheet, FlatList, Pressable, Alert } from "react-native";
+import { useState, useEffect, useCallback } from "react";
+import { View, StyleSheet, FlatList, Pressable, Alert, ActivityIndicator, RefreshControl } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { Feather } from "@expo/vector-icons";
+import * as Haptics from "expo-haptics";
 
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius } from "@/constants/theme";
@@ -10,72 +12,192 @@ import { ThemedView } from "@/components/ThemedView";
 import { Badge } from "@/components/Badge";
 import { EmptyState } from "@/components/EmptyState";
 import { useWallet } from "@/lib/wallet-context";
-
-interface MockApproval {
-  id: string;
-  tokenSymbol: string;
-  tokenName: string;
-  spenderName: string;
-  spenderAddress: string;
-  allowance: string;
-  isUnlimited: boolean;
-}
-
-const MOCK_APPROVALS: MockApproval[] = [
-  { id: "1", tokenSymbol: "USDC", tokenName: "USD Coin", spenderName: "Uniswap V3", spenderAddress: "0x68b3...4f21", allowance: "Unlimited", isUnlimited: true },
-  { id: "2", tokenSymbol: "DAI", tokenName: "Dai Stablecoin", spenderName: "Aave V3", spenderAddress: "0x7fc9...8e32", allowance: "10,000", isUnlimited: false },
-  { id: "3", tokenSymbol: "WETH", tokenName: "Wrapped Ether", spenderName: "1inch Router", spenderAddress: "0x1111...1111", allowance: "Unlimited", isUnlimited: true },
-];
+import { 
+  ApprovalRecord, 
+  listApprovals, 
+  revokeApproval,
+  estimateRevokeFee,
+  getSpenderLabel,
+  shortenAddress,
+  formatAllowance,
+} from "@/lib/approvals";
+import { supportedChains } from "@/lib/blockchain/chains";
 
 export default function ApprovalsScreen() {
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
   const { theme } = useTheme();
-  const { policySettings } = useWallet();
+  const { activeWallet, policySettings } = useWallet();
+  
+  const [approvals, setApprovals] = useState<ApprovalRecord[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [revokingIds, setRevokingIds] = useState<Set<string>>(new Set());
 
-  const handleRevoke = (approval: MockApproval) => {
-    Alert.alert(
-      "Revoke Approval",
-      `Are you sure you want to revoke ${approval.spenderName}'s access to your ${approval.tokenSymbol}?\n\nEstimated gas: ~0.001 ETH ($2.50)`,
-      [
-        { text: "Cancel", style: "cancel" },
-        { 
-          text: "Revoke",
-          style: "destructive",
-          onPress: () => {
-            Alert.alert("Success", "Approval revoked successfully!");
-          }
-        },
-      ]
-    );
+  const evmAddress = activeWallet?.addresses?.evm || activeWallet?.address;
+
+  const loadApprovals = useCallback(async () => {
+    if (!evmAddress) {
+      setApprovals([]);
+      setIsLoading(false);
+      return;
+    }
+
+    try {
+      const allApprovals: ApprovalRecord[] = [];
+      
+      for (const chain of supportedChains) {
+        const chainApprovals = await listApprovals({
+          owner: evmAddress as `0x${string}`,
+          chainId: chain.chainId,
+        });
+        allApprovals.push(...chainApprovals);
+      }
+
+      const activeApprovals = allApprovals.filter(a => 
+        a.status !== "revoked" && a.status !== "failed"
+      );
+
+      setApprovals(activeApprovals.sort((a, b) => b.createdAt - a.createdAt));
+    } catch (error) {
+      console.error("Failed to load approvals:", error);
+    } finally {
+      setIsLoading(false);
+      setIsRefreshing(false);
+    }
+  }, [evmAddress]);
+
+  useEffect(() => {
+    loadApprovals();
+  }, [loadApprovals]);
+
+  const handleRefresh = () => {
+    setIsRefreshing(true);
+    loadApprovals();
   };
 
-  const unlimitedCount = MOCK_APPROVALS.filter(a => a.isUnlimited).length;
+  const handleRevoke = async (approval: ApprovalRecord) => {
+    if (!activeWallet) return;
+
+    try {
+      const feeEstimate = await estimateRevokeFee(
+        approval.chainId,
+        approval.owner,
+        approval.tokenAddress,
+        approval.spender
+      );
+
+      Alert.alert(
+        "Revoke Approval",
+        `Are you sure you want to revoke access to your ${approval.tokenSymbol || "tokens"}?\n\nEstimated gas: ${feeEstimate.feeFormatted}`,
+        [
+          { text: "Cancel", style: "cancel" },
+          { 
+            text: "Revoke",
+            style: "destructive",
+            onPress: async () => {
+              await executeRevoke(approval);
+            }
+          },
+        ]
+      );
+    } catch (error) {
+      Alert.alert(
+        "Revoke Approval",
+        `Are you sure you want to revoke access to your ${approval.tokenSymbol || "tokens"}?`,
+        [
+          { text: "Cancel", style: "cancel" },
+          { 
+            text: "Revoke",
+            style: "destructive",
+            onPress: async () => {
+              await executeRevoke(approval);
+            }
+          },
+        ]
+      );
+    }
+  };
+
+  const executeRevoke = async (approval: ApprovalRecord) => {
+    if (!activeWallet) return;
+
+    setRevokingIds(prev => new Set([...prev, approval.id]));
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+    try {
+      const result = await revokeApproval({
+        chainId: approval.chainId,
+        walletId: activeWallet.id,
+        owner: approval.owner,
+        tokenAddress: approval.tokenAddress,
+        spender: approval.spender,
+        approvalId: approval.id,
+      });
+
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      
+      Alert.alert(
+        "Revoke Submitted",
+        `Transaction submitted successfully!\n\nHash: ${result.hash.slice(0, 10)}...${result.hash.slice(-8)}`,
+        [
+          { text: "OK", onPress: () => loadApprovals() },
+        ]
+      );
+    } catch (error: any) {
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      Alert.alert("Revoke Failed", error.message || "Failed to revoke approval");
+    } finally {
+      setRevokingIds(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(approval.id);
+        return newSet;
+      });
+    }
+  };
+
+  const getChainName = (chainId: number): string => {
+    const chain = supportedChains.find(c => c.chainId === chainId);
+    return chain?.name || `Chain ${chainId}`;
+  };
+
+  const unlimitedCount = approvals.filter(a => a.isUnlimited).length;
   const isBlockingUnlimited = policySettings.blockUnlimitedApprovals;
 
-  const renderApproval = ({ item }: { item: MockApproval }) => {
+  const renderApproval = ({ item }: { item: ApprovalRecord }) => {
     const isBlocked = item.isUnlimited && isBlockingUnlimited;
+    const isRevoking = revokingIds.has(item.id) || item.status === "revoking";
+    const spenderLabel = item.spenderLabel || getSpenderLabel(item.chainId, item.spender);
+    const displayAllowance = item.isUnlimited 
+      ? "Unlimited" 
+      : item.allowanceFormatted || formatAllowance(
+          BigInt(item.allowanceRaw),
+          item.tokenDecimals || 18,
+          item.tokenSymbol || ""
+        );
     
     return (
       <View style={[styles.approvalCard, { backgroundColor: theme.backgroundDefault }]}>
         <View style={styles.approvalHeader}>
           <View style={[styles.tokenIcon, { backgroundColor: theme.accent + "15" }]}>
             <ThemedText type="body" style={{ fontWeight: "700", color: theme.accent }}>
-              {item.tokenSymbol.slice(0, 2)}
+              {(item.tokenSymbol || "??").slice(0, 2)}
             </ThemedText>
           </View>
           <View style={styles.tokenInfo}>
             <ThemedText type="body" style={{ fontWeight: "600" }}>
-              {item.tokenSymbol}
+              {item.tokenSymbol || shortenAddress(item.tokenAddress)}
             </ThemedText>
             <ThemedText type="caption" style={{ color: theme.textSecondary }}>
-              {item.tokenName}
+              {item.tokenName || getChainName(item.chainId)}
             </ThemedText>
           </View>
-          {item.isUnlimited ? (
+          {item.status === "pending" ? (
+            <Badge label="Pending" variant="warning" />
+          ) : item.isUnlimited ? (
             <Badge label={isBlocked ? "Blocked" : "Unlimited"} variant="danger" />
           ) : (
-            <Badge label={item.allowance} variant="neutral" />
+            <Badge label={displayAllowance} variant="neutral" />
           )}
         </View>
 
@@ -83,7 +205,7 @@ export default function ApprovalsScreen() {
           <View style={[styles.blockedRow, { backgroundColor: theme.danger + "10", borderTopColor: theme.border }]}>
             <Feather name="shield-off" size={16} color={theme.danger} />
             <ThemedText type="small" style={{ color: theme.danger, flex: 1 }}>
-              This approval is blocked by your Wallet Firewall policy. Revoke it to stay safe.
+              This approval is risky. Revoke it to stay safe.
             </ThemedText>
           </View>
         ) : null}
@@ -94,25 +216,50 @@ export default function ApprovalsScreen() {
               Approved Spender
             </ThemedText>
             <View style={styles.spenderName}>
-              <ThemedText type="body">{item.spenderName}</ThemedText>
+              <ThemedText type="body">
+                {spenderLabel || "Unknown Contract"}
+              </ThemedText>
               <ThemedText type="caption" style={{ color: theme.textSecondary }}>
-                {item.spenderAddress}
+                {shortenAddress(item.spender)}
               </ThemedText>
             </View>
           </View>
           <Pressable 
-            style={[styles.revokeButton, { backgroundColor: theme.danger + "15" }]}
+            style={[
+              styles.revokeButton, 
+              { backgroundColor: isRevoking ? theme.border : theme.danger + "15" }
+            ]}
             onPress={() => handleRevoke(item)}
+            disabled={isRevoking}
           >
-            <Feather name="x" size={16} color={theme.danger} />
-            <ThemedText type="small" style={{ color: theme.danger, fontWeight: "600" }}>
-              Revoke
-            </ThemedText>
+            {isRevoking ? (
+              <ActivityIndicator size="small" color={theme.textSecondary} />
+            ) : (
+              <>
+                <Feather name="x" size={16} color={theme.danger} />
+                <ThemedText type="small" style={{ color: theme.danger, fontWeight: "600" }}>
+                  Revoke
+                </ThemedText>
+              </>
+            )}
           </Pressable>
         </View>
       </View>
     );
   };
+
+  if (isLoading) {
+    return (
+      <ThemedView style={styles.container}>
+        <View style={[styles.loadingContainer, { paddingTop: headerHeight + Spacing.xl }]}>
+          <ActivityIndicator size="large" color={theme.accent} />
+          <ThemedText type="body" style={{ color: theme.textSecondary, marginTop: Spacing.md }}>
+            Loading approvals...
+          </ThemedText>
+        </View>
+      </ThemedView>
+    );
+  }
 
   return (
     <ThemedView style={styles.container}>
@@ -121,9 +268,16 @@ export default function ApprovalsScreen() {
           styles.listContent,
           { paddingTop: headerHeight + Spacing.xl, paddingBottom: insets.bottom + Spacing["2xl"] },
         ]}
-        data={MOCK_APPROVALS}
+        data={approvals}
         keyExtractor={(item) => item.id}
         renderItem={renderApproval}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={handleRefresh}
+            tintColor={theme.accent}
+          />
+        }
         ListHeaderComponent={
           <View>
             {isBlockingUnlimited && unlimitedCount > 0 ? (
@@ -134,7 +288,7 @@ export default function ApprovalsScreen() {
                     Wallet Firewall Active
                   </ThemedText>
                   <ThemedText type="small" style={{ color: theme.accent }}>
-                    {unlimitedCount} unlimited approval{unlimitedCount !== 1 ? "s" : ""} blocked by policy. New unlimited approvals will be rejected.
+                    {unlimitedCount} unlimited approval{unlimitedCount !== 1 ? "s" : ""} detected. New unlimited approvals will be blocked.
                   </ThemedText>
                 </View>
               </View>
@@ -153,12 +307,18 @@ export default function ApprovalsScreen() {
                 </View>
               </View>
             ) : null}
+
+            {approvals.length > 0 ? (
+              <ThemedText type="small" style={{ color: theme.textSecondary, marginBottom: Spacing.md }}>
+                {approvals.length} approval{approvals.length !== 1 ? "s" : ""} tracked
+              </ThemedText>
+            ) : null}
           </View>
         }
         ListEmptyComponent={
           <EmptyState
             title="No Approvals"
-            message="You haven't approved any contracts to spend your tokens"
+            message="Token approvals made from this wallet will appear here"
           />
         }
         ItemSeparatorComponent={() => <View style={{ height: Spacing.md }} />}
@@ -170,6 +330,11 @@ export default function ApprovalsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
   },
   listContent: {
     paddingHorizontal: Spacing.lg,
@@ -250,5 +415,7 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.sm,
     borderRadius: BorderRadius.sm,
     gap: Spacing.xs,
+    minWidth: 80,
+    justifyContent: "center",
   },
 });
