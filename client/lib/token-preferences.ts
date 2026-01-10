@@ -75,14 +75,31 @@ export async function getCustomTokens(): Promise<CustomToken[]> {
 }
 
 export async function addCustomToken(token: CustomToken): Promise<void> {
+  console.log("[TokenPrefs] addCustomToken called with:", JSON.stringify(token));
   const tokens = await getCustomTokens();
+  console.log("[TokenPrefs] Existing tokens before add:", JSON.stringify(tokens));
   const exists = tokens.some(
     t => t.chainId === token.chainId && 
          t.contractAddress.toLowerCase() === token.contractAddress.toLowerCase()
   );
+  console.log("[TokenPrefs] Token already exists:", exists);
   if (!exists) {
     tokens.push(token);
-    await AsyncStorage.setItem(CUSTOM_TOKENS_KEY, JSON.stringify(tokens));
+    const dataToSave = JSON.stringify(tokens);
+    console.log("[TokenPrefs] Saving tokens:", dataToSave);
+    await AsyncStorage.setItem(CUSTOM_TOKENS_KEY, dataToSave);
+    console.log("[TokenPrefs] Token saved successfully");
+  } else {
+    // Update the existing token's metadata
+    const updatedTokens = tokens.map(t => {
+      if (t.chainId === token.chainId && 
+          t.contractAddress.toLowerCase() === token.contractAddress.toLowerCase()) {
+        return { ...t, symbol: token.symbol, name: token.name, logoUrl: token.logoUrl };
+      }
+      return t;
+    });
+    await AsyncStorage.setItem(CUSTOM_TOKENS_KEY, JSON.stringify(updatedTokens));
+    console.log("[TokenPrefs] Updated existing token metadata");
   }
 }
 
