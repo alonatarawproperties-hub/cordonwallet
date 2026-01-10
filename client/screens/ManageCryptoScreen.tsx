@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useLayoutEffect } from "react";
 import {
   View,
   StyleSheet,
@@ -9,7 +9,7 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useHeaderHeight } from "@react-navigation/elements";
+import { useHeaderHeight, HeaderButton } from "@react-navigation/elements";
 import { Feather } from "@expo/vector-icons";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useNavigation } from "@react-navigation/native";
@@ -46,6 +46,16 @@ export default function ManageCryptoScreen() {
   const [hiddenTokens, setHiddenTokens] = useState<string[]>([]);
   const [customTokens, setCustomTokens] = useState<CustomToken[]>([]);
   const [isLoadingPrefs, setIsLoadingPrefs] = useState(true);
+
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerRight: () => (
+        <HeaderButton onPress={() => navigation.navigate("ImportToken")}>
+          <Feather name="plus" size={24} color={theme.accent} />
+        </HeaderButton>
+      ),
+    });
+  }, [navigation, theme]);
 
   useEffect(() => {
     loadPreferences();
