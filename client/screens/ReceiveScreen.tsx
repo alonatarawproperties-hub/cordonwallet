@@ -315,7 +315,13 @@ export default function ReceiveScreen({ navigation, route }: Props) {
           </Pressable>
 
           <View style={[styles.qrCard, { backgroundColor: theme.backgroundDefault }]}>
-            <View style={[styles.qrTokenHeader]}>
+            <View style={styles.qrTokenHeader}>
+              {(() => {
+                const logoUrl = getTokenLogoUrl(selectedAsset, customTokens);
+                return logoUrl ? (
+                  <Image source={{ uri: logoUrl }} style={styles.qrTokenLogo} />
+                ) : null;
+              })()}
               <ThemedText type="h3">{selectedAsset.symbol}</ThemedText>
               <View style={[styles.chainBadgeLarge, { backgroundColor: getChainColor(selectedAsset.chainName) + "20" }]}>
                 <ThemedText type="small" style={{ color: getChainColor(selectedAsset.chainName) }}>
@@ -407,6 +413,15 @@ export default function ReceiveScreen({ navigation, route }: Props) {
         <ThemedText type="small" style={{ color: theme.textSecondary, marginBottom: Spacing.sm }}>
           All crypto
         </ThemedText>
+
+        {copiedAddress ? (
+          <View style={[styles.copiedToast, { backgroundColor: theme.success }]}>
+            <Feather name="check" size={16} color="#FFFFFF" />
+            <ThemedText type="small" style={{ color: "#FFFFFF", fontWeight: "600" }}>
+              Address copied!
+            </ThemedText>
+          </View>
+        ) : null}
 
         {isLoading ? (
           <View style={styles.loadingContainer}>
@@ -559,6 +574,16 @@ const styles = StyleSheet.create({
     padding: Spacing["2xl"],
     alignItems: "center",
   },
+  copiedToast: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    borderRadius: BorderRadius.sm,
+    gap: Spacing.xs,
+    marginBottom: Spacing.sm,
+  },
   qrContent: {
     flex: 1,
     paddingHorizontal: Spacing.lg,
@@ -576,6 +601,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: Spacing.md,
+  },
+  qrTokenLogo: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
   },
   qrContainer: {
     padding: Spacing.lg,
