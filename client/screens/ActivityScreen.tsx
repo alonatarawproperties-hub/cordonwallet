@@ -99,6 +99,62 @@ type NetworkFilter = "all" | number;
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
+async function fetchPrices(): Promise<Record<string, number>> {
+  try {
+    const apiUrl = getApiUrl();
+    const priceUrl = new URL("/api/prices", apiUrl);
+    const response = await fetch(priceUrl.toString());
+    if (!response.ok) return {};
+    
+    const data = await response.json();
+    const prices: Record<string, number> = {};
+    
+    for (const [symbol, value] of Object.entries(data)) {
+      if (typeof value === "number") {
+        prices[symbol.toUpperCase()] = value;
+      } else if (value && typeof value === "object" && "price" in value) {
+        prices[symbol.toUpperCase()] = (value as { price: number }).price;
+      }
+    }
+    return prices;
+  } catch {
+    return {};
+  }
+}
+
+async function fetchTokenPrices(
+  mintAddresses: string[],
+  customTokens: CustomToken[]
+): Promise<Record<string, number>> {
+  if (mintAddresses.length === 0) return {};
+  
+  const prices: Record<string, number> = {};
+  const apiUrl = getApiUrl();
+  
+  for (const mint of mintAddresses) {
+    try {
+      const url = new URL(`/api/dexscreener/token/solana/${mint}`, apiUrl);
+      const response = await fetch(url.toString());
+      if (!response.ok) continue;
+      
+      const data = await response.json();
+      if (data.priceUsd) {
+        prices[mint] = parseFloat(data.priceUsd);
+        const token = customTokens.find(
+          t => t.chainId === 0 && t.contractAddress.toLowerCase() === mint.toLowerCase()
+        );
+        if (token) {
+          prices[token.symbol.toUpperCase()] = parseFloat(data.priceUsd);
+        }
+      }
+    } catch {
+      continue;
+    }
+  }
+  
+  return prices;
+}
+
 export default function ActivityScreen() {
   const navigation = useNavigation<NavigationProp>();
   const headerHeight = useHeaderHeight();
@@ -111,6 +167,8 @@ export default function ActivityScreen() {
   const [transactions, setTransactions] = useState<TxRecord[]>([]);
   const [networkFilter, setNetworkFilter] = useState<NetworkFilter>("all");
   const [showNetworkPicker, setShowNetworkPicker] = useState(false);
+  const [prices, setPrices] = useState<Record<string, number>>({});
+  const [customTokens, setCustomTokens] = useState<CustomToken[]>([]);
 
   const loadTransactions = useCallback(async () => {
     if (!activeWallet) {
@@ -127,7 +185,9 @@ export default function ActivityScreen() {
     console.log("[Activity] Loading transactions for EVM:", evmAddress?.slice(0, 8), "Solana:", solanaAddress?.slice(0, 8));
 
     try {
-      const customTokens = await getCustomTokens();
+      const tokens = await getCustomTokens();
+      setCustomTokens(tokens);
+      
       const fetchPromises: Promise<TxRecord[]>[] = [];
 
       if (!isSolanaOnly && evmAddress) {
@@ -136,21 +196,24 @@ export default function ActivityScreen() {
       }
 
       if (solanaAddress) {
-        fetchPromises.push(fetchSolanaHistory(solanaAddress, customTokens));
+        fetchPromises.push(fetchSolanaHistory(solanaAddress, tokens));
       }
 
-      const results = await Promise.all(fetchPromises);
+      const [txResults, priceData] = await Promise.all([
+        Promise.all(fetchPromises),
+        fetchPrices(),
+      ]);
       
       let explorerTxs: TxRecord[] = [];
       let localTxs: TxRecord[] = [];
       let solanaTxs: TxRecord[] = [];
 
       if (!isSolanaOnly && evmAddress) {
-        explorerTxs = results[0] || [];
-        localTxs = results[1] || [];
-        solanaTxs = solanaAddress ? (results[2] || []) : [];
+        explorerTxs = txResults[0] || [];
+        localTxs = txResults[1] || [];
+        solanaTxs = solanaAddress ? (txResults[2] || []) : [];
       } else if (solanaAddress) {
-        solanaTxs = results[0] || [];
+        solanaTxs = txResults[0] || [];
       }
 
       console.log("[Activity] EVM Explorer txs:", explorerTxs.length, "Local txs:", localTxs.length, "Solana txs:", solanaTxs.length);
@@ -165,6 +228,14 @@ export default function ActivityScreen() {
 
       console.log("[Activity] Total transactions:", allTxs.length);
       setTransactions(allTxs.slice(0, 100));
+      
+      const uniqueMints = new Set<string>();
+      solanaTxs.forEach(tx => {
+        if (tx.tokenAddress) uniqueMints.add(tx.tokenAddress);
+      });
+      
+      const tokenPrices = await fetchTokenPrices(Array.from(uniqueMints), tokens);
+      setPrices({ ...priceData, ...tokenPrices });
     } catch (error) {
       console.error("[Activity] Failed to load transactions:", error);
       const evmAddr = activeWallet.addresses?.evm || activeWallet.address || "";
@@ -297,12 +368,32 @@ export default function ActivityScreen() {
       return `${item.amount} ${item.tokenSymbol}`;
     };
 
+    const getUsdValue = (): string | null => {
+      const amount = parseFloat(item.amount);
+      if (isNaN(amount) || amount === 0) return null;
+      
+      let price = prices[item.tokenSymbol.toUpperCase()];
+      if (!price && item.tokenAddress) {
+        price = prices[item.tokenAddress];
+      }
+      
+      if (!price) return null;
+      
+      const usdValue = amount * price;
+      if (usdValue < 0.01) {
+        return `$${usdValue.toFixed(4)}`;
+      }
+      return `$${usdValue.toFixed(2)}`;
+    };
+
     const amountColor =
       activityType === "receive"
         ? theme.success
         : activityType === "send"
         ? theme.text
         : theme.warning;
+
+    const usdValue = getUsdValue();
 
     return (
       <Pressable
@@ -341,7 +432,7 @@ export default function ActivityScreen() {
             {getAmountDisplay()}
           </ThemedText>
           <ThemedText type="caption" style={{ color: theme.textSecondary, textAlign: "right" }}>
-            {chainName}
+            {usdValue ? `≈ ${usdValue}` : chainName}
           </ThemedText>
         </View>
       </Pressable>
