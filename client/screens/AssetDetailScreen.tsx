@@ -11,6 +11,7 @@ import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
+import { PnlChart } from "@/components/PnlChart";
 import { useWallet } from "@/lib/wallet-context";
 import { fetchTransactionHistory } from "@/lib/blockchain/explorer-api";
 import { TxRecord } from "@/lib/transaction-history";
@@ -110,18 +111,64 @@ export default function AssetDetailScreen({ route }: Props) {
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [tokenInfo, setTokenInfo] = useState<TokenInfo | null>(null);
   const [isLoadingInfo, setIsLoadingInfo] = useState(false);
+  const [pnlData, setPnlData] = useState<{ timestamp: number; value: number }[]>([]);
 
   useEffect(() => {
-    if (activeTab === "history" && activeWallet && transactions.length === 0) {
+    if (activeWallet && transactions.length === 0) {
       loadTransactionHistory();
     }
-  }, [activeTab, activeWallet]);
+  }, [activeWallet]);
 
   useEffect(() => {
     if (activeTab === "about" && !tokenInfo) {
       loadTokenInfo();
     }
   }, [activeTab]);
+
+  useEffect(() => {
+    if (transactions.length > 0 && priceUsd) {
+      calculatePnlData();
+    }
+  }, [transactions, priceUsd]);
+
+  const calculatePnlData = () => {
+    const sortedTxs = [...transactions].sort((a, b) => a.createdAt - b.createdAt);
+    const dataPoints: { timestamp: number; value: number }[] = [];
+    
+    let cumulativeTokens = 0;
+    let cumulativeCost = 0;
+    
+    for (const tx of sortedTxs) {
+      const amount = parseFloat(tx.amount) || 0;
+      const txPrice = tx.priceUsd || priceUsd || 0;
+      
+      if (tx.activityType === "receive") {
+        cumulativeTokens += amount;
+        cumulativeCost += amount * txPrice;
+      } else if (tx.activityType === "send") {
+        const avgCost = cumulativeTokens > 0 ? cumulativeCost / cumulativeTokens : 0;
+        cumulativeTokens -= amount;
+        cumulativeCost -= amount * avgCost;
+      }
+      
+      const currentValue = cumulativeTokens * (priceUsd || 0);
+      const pnl = currentValue - cumulativeCost;
+      
+      dataPoints.push({
+        timestamp: tx.createdAt,
+        value: pnl,
+      });
+    }
+    
+    if (dataPoints.length > 0) {
+      dataPoints.push({
+        timestamp: Date.now(),
+        value: dataPoints[dataPoints.length - 1].value,
+      });
+    }
+    
+    setPnlData(dataPoints);
+  };
 
   const loadTransactionHistory = async () => {
     if (!activeWallet) return;
@@ -183,8 +230,57 @@ export default function AssetDetailScreen({ route }: Props) {
     { key: "about", label: "About" },
   ];
 
+  const totalPnl = pnlData.length > 0 ? pnlData[pnlData.length - 1].value : 0;
+  const pnlPercent = valueUsd && valueUsd > 0 ? (totalPnl / (valueUsd - totalPnl)) * 100 : 0;
+
   const renderHoldingsTab = () => (
     <View style={styles.tabContent}>
+      {pnlData.length >= 2 ? (
+        <View style={{ marginBottom: Spacing.lg }}>
+          <View style={styles.pnlHeader}>
+            <ThemedText type="caption" style={{ color: theme.textSecondary }}>
+              Profit / Loss
+            </ThemedText>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <ThemedText
+                type="h3"
+                style={{
+                  color: totalPnl >= 0 ? "#22C55E" : "#EF4444",
+                }}
+              >
+                {totalPnl >= 0 ? "+" : ""}${Math.abs(totalPnl).toFixed(2)}
+              </ThemedText>
+              <View style={[styles.pnlBadge, { backgroundColor: totalPnl >= 0 ? "#22C55E20" : "#EF444420" }]}>
+                <ThemedText
+                  type="caption"
+                  style={{
+                    color: totalPnl >= 0 ? "#22C55E" : "#EF4444",
+                    fontSize: 11,
+                  }}
+                >
+                  {pnlPercent >= 0 ? "+" : ""}{pnlPercent.toFixed(2)}%
+                </ThemedText>
+              </View>
+            </View>
+          </View>
+          <PnlChart data={pnlData} height={140} />
+        </View>
+      ) : isLoadingHistory ? (
+        <View style={[styles.chartPlaceholder, { backgroundColor: theme.backgroundDefault }]}>
+          <ActivityIndicator size="small" color={theme.accent} />
+          <ThemedText type="caption" style={{ color: theme.textSecondary, marginTop: Spacing.sm }}>
+            Loading trading data...
+          </ThemedText>
+        </View>
+      ) : (
+        <View style={[styles.chartPlaceholder, { backgroundColor: theme.backgroundDefault }]}>
+          <Feather name="trending-up" size={28} color={theme.textSecondary} />
+          <ThemedText type="caption" style={{ color: theme.textSecondary, marginTop: Spacing.sm, textAlign: "center" }}>
+            PNL chart will appear once you have trading activity
+          </ThemedText>
+        </View>
+      )}
+
       <ThemedText type="body" style={{ color: theme.textSecondary, marginBottom: Spacing.md }}>
         My Balance
       </ThemedText>
@@ -621,6 +717,24 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.lg,
     paddingVertical: Spacing.md,
     borderTopWidth: 1,
+  },
+  pnlHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: Spacing.sm,
+  },
+  pnlBadge: {
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 2,
+    borderRadius: BorderRadius.xs,
+  },
+  chartPlaceholder: {
+    height: 140,
+    borderRadius: BorderRadius.md,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: Spacing.lg,
   },
   loadingContainer: {
     alignItems: "center",

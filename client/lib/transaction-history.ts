@@ -20,6 +20,7 @@ export interface TxRecord {
   amount: string;
   toTokenSymbol?: string;
   toAmount?: string;
+  priceUsd?: number;
   status: "pending" | "confirmed" | "failed";
   createdAt: number;
   explorerUrl: string;
