@@ -354,11 +354,17 @@ export async function prepareSplTransfer(
   };
 }
 
+export interface SendTransactionResult {
+  signature: string;
+  status: "confirmed" | "failed";
+  error?: string;
+}
+
 export async function sendSignedTransaction(
   transactionBase64: string,
   signatureBase64: string,
   publicKeyBase58: string
-): Promise<string> {
+): Promise<SendTransactionResult> {
   const transactionBuffer = Buffer.from(transactionBase64, "base64");
   const transaction = Transaction.from(transactionBuffer);
 
@@ -372,9 +378,17 @@ export async function sendSignedTransaction(
     preflightCommitment: "confirmed",
   });
 
-  await connection.confirmTransaction(txSignature, "confirmed");
-
-  return txSignature;
+  try {
+    await connection.confirmTransaction(txSignature, "confirmed");
+    return { signature: txSignature, status: "confirmed" };
+  } catch (confirmError: any) {
+    console.log(`[Solana API] Transaction ${txSignature} failed confirmation:`, confirmError.message);
+    return { 
+      signature: txSignature, 
+      status: "failed", 
+      error: confirmError.message 
+    };
+  }
 }
 
 export interface SolanaTransaction {
@@ -396,7 +410,9 @@ export async function getSolanaTransactionHistory(
 ): Promise<SolanaTransaction[]> {
   const pubkey = new PublicKey(address);
   
+  console.log(`[Solana History] Fetching signatures for ${address.slice(0, 8)}... limit=${limit}`);
   const signatures = await connection.getSignaturesForAddress(pubkey, { limit });
+  console.log(`[Solana History] Found ${signatures.length} signatures`);
   
   const transactions: SolanaTransaction[] = [];
   
@@ -417,97 +433,137 @@ export async function getSolanaTransactionHistory(
       
       const instructions = tx.transaction.message.instructions;
       
+      // Collect ALL instructions including inner instructions (CPI calls)
+      // SPL token transfers via DEXs/programs are often in innerInstructions
+      const allInstructions: any[] = [...instructions];
+      
+      // Add inner instructions (CPI calls from programs like Jupiter, pump.fun, etc.)
+      if (tx.meta.innerInstructions) {
+        for (const inner of tx.meta.innerInstructions) {
+          if (inner.instructions) {
+            allInstructions.push(...inner.instructions);
+          }
+        }
+      }
+      
       // Track SOL transfer separately - SPL token transfers take priority
       let solTransfer: { amount: string; from: string; to: string; type: "send" | "receive" } | null = null;
       let splTransferFound = false;
       
-      for (const ix of instructions) {
-        // Check for SPL token transfers first (higher priority)
-        if ("parsed" in ix && ix.program === "spl-token") {
-          if (ix.parsed?.type === "transfer" || ix.parsed?.type === "transferChecked") {
-            const info = ix.parsed.info;
-            
-            const sourceOwner = info.authority || info.source;
-            const destOwner = info.destination;
-            
-            tokenMint = info.mint;
-            
-            if (info.tokenAmount) {
-              amount = info.tokenAmount.uiAmountString || info.tokenAmount.uiAmount?.toString();
-            } else if (info.amount && tokenMint) {
-              try {
-                const mintInfo = await connection.getParsedAccountInfo(new PublicKey(tokenMint));
-                let decimals = 9;
-                if (mintInfo.value?.data && "parsed" in mintInfo.value.data) {
-                  decimals = mintInfo.value.data.parsed.info.decimals;
-                }
-                const rawAmount = BigInt(info.amount);
-                const divisor = BigInt(10 ** decimals);
-                const uiAmount = Number(rawAmount) / Number(divisor);
-                amount = uiAmount.toString();
-              } catch {
-                amount = info.amount;
+      // Helper function to process SPL transfer instruction
+      const processSplTransfer = async (ix: any): Promise<boolean> => {
+        if (!("parsed" in ix) || ix.program !== "spl-token") return false;
+        if (ix.parsed?.type !== "transfer" && ix.parsed?.type !== "transferChecked") return false;
+        
+        const info = ix.parsed.info;
+        const sourceOwner = info.authority || info.source;
+        const destOwner = info.destination;
+        
+        tokenMint = info.mint;
+        
+        if (info.tokenAmount) {
+          amount = info.tokenAmount.uiAmountString || info.tokenAmount.uiAmount?.toString();
+        } else if (info.amount) {
+          // For transfers without tokenAmount, we need to get decimals
+          if (tokenMint) {
+            try {
+              const mintInfo = await connection.getParsedAccountInfo(new PublicKey(tokenMint));
+              let decimals = 9;
+              if (mintInfo.value?.data && "parsed" in mintInfo.value.data) {
+                decimals = mintInfo.value.data.parsed.info.decimals;
               }
+              const rawAmount = BigInt(info.amount);
+              const divisor = BigInt(10 ** decimals);
+              const uiAmount = Number(rawAmount) / Number(divisor);
+              amount = uiAmount.toString();
+            } catch {
+              amount = info.amount;
             }
-            
-            // Fetch token metadata for symbol
-            if (tokenMint) {
-              try {
-                const metadata = await getSplTokenMetadata(tokenMint);
-                if (metadata?.symbol) {
-                  tokenSymbol = metadata.symbol;
-                } else {
-                  tokenSymbol = tokenMint.slice(0, 4).toUpperCase();
-                }
-              } catch {
-                tokenSymbol = tokenMint.slice(0, 4).toUpperCase();
-              }
-            }
-            
-            from = sourceOwner;
-            to = destOwner;
-            
-            if (sourceOwner === address) {
-              type = "send";
-            } else {
-              type = "receive";
-            }
-            splTransferFound = true;
-            break; // SPL transfer found, no need to continue
+          } else {
+            amount = info.amount;
           }
         }
         
-        // Track SOL transfer as fallback (don't break - keep looking for SPL)
-        if ("parsed" in ix && ix.program === "system" && ix.parsed?.type === "transfer") {
-          const info = ix.parsed.info;
-          const solAmount = (info.lamports / LAMPORTS_PER_SOL).toString();
-          let solType: "send" | "receive" = "send";
-          
-          if (info.source === address) {
-            solType = "send";
-          } else if (info.destination === address) {
-            solType = "receive";
+        // For transfers without explicit mint, try to resolve from token account
+        if (!tokenMint && info.source) {
+          try {
+            const tokenAcct = await connection.getParsedAccountInfo(new PublicKey(info.source));
+            if (tokenAcct.value?.data && "parsed" in tokenAcct.value.data) {
+              tokenMint = tokenAcct.value.data.parsed.info.mint;
+            }
+          } catch {}
+        }
+        
+        // Fetch token metadata for symbol
+        if (tokenMint) {
+          try {
+            const metadata = await getSplTokenMetadata(tokenMint);
+            if (metadata?.symbol) {
+              tokenSymbol = metadata.symbol;
+            } else {
+              tokenSymbol = tokenMint.slice(0, 4).toUpperCase();
+            }
+          } catch {
+            tokenSymbol = tokenMint.slice(0, 4).toUpperCase();
           }
-          
-          // Only track if this is a meaningful SOL transfer (not 0 SOL for fees)
-          if (info.lamports > 0) {
+        }
+        
+        from = sourceOwner;
+        to = destOwner;
+        
+        if (sourceOwner === address) {
+          type = "send";
+        } else {
+          type = "receive";
+        }
+        
+        return true;
+      };
+      
+      // First pass: look for SPL token transfers in ALL instructions
+      for (const ix of allInstructions) {
+        if (await processSplTransfer(ix)) {
+          splTransferFound = true;
+          break;
+        }
+      }
+      
+      // Second pass: if no SPL transfer found, look for SOL transfers
+      if (!splTransferFound) {
+        for (const ix of allInstructions) {
+          if ("parsed" in ix && ix.program === "system" && ix.parsed?.type === "transfer") {
+            const info = ix.parsed.info;
+            const lamports = info.lamports || 0;
+            
+            // Skip tiny amounts that are just fees (less than 0.0001 SOL = 100000 lamports)
+            if (lamports < 100000) continue;
+            
+            const solAmount = (lamports / LAMPORTS_PER_SOL).toString();
+            let solType: "send" | "receive" = "send";
+            
+            if (info.source === address) {
+              solType = "send";
+            } else if (info.destination === address) {
+              solType = "receive";
+            }
+            
             solTransfer = {
               amount: solAmount,
               from: info.source,
               to: info.destination,
               type: solType,
             };
+            break;
           }
         }
-      }
-      
-      // Use SOL transfer only if no SPL transfer was found
-      if (!splTransferFound && solTransfer) {
-        amount = solTransfer.amount;
-        tokenSymbol = "SOL";
-        from = solTransfer.from;
-        to = solTransfer.to;
-        type = solTransfer.type;
+        
+        if (solTransfer) {
+          amount = solTransfer.amount;
+          tokenSymbol = "SOL";
+          from = solTransfer.from;
+          to = solTransfer.to;
+          type = solTransfer.type;
+        }
       }
       
       transactions.push({

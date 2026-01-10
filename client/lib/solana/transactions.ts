@@ -23,11 +23,15 @@ function uint8ArrayToBase64(bytes: Uint8Array): string {
 export interface SendSolResult {
   signature: string;
   explorerUrl: string;
+  status: "confirmed" | "failed";
+  error?: string;
 }
 
 export interface SendSplResult {
   signature: string;
   explorerUrl: string;
+  status: "confirmed" | "failed";
+  error?: string;
 }
 
 export async function sendSol(
@@ -76,11 +80,13 @@ export async function sendSol(
     throw new Error(error.error || "Failed to send transaction");
   }
   
-  const { signature: txSignature } = await sendResponse.json();
+  const result = await sendResponse.json();
   
   return {
-    signature: txSignature,
-    explorerUrl: getSolanaExplorerTxUrl(txSignature),
+    signature: result.signature,
+    explorerUrl: getSolanaExplorerTxUrl(result.signature),
+    status: result.status,
+    error: result.error,
   };
 }
 
@@ -158,11 +164,13 @@ export async function sendSplToken(options: SendSplOptions): Promise<SendSplResu
     throw new Error(error.error || "Failed to send SPL transaction");
   }
   
-  const { signature: txSignature } = await sendResponse.json();
+  const result = await sendResponse.json();
   
   return {
-    signature: txSignature,
-    explorerUrl: getSolanaExplorerTxUrl(txSignature),
+    signature: result.signature,
+    explorerUrl: getSolanaExplorerTxUrl(result.signature),
+    status: result.status,
+    error: result.error,
   };
 }
 

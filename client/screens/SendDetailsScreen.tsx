@@ -27,7 +27,7 @@ import {
 } from "@/lib/blockchain/transactions";
 import { sendSol, sendSplToken } from "@/lib/solana/transactions";
 import { getMnemonic } from "@/lib/wallet-engine";
-import { saveTransaction } from "@/lib/transaction-history";
+import { saveTransaction, updateTransactionStatus } from "@/lib/transaction-history";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 
 type Props = NativeStackScreenProps<RootStackParamList, "SendDetails">;
@@ -250,9 +250,14 @@ export default function SendDetailsScreen({ navigation, route }: Props) {
           return;
         }
 
+        let txStatus: "confirmed" | "failed" = "confirmed";
+        let txError: string | undefined;
+
         if (params.isNative) {
           const solResult = await sendSol(mnemonic, recipient, amount);
           result = { hash: solResult.signature, explorerUrl: solResult.explorerUrl };
+          txStatus = solResult.status;
+          txError = solResult.error;
         } else {
           const splResult = await sendSplToken({
             mnemonic,
@@ -262,6 +267,8 @@ export default function SendDetailsScreen({ navigation, route }: Props) {
             decimals: params.decimals,
           });
           result = { hash: splResult.signature, explorerUrl: splResult.explorerUrl };
+          txStatus = splResult.status;
+          txError = splResult.error;
         }
 
         await saveTransaction({
@@ -276,7 +283,19 @@ export default function SendDetailsScreen({ navigation, route }: Props) {
           amount,
           priceUsd: params.priceUsd,
           explorerUrl: result.explorerUrl,
+          status: txStatus,
         });
+        
+        if (txStatus === "failed") {
+          await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+          Alert.alert(
+            "Transaction Failed",
+            txError || "The transaction was submitted but failed on-chain. Check the explorer for details.",
+            [{ text: "OK" }]
+          );
+          setIsSending(false);
+          return;
+        }
       } else {
         if (params.isNative) {
           result = await sendNative({

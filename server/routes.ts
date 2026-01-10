@@ -755,9 +755,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       console.log(`[Solana API] Sending signed transaction...`);
-      const signature = await sendSignedTransaction(transactionBase64, signatureBase64, publicKeyBase58);
-      console.log(`[Solana API] Transaction sent: ${signature}`);
-      res.json({ signature });
+      const result = await sendSignedTransaction(transactionBase64, signatureBase64, publicKeyBase58);
+      console.log(`[Solana API] Transaction ${result.signature}: ${result.status}`);
+      res.json(result);
     } catch (error: any) {
       console.error("[Solana API] Send transaction error:", error);
       res.status(500).json({ error: error.message || "Failed to send transaction" });

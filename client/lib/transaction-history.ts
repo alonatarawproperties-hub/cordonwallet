@@ -26,11 +26,13 @@ export interface TxRecord {
   explorerUrl: string;
 }
 
-export async function saveTransaction(tx: Omit<TxRecord, "id" | "createdAt" | "status">): Promise<TxRecord> {
+export async function saveTransaction(
+  tx: Omit<TxRecord, "id" | "createdAt" | "status"> & { status?: TxRecord["status"] }
+): Promise<TxRecord> {
   const record: TxRecord = {
     ...tx,
     id: `${tx.hash}-${Date.now()}`,
-    status: "pending",
+    status: tx.status || "pending",
     createdAt: Date.now(),
   };
 

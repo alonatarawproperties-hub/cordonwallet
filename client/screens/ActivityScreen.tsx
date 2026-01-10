@@ -229,17 +229,33 @@ export default function ActivityScreen() {
         "Solana API:", solanaTxs.length);
 
       const explorerHashes = new Set(explorerTxs.map((tx) => tx.hash.toLowerCase()));
-      const localSolanaHashes = new Set(localSolanaTxs.map((tx) => tx.hash.toLowerCase()));
+      const localSolanaMap = new Map(localSolanaTxs.map((tx) => [tx.hash.toLowerCase(), tx]));
       
       const uniqueLocalEvmTxs = localEvmTxs.filter(
         (tx) => !explorerHashes.has(tx.hash.toLowerCase())
       );
       
-      const uniqueApiSolanaTxs = solanaTxs.filter(
-        (tx) => !localSolanaHashes.has(tx.hash.toLowerCase())
+      const mergedSolanaTxs = solanaTxs.map((apiTx) => {
+        const localTx = localSolanaMap.get(apiTx.hash.toLowerCase());
+        if (localTx) {
+          return {
+            ...apiTx,
+            tokenSymbol: localTx.tokenSymbol,
+            tokenAddress: localTx.tokenAddress,
+            amount: localTx.amount,
+            type: localTx.type,
+            status: apiTx.status === "failed" ? "failed" : localTx.status,
+          } as TxRecord;
+        }
+        return apiTx;
+      });
+      
+      const mergedHashes = new Set(mergedSolanaTxs.map((tx) => tx.hash.toLowerCase()));
+      const uniqueLocalSolanaTxs = localSolanaTxs.filter(
+        (tx) => !mergedHashes.has(tx.hash.toLowerCase())
       );
 
-      const allTxs = [...uniqueLocalEvmTxs, ...localSolanaTxs, ...explorerTxs, ...uniqueApiSolanaTxs];
+      const allTxs = [...uniqueLocalEvmTxs, ...uniqueLocalSolanaTxs, ...explorerTxs, ...mergedSolanaTxs];
       allTxs.sort((a, b) => b.createdAt - a.createdAt);
 
       console.log("[Activity] Total transactions:", allTxs.length);
