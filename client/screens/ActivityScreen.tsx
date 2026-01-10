@@ -23,12 +23,62 @@ import {
 } from "@/lib/blockchain/explorer-api";
 import { supportedChains, getChainById, getExplorerAddressUrl } from "@/lib/blockchain/chains";
 import { NetworkId } from "@/lib/types";
+import { getApiUrl } from "@/lib/query-client";
 
 const NETWORK_TO_CHAIN_ID: Record<NetworkId, number> = {
   ethereum: 1,
   polygon: 137,
   bsc: 56,
+  solana: 0,
 };
+
+interface SolanaApiTransaction {
+  signature: string;
+  blockTime: number | null;
+  slot: number;
+  err: any;
+  type: "send" | "receive" | "unknown";
+  amount?: string;
+  tokenSymbol?: string;
+  tokenMint?: string;
+  from?: string;
+  to?: string;
+}
+
+async function fetchSolanaHistory(address: string): Promise<TxRecord[]> {
+  try {
+    const apiUrl = getApiUrl();
+    const url = new URL(`/api/solana/history/${address}`, apiUrl);
+    url.searchParams.set("limit", "30");
+    
+    const response = await fetch(url.toString());
+    if (!response.ok) return [];
+    
+    const transactions: SolanaApiTransaction[] = await response.json();
+    
+    return transactions
+      .filter(tx => tx.type !== "unknown")
+      .map(tx => ({
+        id: tx.signature,
+        chainId: 0,
+        walletAddress: address,
+        hash: tx.signature,
+        type: tx.tokenMint ? "spl" : "native",
+        activityType: tx.type as ActivityType,
+        tokenAddress: tx.tokenMint,
+        tokenSymbol: tx.tokenSymbol || (tx.tokenMint ? "SPL" : "SOL"),
+        to: tx.to || "",
+        from: tx.from,
+        amount: tx.amount || "0",
+        status: tx.err ? "failed" : "confirmed",
+        createdAt: tx.blockTime ? tx.blockTime * 1000 : Date.now(),
+        explorerUrl: `https://solscan.io/tx/${tx.signature}`,
+      } as TxRecord));
+  } catch (error) {
+    console.error("[Activity] Failed to fetch Solana history:", error);
+    return [];
+  }
+}
 
 type NetworkFilter = "all" | number;
 
@@ -55,29 +105,54 @@ export default function ActivityScreen() {
       return;
     }
 
-    console.log("[Activity] Loading transactions for:", activeWallet.address);
+    const evmAddress = activeWallet.addresses?.evm || activeWallet.address || "";
+    const solanaAddress = activeWallet.addresses?.solana || "";
+    const isSolanaOnly = activeWallet.walletType === "solana-only";
+
+    console.log("[Activity] Loading transactions for EVM:", evmAddress?.slice(0, 8), "Solana:", solanaAddress?.slice(0, 8));
 
     try {
-      const [explorerTxs, localTxs] = await Promise.all([
-        fetchAllChainsHistory(activeWallet.address),
-        getTransactionsByWallet(activeWallet.address),
-      ]);
+      const fetchPromises: Promise<TxRecord[]>[] = [];
 
-      console.log("[Activity] Explorer txs:", explorerTxs.length, "Local txs:", localTxs.length);
+      if (!isSolanaOnly && evmAddress) {
+        fetchPromises.push(fetchAllChainsHistory(evmAddress));
+        fetchPromises.push(getTransactionsByWallet(evmAddress));
+      }
+
+      if (solanaAddress) {
+        fetchPromises.push(fetchSolanaHistory(solanaAddress));
+      }
+
+      const results = await Promise.all(fetchPromises);
+      
+      let explorerTxs: TxRecord[] = [];
+      let localTxs: TxRecord[] = [];
+      let solanaTxs: TxRecord[] = [];
+
+      if (!isSolanaOnly && evmAddress) {
+        explorerTxs = results[0] || [];
+        localTxs = results[1] || [];
+        solanaTxs = solanaAddress ? (results[2] || []) : [];
+      } else if (solanaAddress) {
+        solanaTxs = results[0] || [];
+      }
+
+      console.log("[Activity] EVM Explorer txs:", explorerTxs.length, "Local txs:", localTxs.length, "Solana txs:", solanaTxs.length);
 
       const explorerHashes = new Set(explorerTxs.map((tx) => tx.hash.toLowerCase()));
       const uniqueLocalTxs = localTxs.filter(
         (tx) => !explorerHashes.has(tx.hash.toLowerCase())
       );
 
-      const allTxs = [...uniqueLocalTxs, ...explorerTxs];
+      const allTxs = [...uniqueLocalTxs, ...explorerTxs, ...solanaTxs];
       allTxs.sort((a, b) => b.createdAt - a.createdAt);
 
       console.log("[Activity] Total transactions:", allTxs.length);
       setTransactions(allTxs.slice(0, 100));
     } catch (error) {
       console.error("[Activity] Failed to load transactions:", error);
-      const localTxs = await getTransactionsByWallet(activeWallet.address);
+      const evmAddr = activeWallet.addresses?.evm || activeWallet.address || "";
+      const localTxs = evmAddr ? await getTransactionsByWallet(evmAddr) : [];
       setTransactions(localTxs);
     } finally {
       setLoading(false);
@@ -165,7 +240,14 @@ export default function ActivityScreen() {
 
   const getNetworkName = (filter: NetworkFilter) => {
     if (filter === "all") return "All networks";
+    if (filter === 0) return "Solana";
     const chain = getChainById(filter);
+    return chain?.name || "Unknown";
+  };
+
+  const getChainName = (chainId: number): string => {
+    if (chainId === 0) return "Solana";
+    const chain = getChainById(chainId);
     return chain?.name || "Unknown";
   };
 
@@ -173,7 +255,7 @@ export default function ActivityScreen() {
     const activityType = item.activityType || "send";
     const activityIcon = getActivityIcon(activityType);
     const activityLabel = getActivityLabel(activityType);
-    const chain = getChainById(item.chainId);
+    const chainName = getChainName(item.chainId);
 
     const getSubtitle = () => {
       if (activityType === "send") {
@@ -242,11 +324,9 @@ export default function ActivityScreen() {
           >
             {getAmountDisplay()}
           </ThemedText>
-          {chain && (
-            <ThemedText type="caption" style={{ color: theme.textSecondary, textAlign: "right" }}>
-              {chain.name}
-            </ThemedText>
-          )}
+          <ThemedText type="caption" style={{ color: theme.textSecondary, textAlign: "right" }}>
+            {chainName}
+          </ThemedText>
         </View>
       </Pressable>
     );
