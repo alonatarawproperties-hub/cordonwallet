@@ -4,16 +4,22 @@ import { getPublicClient } from "@/lib/blockchain/client";
 const STORAGE_KEY = "@cordon/transaction_history";
 const MAX_TRANSACTIONS = 100;
 
+export type ActivityType = "send" | "receive" | "swap";
+
 export interface TxRecord {
   id: string;
   chainId: number;
   walletAddress: string;
   hash: string;
   type: "native" | "erc20";
+  activityType: ActivityType;
   tokenAddress?: string;
   tokenSymbol: string;
   to: string;
+  from?: string;
   amount: string;
+  toTokenSymbol?: string;
+  toAmount?: string;
   status: "pending" | "confirmed" | "failed";
   createdAt: number;
   explorerUrl: string;

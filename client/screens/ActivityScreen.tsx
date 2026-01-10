@@ -16,6 +16,7 @@ import { useWallet } from "@/lib/wallet-context";
 import {
   getTransactionsByWallet,
   TxRecord,
+  ActivityType,
   formatTransactionDate,
   pollPendingTransactions,
 } from "@/lib/transaction-history";
@@ -69,8 +70,37 @@ export default function ActivityScreen() {
     setRefreshing(false);
   }, [loadTransactions]);
 
-  const getTransactionIcon = (type: TxRecord["type"]): keyof typeof Feather.glyphMap => {
-    return "arrow-up-right";
+  const getActivityIcon = (activityType: ActivityType): keyof typeof Feather.glyphMap => {
+    switch (activityType) {
+      case "send":
+        return "arrow-up-right";
+      case "receive":
+        return "arrow-down-left";
+      case "swap":
+        return "repeat";
+    }
+  };
+
+  const getActivityColor = (activityType: ActivityType) => {
+    switch (activityType) {
+      case "send":
+        return theme.danger;
+      case "receive":
+        return theme.success;
+      case "swap":
+        return theme.warning;
+    }
+  };
+
+  const getActivityLabel = (activityType: ActivityType) => {
+    switch (activityType) {
+      case "send":
+        return "Send";
+      case "receive":
+        return "Receive";
+      case "swap":
+        return "Swap";
+    }
   };
 
   const getStatusBadge = (status: TxRecord["status"]) => {
@@ -89,25 +119,52 @@ export default function ActivityScreen() {
   };
 
   const renderTransaction = ({ item }: { item: TxRecord }) => {
-    const truncatedTo = `${item.to.slice(0, 6)}...${item.to.slice(-4)}`;
+    const activityType = item.activityType || "send";
+    const activityColor = getActivityColor(activityType);
+    const activityIcon = getActivityIcon(activityType);
+    const activityLabel = getActivityLabel(activityType);
+    
+    const getSubtitle = () => {
+      if (activityType === "send") {
+        const truncatedTo = `${item.to.slice(0, 6)}...${item.to.slice(-4)}`;
+        return `To: ${truncatedTo}`;
+      } else if (activityType === "receive" && item.from) {
+        const truncatedFrom = `${item.from.slice(0, 6)}...${item.from.slice(-4)}`;
+        return `From: ${truncatedFrom}`;
+      } else if (activityType === "swap" && item.toTokenSymbol) {
+        return `${item.tokenSymbol} → ${item.toTokenSymbol}`;
+      }
+      return "";
+    };
+
+    const getAmountDisplay = () => {
+      if (activityType === "send") {
+        return `-${item.amount} ${item.tokenSymbol}`;
+      } else if (activityType === "receive") {
+        return `+${item.amount} ${item.tokenSymbol}`;
+      } else if (activityType === "swap" && item.toAmount && item.toTokenSymbol) {
+        return `+${item.toAmount} ${item.toTokenSymbol}`;
+      }
+      return `${item.amount} ${item.tokenSymbol}`;
+    };
     
     return (
       <Pressable
         style={[styles.transactionRow, { backgroundColor: theme.backgroundDefault }]}
         onPress={() => handleViewExplorer(item.explorerUrl)}
       >
-        <View style={[styles.txIcon, { backgroundColor: theme.accent + "20" }]}>
-          <Feather name={getTransactionIcon(item.type)} size={20} color={theme.accent} />
+        <View style={[styles.txIcon, { backgroundColor: activityColor + "20" }]}>
+          <Feather name={activityIcon} size={20} color={activityColor} />
         </View>
         <View style={styles.txInfo}>
           <View style={styles.txHeader}>
             <ThemedText type="body" style={{ fontWeight: "600" }}>
-              Send
+              {activityLabel}
             </ThemedText>
             {getStatusBadge(item.status)}
           </View>
           <ThemedText type="caption" style={{ color: theme.textSecondary }}>
-            To: {truncatedTo}
+            {getSubtitle()}
           </ThemedText>
         </View>
         <View style={styles.txAmount}>
@@ -116,9 +173,10 @@ export default function ActivityScreen() {
             style={{ 
               fontWeight: "600", 
               textAlign: "right",
+              color: activityType === "receive" ? theme.success : theme.text,
             }}
           >
-            -{item.amount} {item.tokenSymbol}
+            {getAmountDisplay()}
           </ThemedText>
           <ThemedText type="caption" style={{ color: theme.textSecondary, textAlign: "right" }}>
             {formatTransactionDate(item.createdAt)}
@@ -161,7 +219,7 @@ export default function ActivityScreen() {
         <EmptyState
           image={require("../../assets/images/empty-activity.png")}
           title="No Activity Yet"
-          message="Your transaction history will appear here after you send tokens"
+          message="Your sends, receives, and swaps will appear here"
         />
       }
     />

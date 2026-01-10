@@ -250,6 +250,7 @@ export default function SendScreen({ navigation, route }: Props) {
         walletAddress: activeWallet.address,
         hash: result.hash,
         type: selectedTokenData.isNative ? "native" : "erc20",
+        activityType: "send",
         tokenAddress: selectedTokenData.address,
         tokenSymbol: selectedTokenData.symbol,
         to: recipient,
