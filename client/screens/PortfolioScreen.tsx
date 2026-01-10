@@ -46,6 +46,23 @@ function getChainColor(chainName: string): string {
   return colorMap[chainName] || "#888";
 }
 
+function formatPrice(price: number): string {
+  if (price >= 1000) {
+    return price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  } else if (price >= 1) {
+    return price.toFixed(2);
+  } else if (price >= 0.01) {
+    return price.toFixed(4);
+  } else {
+    return price.toFixed(6);
+  }
+}
+
+function formatValue(value: number): string {
+  if (value < 0.01) return "<$0.01";
+  return `$${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
 export default function PortfolioScreen() {
   const headerHeight = useHeaderHeight();
   const tabBarHeight = useBottomTabBarHeight();
@@ -255,13 +272,18 @@ export default function PortfolioScreen() {
                   </View>
                 </View>
                 <ThemedText type="caption" style={{ color: theme.textSecondary }}>
-                  {asset.name}
+                  {asset.priceUsd ? `$${formatPrice(asset.priceUsd)}` : asset.name}
                 </ThemedText>
               </View>
               <View style={styles.tokenBalance}>
                 <ThemedText type="body" style={{ fontWeight: "600", textAlign: "right" }}>
-                  {asset.balance} {asset.symbol}
+                  {asset.balance}
                 </ThemedText>
+                {asset.valueUsd ? (
+                  <ThemedText type="caption" style={{ color: theme.textSecondary, textAlign: "right" }}>
+                    {formatValue(asset.valueUsd)}
+                  </ThemedText>
+                ) : null}
               </View>
               <Feather name="chevron-right" size={20} color={theme.textSecondary} />
             </Pressable>

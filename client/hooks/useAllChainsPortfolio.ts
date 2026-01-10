@@ -3,6 +3,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { getNativeBalance, getERC20Balance, isBalanceError, BalanceResult } from "@/lib/blockchain/balances";
 import { getTokensForChain } from "@/lib/blockchain/tokens";
 import { supportedChains, getChainById } from "@/lib/blockchain/chains";
+import { getApiUrl } from "@/lib/query-client";
 
 export interface MultiChainAsset {
   symbol: string;
@@ -14,6 +15,8 @@ export interface MultiChainAsset {
   address?: string;
   chainId: number;
   chainName: string;
+  priceUsd?: number;
+  valueUsd?: number;
 }
 
 export interface AllChainsPortfolioState {
@@ -155,12 +158,32 @@ export function useAllChainsPortfolio(address: string | undefined) {
         allAssets.push(...chainAssets);
       });
 
+      let prices: Record<string, number> = {};
+      try {
+        const apiUrl = getApiUrl();
+        const priceUrl = new URL("/api/prices", apiUrl);
+        const priceResponse = await fetch(priceUrl.toString());
+        if (priceResponse.ok) {
+          const priceData = await priceResponse.json();
+          prices = priceData.prices || {};
+        }
+      } catch (priceError) {
+        console.log("[Portfolio] Failed to fetch prices:", priceError);
+      }
+
+      allAssets.forEach((asset) => {
+        const priceKey = asset.isNative ? `native_${asset.chainId}` : asset.symbol;
+        const symbolPrice = prices[asset.symbol];
+        const nativePrice = prices[priceKey];
+        asset.priceUsd = symbolPrice || nativePrice || 0;
+        const balanceNum = parseFloat(asset.balance.replace(/,/g, "")) || 0;
+        asset.valueUsd = asset.priceUsd * balanceNum;
+      });
+
       allAssets.sort((a, b) => {
         if (a.isNative && !b.isNative) return -1;
         if (!a.isNative && b.isNative) return 1;
-        const aVal = Number(a.rawBalance);
-        const bVal = Number(b.rawBalance);
-        return bVal - aVal;
+        return (b.valueUsd || 0) - (a.valueUsd || 0);
       });
 
       const now = Date.now();
