@@ -459,12 +459,25 @@ export async function getSolanaTransactionHistory(
         const sourceOwner = info.authority || info.source;
         const destOwner = info.destination;
         
+        // For transferChecked, mint is in info.mint
+        // For regular transfer, we need to look it up from the token account
         tokenMint = info.mint;
         
+        // Resolve mint from token account FIRST (needed for regular 'transfer' instructions)
+        if (!tokenMint && info.source) {
+          try {
+            const tokenAcct = await connection.getParsedAccountInfo(new PublicKey(info.source));
+            if (tokenAcct.value?.data && "parsed" in tokenAcct.value.data) {
+              tokenMint = tokenAcct.value.data.parsed.info.mint;
+            }
+          } catch {}
+        }
+        
         if (info.tokenAmount) {
+          // transferChecked has tokenAmount with UI values
           amount = info.tokenAmount.uiAmountString || info.tokenAmount.uiAmount?.toString();
         } else if (info.amount) {
-          // For transfers without tokenAmount, we need to get decimals
+          // Regular transfer only has raw amount - need to convert using decimals
           if (tokenMint) {
             try {
               const mintInfo = await connection.getParsedAccountInfo(new PublicKey(tokenMint));
@@ -476,22 +489,15 @@ export async function getSolanaTransactionHistory(
               const divisor = BigInt(10 ** decimals);
               const uiAmount = Number(rawAmount) / Number(divisor);
               amount = uiAmount.toString();
-            } catch {
+              console.log(`[Solana History] Converted SPL amount: ${info.amount} -> ${amount} (${decimals} decimals)`);
+            } catch (e) {
+              console.error(`[Solana History] Failed to get decimals for mint ${tokenMint}:`, e);
               amount = info.amount;
             }
           } else {
+            console.log(`[Solana History] No mint found for transfer, using raw amount: ${info.amount}`);
             amount = info.amount;
           }
-        }
-        
-        // For transfers without explicit mint, try to resolve from token account
-        if (!tokenMint && info.source) {
-          try {
-            const tokenAcct = await connection.getParsedAccountInfo(new PublicKey(info.source));
-            if (tokenAcct.value?.data && "parsed" in tokenAcct.value.data) {
-              tokenMint = tokenAcct.value.data.parsed.info.mint;
-            }
-          } catch {}
         }
         
         // Fetch token metadata for symbol
