@@ -16,8 +16,12 @@ import {
   TokenAccountNotFoundError,
 } from "@solana/spl-token";
 
-const SOLANA_RPC_URL = "https://api.mainnet-beta.solana.com";
+const SOLANA_RPC_URL = process.env.SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com";
 const connection = new Connection(SOLANA_RPC_URL, "confirmed");
+
+console.log("[Solana API] Using RPC:", SOLANA_RPC_URL.includes("helius") ? "Helius" : 
+  SOLANA_RPC_URL.includes("quicknode") ? "QuickNode" : 
+  SOLANA_RPC_URL.includes("alchemy") ? "Alchemy" : "Public RPC");
 
 export interface SolBalance {
   lamports: number;
