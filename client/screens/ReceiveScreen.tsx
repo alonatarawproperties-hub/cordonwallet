@@ -17,6 +17,7 @@ import { useWallet } from "@/lib/wallet-context";
 import { useAllChainsPortfolio, MultiChainAsset } from "@/hooks/useAllChainsPortfolio";
 import { useSolanaPortfolio, SolanaAsset } from "@/hooks/useSolanaPortfolio";
 import { getCustomTokens, CustomToken } from "@/lib/token-preferences";
+import { getTokenLogoUrl as getStandardTokenLogo } from "@/lib/token-logos";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Receive">;
@@ -88,6 +89,9 @@ function getTokenLogoUrl(asset: UnifiedAsset, customTokens: CustomToken[]): stri
     );
     if (customToken?.logoUrl) return customToken.logoUrl;
   }
+  
+  const standardLogo = getStandardTokenLogo(asset.symbol);
+  if (standardLogo) return standardLogo;
   
   return undefined;
 }
