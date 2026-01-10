@@ -132,6 +132,12 @@ Preferred communication style: Simple, everyday language.
 - **Policy Settings**: blockUnlimitedApprovals, allowlistedAddresses, denylistedAddresses
 - **Revoke Flow**: Optimistic UI update, then on-chain approve(spender, 0) with status tracking
 - **ApprovalsScreen**: Real-time approval list with revoke buttons and firewall status indicators
+- **Cap Allowance UI**: When unlimited approvals are blocked, users can set capped limits:
+  - `CapAllowanceSheet`: Modal with token/spender info, balance-based presets (25%, 50%, 100%), and custom input
+  - `CapAllowanceProvider`: Context wrapping the app to show cap sheet when approvals are blocked
+  - Safety guardrails: Over-cap warning when amount exceeds balance by >5%, requires explicit confirmation
+  - Zero/unknown balance handling: Automatically switches to custom mode with helpful message
+  - WalletConnect support: `checkWalletConnectApprove()` and `modifyApproveCalldata()` helpers for dApp requests
 
 ### Price Data Services
 

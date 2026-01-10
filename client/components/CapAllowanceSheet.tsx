@@ -79,6 +79,12 @@ export function CapAllowanceSheet({
     }
   }, [visible, params]);
 
+  useEffect(() => {
+    if (!isLoadingBalance && (balance === null || balance === 0n) && selectedPreset !== "custom") {
+      setSelectedPreset("custom");
+    }
+  }, [isLoadingBalance, balance, selectedPreset]);
+
   const loadBalance = async () => {
     if (!params) return;
     
@@ -105,7 +111,20 @@ export function CapAllowanceSheet({
   };
 
   const calculatePresetAmount = useCallback((preset: PresetKey): bigint => {
-    if (!balance || !params) return 0n;
+    if (!params) return 0n;
+    
+    if (preset === "custom") {
+      try {
+        if (!customAmount || customAmount === "" || customAmount === ".") return 0n;
+        return parseUnits(customAmount, params.tokenDecimals);
+      } catch {
+        return 0n;
+      }
+    }
+    
+    if (balance === null || balance === 0n) {
+      return 0n;
+    }
     
     switch (preset) {
       case "25":
@@ -114,13 +133,6 @@ export function CapAllowanceSheet({
         return balance / 2n;
       case "100":
         return balance;
-      case "custom":
-        try {
-          if (!customAmount || customAmount === "" || customAmount === ".") return 0n;
-          return parseUnits(customAmount, params.tokenDecimals);
-        } catch {
-          return 0n;
-        }
       default:
         return balance;
     }
@@ -236,29 +248,34 @@ export function CapAllowanceSheet({
           </ThemedText>
 
           <View style={styles.presets}>
-            {(["25", "50", "100"] as PresetKey[]).map((preset) => (
-              <Pressable
-                key={preset}
-                style={[
-                  styles.presetButton,
-                  { 
-                    backgroundColor: selectedPreset === preset ? theme.accent : theme.backgroundDefault,
-                    borderColor: selectedPreset === preset ? theme.accent : theme.border,
-                  }
-                ]}
-                onPress={() => handlePresetSelect(preset)}
-              >
-                <ThemedText 
-                  type="body" 
-                  style={{ 
-                    color: selectedPreset === preset ? "#FFFFFF" : theme.text,
-                    fontWeight: "600" 
-                  }}
+            {(["25", "50", "100"] as PresetKey[]).map((preset) => {
+              const isDisabled = !isLoadingBalance && (balance === null || balance === 0n);
+              return (
+                <Pressable
+                  key={preset}
+                  style={[
+                    styles.presetButton,
+                    { 
+                      backgroundColor: selectedPreset === preset ? theme.accent : theme.backgroundDefault,
+                      borderColor: selectedPreset === preset ? theme.accent : theme.border,
+                      opacity: isDisabled ? 0.4 : 1,
+                    }
+                  ]}
+                  onPress={() => !isDisabled && handlePresetSelect(preset)}
+                  disabled={isDisabled}
                 >
-                  {preset}%
-                </ThemedText>
-              </Pressable>
-            ))}
+                  <ThemedText 
+                    type="body" 
+                    style={{ 
+                      color: selectedPreset === preset ? "#FFFFFF" : theme.text,
+                      fontWeight: "600" 
+                    }}
+                  >
+                    {preset}%
+                  </ThemedText>
+                </Pressable>
+              );
+            })}
             <Pressable
               style={[
                 styles.presetButton,
@@ -280,6 +297,14 @@ export function CapAllowanceSheet({
               </ThemedText>
             </Pressable>
           </View>
+
+          {!isLoadingBalance && (balance === null || balance === 0n) ? (
+            <ThemedText type="small" style={{ color: theme.textSecondary, marginBottom: Spacing.sm }}>
+              {balance === 0n 
+                ? "Your balance is zero. Enter a custom amount."
+                : "Balance unavailable. Enter a custom amount."}
+            </ThemedText>
+          ) : null}
 
           {selectedPreset === "custom" ? (
             <View style={styles.customInputContainer}>

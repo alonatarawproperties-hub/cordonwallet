@@ -66,7 +66,8 @@ export function CapAllowanceProvider({ children }: { children: ReactNode }) {
     setIsSubmitting(true);
 
     try {
-      const cappedAmountFormatted = (result.cappedAmount / (10n ** BigInt(blockedContext.tokenDecimals))).toString();
+      const { formatUnits } = await import("viem");
+      const cappedAmountFormatted = formatUnits(result.cappedAmount, blockedContext.tokenDecimals);
 
       const txResult = await sendApproval({
         chainId: blockedContext.chainId,
@@ -173,16 +174,11 @@ export function checkWalletConnectApprove(
   }
 
   if (approval.isUnlimited && policySettings.blockUnlimitedApprovals) {
-    const maxSpendUsd = parseFloat(policySettings.maxSpendPerTransaction) || 1000;
-    const estimatedTokensForMaxSpend = maxSpendUsd * 10;
-    const suggestedCap = BigInt(Math.floor(estimatedTokensForMaxSpend)) * (10n ** 18n);
-    
     return {
       blocked: true,
       isApproval: true,
       approval,
       reason: "Unlimited approval blocked by policy",
-      suggestedCap,
     };
   }
 

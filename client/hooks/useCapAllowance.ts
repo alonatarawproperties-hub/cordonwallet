@@ -61,7 +61,8 @@ export function useCapAllowance(): UseCapAllowanceReturn {
       throw new Error("No blocked approval context");
     }
 
-    const cappedAmountFormatted = (cappedAmount / (10n ** BigInt(blockedContext.tokenDecimals))).toString();
+    const { formatUnits } = await import("viem");
+    const cappedAmountFormatted = formatUnits(cappedAmount, blockedContext.tokenDecimals);
 
     const result = await sendApproval({
       chainId: blockedContext.chainId,
