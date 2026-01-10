@@ -26,13 +26,28 @@ import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
+interface NetworkOption {
+  id: number | string;
+  name: string;
+  color: string;
+}
+
+const networkOptions: NetworkOption[] = [
+  ...supportedChains.filter((c: ChainConfig) => !c.isTestnet).map((c: ChainConfig) => ({
+    id: c.chainId,
+    name: c.name,
+    color: c.chainId === 1 ? "#627EEA" : c.chainId === 137 ? "#8247E5" : "#F3BA2F",
+  })),
+  { id: "solana", name: "Solana", color: "#9945FF" },
+];
+
 export default function ImportTokenScreen() {
   const { theme } = useTheme();
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
   const navigation = useNavigation<NavigationProp>();
 
-  const [selectedChainId, setSelectedChainId] = useState(137);
+  const [selectedNetwork, setSelectedNetwork] = useState<number | string>(137);
   const [contractAddress, setContractAddress] = useState("");
   const [name, setName] = useState("");
   const [symbol, setSymbol] = useState("");
@@ -40,7 +55,8 @@ export default function ImportTokenScreen() {
   const [isLoading, setIsLoading] = useState(false);
   const [showChainPicker, setShowChainPicker] = useState(false);
 
-  const selectedChain = supportedChains.find((c: ChainConfig) => c.chainId === selectedChainId);
+  const isSolana = selectedNetwork === "solana";
+  const selectedChain = networkOptions.find(n => n.id === selectedNetwork);
 
   const handlePaste = async () => {
     const text = await Clipboard.getStringAsync();
@@ -49,13 +65,29 @@ export default function ImportTokenScreen() {
     }
   };
 
-  const validateAddress = (address: string): boolean => {
+  const validateEvmAddress = (address: string): boolean => {
     return /^0x[a-fA-F0-9]{40}$/.test(address);
+  };
+
+  const validateSolanaAddress = (address: string): boolean => {
+    return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address);
+  };
+
+  const validateAddress = (address: string): boolean => {
+    if (isSolana) {
+      return validateSolanaAddress(address);
+    }
+    return validateEvmAddress(address);
   };
 
   const handleImport = async () => {
     if (!validateAddress(contractAddress)) {
-      Alert.alert("Invalid Address", "Please enter a valid contract address.");
+      Alert.alert(
+        "Invalid Address", 
+        isSolana 
+          ? "Please enter a valid SPL token mint address." 
+          : "Please enter a valid contract address."
+      );
       return;
     }
     if (!name.trim()) {
@@ -67,16 +99,17 @@ export default function ImportTokenScreen() {
       return;
     }
     const decimalsNum = parseInt(decimals, 10);
-    if (isNaN(decimalsNum) || decimalsNum < 0 || decimalsNum > 18) {
-      Alert.alert("Invalid Decimals", "Decimals must be between 0 and 18.");
+    const maxDecimals = isSolana ? 9 : 18;
+    if (isNaN(decimalsNum) || decimalsNum < 0 || decimalsNum > maxDecimals) {
+      Alert.alert("Invalid Decimals", `Decimals must be between 0 and ${maxDecimals}.`);
       return;
     }
 
     setIsLoading(true);
     try {
       await addCustomToken({
-        chainId: selectedChainId,
-        contractAddress: contractAddress.toLowerCase(),
+        chainId: isSolana ? 0 : (selectedNetwork as number),
+        contractAddress: isSolana ? contractAddress : contractAddress.toLowerCase(),
         name: name.trim(),
         symbol: symbol.trim().toUpperCase(),
         decimals: decimalsNum,
@@ -126,38 +159,46 @@ export default function ImportTokenScreen() {
             </ThemedText>
             <Feather name="chevron-right" size={20} color={theme.textSecondary} />
           </Pressable>
-          {showChainPicker && (
+          {showChainPicker ? (
             <View style={[styles.chainPicker, { backgroundColor: theme.backgroundDefault }]}>
-              {supportedChains.filter((c: ChainConfig) => !c.isTestnet).map((chain: ChainConfig) => (
+              {networkOptions.map((network) => (
                 <Pressable
-                  key={chain.chainId}
+                  key={network.id.toString()}
                   style={[
                     styles.chainOption,
-                    selectedChainId === chain.chainId && { backgroundColor: theme.accent + "20" },
+                    selectedNetwork === network.id && { backgroundColor: theme.accent + "20" },
                   ]}
                   onPress={() => {
-                    setSelectedChainId(chain.chainId);
+                    setSelectedNetwork(network.id);
                     setShowChainPicker(false);
+                    if (network.id === "solana") {
+                      setDecimals("9");
+                    } else {
+                      setDecimals("18");
+                    }
                   }}
                 >
-                  <ThemedText type="body">{chain.name}</ThemedText>
-                  {selectedChainId === chain.chainId && (
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                    <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: network.color }} />
+                    <ThemedText type="body">{network.name}</ThemedText>
+                  </View>
+                  {selectedNetwork === network.id ? (
                     <Feather name="check" size={18} color={theme.accent} />
-                  )}
+                  ) : null}
                 </Pressable>
               ))}
             </View>
-          )}
+          ) : null}
         </View>
 
         <View style={styles.formGroup}>
           <ThemedText type="body" style={{ color: theme.textSecondary, marginBottom: Spacing.sm }}>
-            Contract address
+            {isSolana ? "Token Mint Address" : "Contract address"}
           </ThemedText>
           <View style={[styles.addressInput, { backgroundColor: theme.backgroundDefault }]}>
             <TextInput
               style={[styles.textInput, { color: theme.text }]}
-              placeholder="Contract address"
+              placeholder={isSolana ? "SPL token mint address" : "Contract address"}
               placeholderTextColor={theme.textSecondary}
               value={contractAddress}
               onChangeText={setContractAddress}

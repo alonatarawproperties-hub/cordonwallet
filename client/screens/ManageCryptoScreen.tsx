@@ -21,6 +21,7 @@ import { useTheme } from "@/hooks/useTheme";
 import { Spacing } from "@/constants/theme";
 import { useWallet } from "@/lib/wallet-context";
 import { useAllChainsPortfolio, MultiChainAsset } from "@/hooks/useAllChainsPortfolio";
+import { useSolanaPortfolio } from "@/hooks/useSolanaPortfolio";
 import { getHiddenTokens, hideToken, showToken, getCustomTokens, CustomToken } from "@/lib/token-preferences";
 import { supportedChains, ChainConfig } from "@/lib/blockchain/chains";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
@@ -33,6 +34,7 @@ const chainFilters = [
   { id: "1", name: "ETH", color: "#627EEA" },
   { id: "137", name: "POL", color: "#8247E5" },
   { id: "56", name: "BNB", color: "#F3BA2F" },
+  { id: "solana", name: "SOL", color: "#9945FF" },
 ];
 
 export default function ManageCryptoScreen() {
@@ -41,7 +43,33 @@ export default function ManageCryptoScreen() {
   const headerHeight = useHeaderHeight();
   const navigation = useNavigation<NavigationProp>();
   const { activeWallet } = useWallet();
-  const { assets, isLoading, refresh } = useAllChainsPortfolio(activeWallet?.address);
+  
+  const walletType = (activeWallet as any)?.walletType || "multi-chain";
+  const evmAddress = activeWallet?.addresses?.evm || activeWallet?.address;
+  const solanaAddress = activeWallet?.addresses?.solana;
+  
+  const { assets: evmAssets, isLoading: evmLoading } = useAllChainsPortfolio(
+    walletType === "solana-only" ? undefined : evmAddress
+  );
+  const { assets: solanaAssets, isLoading: solanaLoading } = useSolanaPortfolio(solanaAddress);
+  
+  const assets: MultiChainAsset[] = [
+    ...(walletType === "solana-only" ? [] : evmAssets),
+    ...solanaAssets.map(a => ({
+      symbol: a.symbol,
+      name: a.name,
+      chainId: 0,
+      chainName: "Solana",
+      isNative: a.isNative,
+      balance: a.balance,
+      rawBalance: a.rawBalance,
+      decimals: a.decimals,
+      address: a.mint,
+      valueUsd: a.valueUsd,
+      priceUsd: a.priceUsd,
+    })),
+  ];
+  const isLoading = (walletType === "solana-only" ? false : evmLoading) || solanaLoading;
 
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedChain, setSelectedChain] = useState("all");
@@ -108,12 +136,14 @@ export default function ManageCryptoScreen() {
     const matchesSearch = 
       asset.symbol.toLowerCase().includes(searchQuery.toLowerCase()) ||
       asset.name.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesChain = selectedChain === "all" || asset.chainId.toString() === selectedChain;
+    const chainKey = asset.chainId === 0 ? "solana" : asset.chainId.toString();
+    const matchesChain = selectedChain === "all" || chainKey === selectedChain;
     return matchesSearch && matchesChain;
   });
 
   const getChainColor = (chainId: number) => {
     switch (chainId) {
+      case 0: return "#9945FF";
       case 1: return "#627EEA";
       case 137: return "#8247E5";
       case 56: return "#F3BA2F";
