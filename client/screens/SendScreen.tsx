@@ -50,13 +50,22 @@ const CHAIN_FILTERS: ChainFilter[] = [
   { id: "solana", name: "SOL", icon: "hexagon", color: "#9945FF" },
 ];
 
-const CHAIN_ID_TO_FILTER: Record<number | string, string> = {
-  1: "ethereum",
-  137: "polygon",
-  56: "bsc",
-  "solana": "solana",
-  0: "solana",
-};
+function getChainFilterKey(chainId: number | string): string {
+  if (chainId === "solana" || chainId === 0) return "solana";
+  switch (chainId) {
+    case 1:
+    case 11155111:
+      return "ethereum";
+    case 137:
+    case 80002:
+      return "polygon";
+    case 56:
+    case 97:
+      return "bsc";
+    default:
+      return String(chainId);
+  }
+}
 
 function getChainColor(chainName: string): string {
   const colors: Record<string, string> = {
@@ -151,7 +160,7 @@ export default function SendScreen({ navigation }: Props) {
 
     if (selectedFilter !== "all") {
       filtered = filtered.filter((asset) => {
-        const filterKey = CHAIN_ID_TO_FILTER[asset.chainId] || "";
+        const filterKey = getChainFilterKey(asset.chainId);
         return filterKey === selectedFilter;
       });
     }
@@ -171,7 +180,7 @@ export default function SendScreen({ navigation }: Props) {
   const chainCounts = useMemo(() => {
     const counts: Record<string, number> = { all: unifiedAssets.length };
     unifiedAssets.forEach((asset) => {
-      const filterKey = CHAIN_ID_TO_FILTER[asset.chainId] || "";
+      const filterKey = getChainFilterKey(asset.chainId);
       if (filterKey) {
         counts[filterKey] = (counts[filterKey] || 0) + 1;
       }

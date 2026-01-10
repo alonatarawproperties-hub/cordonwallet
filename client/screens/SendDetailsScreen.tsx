@@ -73,8 +73,8 @@ export default function SendDetailsScreen({ navigation, route }: Props) {
         gasLimit: BigInt(5000),
         maxFeePerGas: BigInt(1),
         maxPriorityFeePerGas: BigInt(1),
-        estimatedFeeNative: "0.000005",
-        estimatedFeeFormatted: "~0.000005 SOL",
+        estimatedFeeNative: "0.00001",
+        estimatedFeeFormatted: "< 0.001 SOL",
         nativeSymbol: "SOL",
       });
       return;
