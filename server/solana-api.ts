@@ -460,6 +460,21 @@ export async function getSolanaTransactionHistory(
               }
             }
             
+            // Fetch token metadata for symbol
+            if (tokenMint) {
+              try {
+                const metadata = await getSplTokenMetadata(tokenMint);
+                if (metadata?.symbol) {
+                  tokenSymbol = metadata.symbol;
+                } else {
+                  // Fallback to shortened mint address
+                  tokenSymbol = tokenMint.slice(0, 4).toUpperCase();
+                }
+              } catch {
+                tokenSymbol = tokenMint.slice(0, 4).toUpperCase();
+              }
+            }
+            
             from = sourceOwner;
             to = destOwner;
             
