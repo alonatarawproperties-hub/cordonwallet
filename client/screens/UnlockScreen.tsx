@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { View, StyleSheet, TextInput, Pressable, Alert, Image, Keyboard, Platform } from "react-native";
+import { View, StyleSheet, TextInput, Pressable, Alert, Image, Keyboard, Platform, Dimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { Feather } from "@expo/vector-icons";
@@ -240,6 +240,8 @@ export default function UnlockScreen({ navigation }: Props) {
   );
 }
 
+const { height: SCREEN_HEIGHT } = Dimensions.get("window");
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -248,26 +250,27 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     alignItems: "center",
-    justifyContent: "center",
+    justifyContent: "flex-start",
+    paddingTop: SCREEN_HEIGHT * 0.15,
   },
   logo: {
     width: 80,
     height: 80,
     borderRadius: BorderRadius.lg,
-    marginBottom: Spacing["2xl"],
+    marginBottom: Spacing.lg,
   },
   title: {
-    marginBottom: Spacing.sm,
+    marginBottom: Spacing.xs,
     textAlign: "center",
   },
   subtitle: {
     textAlign: "center",
-    marginBottom: Spacing["3xl"],
+    marginBottom: Spacing["2xl"],
   },
   dotsContainer: {
     flexDirection: "row",
     gap: Spacing.lg,
-    marginBottom: Spacing["2xl"],
+    marginBottom: Spacing.xl,
   },
   dot: {
     width: 20,
@@ -283,12 +286,13 @@ const styles = StyleSheet.create({
     left: -9999,
   },
   inputArea: {
-    padding: Spacing.lg,
-    marginBottom: Spacing["2xl"],
+    padding: Spacing.md,
+    marginTop: Spacing.lg,
   },
   biometricButton: {
     alignItems: "center",
     gap: Spacing.sm,
+    marginTop: Spacing.xl,
   },
   biometricIcon: {
     width: 56,
