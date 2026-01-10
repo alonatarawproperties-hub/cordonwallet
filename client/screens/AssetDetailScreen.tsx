@@ -236,52 +236,6 @@ export default function AssetDetailScreen({ route }: Props) {
 
   const renderHoldingsTab = () => (
     <View style={styles.tabContent}>
-      {pnlData.length >= 2 ? (
-        <View style={{ marginBottom: Spacing.lg }}>
-          <View style={styles.pnlHeader}>
-            <ThemedText type="caption" style={{ color: theme.textSecondary }}>
-              Profit / Loss
-            </ThemedText>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-              <ThemedText
-                type="h3"
-                style={{
-                  color: totalPnl >= 0 ? "#22C55E" : "#EF4444",
-                }}
-              >
-                {totalPnl >= 0 ? "+" : ""}${Math.abs(totalPnl).toFixed(2)}
-              </ThemedText>
-              <View style={[styles.pnlBadge, { backgroundColor: totalPnl >= 0 ? "#22C55E20" : "#EF444420" }]}>
-                <ThemedText
-                  type="caption"
-                  style={{
-                    color: totalPnl >= 0 ? "#22C55E" : "#EF4444",
-                    fontSize: 11,
-                  }}
-                >
-                  {pnlPercent >= 0 ? "+" : ""}{pnlPercent.toFixed(2)}%
-                </ThemedText>
-              </View>
-            </View>
-          </View>
-          <PnlChart data={pnlData} height={140} />
-        </View>
-      ) : isLoadingHistory ? (
-        <View style={[styles.chartPlaceholder, { backgroundColor: theme.backgroundDefault }]}>
-          <ActivityIndicator size="small" color={theme.accent} />
-          <ThemedText type="caption" style={{ color: theme.textSecondary, marginTop: Spacing.sm }}>
-            Loading trading data...
-          </ThemedText>
-        </View>
-      ) : (
-        <View style={[styles.chartPlaceholder, { backgroundColor: theme.backgroundDefault }]}>
-          <Feather name="trending-up" size={28} color={theme.textSecondary} />
-          <ThemedText type="caption" style={{ color: theme.textSecondary, marginTop: Spacing.sm, textAlign: "center" }}>
-            PNL chart will appear once you have trading activity
-          </ThemedText>
-        </View>
-      )}
-
       <ThemedText type="body" style={{ color: theme.textSecondary, marginBottom: Spacing.md }}>
         My Balance
       </ThemedText>
@@ -493,23 +447,76 @@ export default function AssetDetailScreen({ route }: Props) {
             </View>
           </View>
 
-          <View style={styles.priceSection}>
-            <ThemedText type="h1" style={{ textAlign: "center" }}>
-              ${priceUsd ? formatPrice(priceUsd) : "0.00"}
-            </ThemedText>
-            <View style={styles.priceChange}>
-              <Feather
-                name={priceChange24h && priceChange24h >= 0 ? "arrow-up" : "arrow-down"}
-                size={14}
-                color={priceChange24h && priceChange24h >= 0 ? "#22C55E" : "#EF4444"}
-              />
+          <View style={styles.pnlHeroSection}>
+            {pnlData.length >= 2 ? (
+              <>
+                <View style={styles.pnlHeroHeader}>
+                  <ThemedText type="caption" style={{ color: theme.textSecondary }}>
+                    Profit / Loss
+                  </ThemedText>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                    <ThemedText
+                      type="h1"
+                      style={{
+                        color: totalPnl >= 0 ? "#22C55E" : "#EF4444",
+                      }}
+                    >
+                      {totalPnl >= 0 ? "+" : ""}${Math.abs(totalPnl).toFixed(2)}
+                    </ThemedText>
+                    <View style={[styles.pnlBadge, { backgroundColor: totalPnl >= 0 ? "#22C55E20" : "#EF444420" }]}>
+                      <ThemedText
+                        type="caption"
+                        style={{
+                          color: totalPnl >= 0 ? "#22C55E" : "#EF4444",
+                          fontSize: 12,
+                        }}
+                      >
+                        {pnlPercent >= 0 ? "+" : ""}{pnlPercent.toFixed(2)}%
+                      </ThemedText>
+                    </View>
+                  </View>
+                </View>
+                <PnlChart data={pnlData} height={160} />
+              </>
+            ) : isLoadingHistory ? (
+              <View style={[styles.chartPlaceholder, { backgroundColor: theme.backgroundDefault }]}>
+                <ActivityIndicator size="small" color={theme.accent} />
+                <ThemedText type="caption" style={{ color: theme.textSecondary, marginTop: Spacing.sm }}>
+                  Loading trading data...
+                </ThemedText>
+              </View>
+            ) : (
+              <View style={[styles.chartPlaceholder, { backgroundColor: theme.backgroundDefault }]}>
+                <Feather name="trending-up" size={28} color={theme.textSecondary} />
+                <ThemedText type="caption" style={{ color: theme.textSecondary, marginTop: Spacing.sm, textAlign: "center" }}>
+                  PNL chart will appear once you have trading activity
+                </ThemedText>
+              </View>
+            )}
+          </View>
+
+          <View style={[styles.priceStatsRow, { backgroundColor: theme.backgroundDefault }]}>
+            <View style={styles.priceStat}>
+              <ThemedText type="caption" style={{ color: theme.textSecondary }}>
+                Current Price
+              </ThemedText>
+              <ThemedText type="body" style={{ fontWeight: "600" }}>
+                ${priceUsd ? formatPrice(priceUsd) : "0.00"}
+              </ThemedText>
+            </View>
+            <View style={[styles.priceStatDivider, { backgroundColor: theme.border }]} />
+            <View style={styles.priceStat}>
+              <ThemedText type="caption" style={{ color: theme.textSecondary }}>
+                24h Change
+              </ThemedText>
               <ThemedText
                 type="body"
                 style={{
+                  fontWeight: "600",
                   color: priceChange24h && priceChange24h >= 0 ? "#22C55E" : "#EF4444",
                 }}
               >
-                ${Math.abs(change24hValue).toFixed(6)} ({priceChange24h?.toFixed(2) || 0}%)
+                {priceChange24h && priceChange24h >= 0 ? "+" : ""}{priceChange24h?.toFixed(2) || 0}%
               </ThemedText>
             </View>
           </View>
@@ -817,5 +824,28 @@ const styles = StyleSheet.create({
     gap: Spacing.sm,
     paddingVertical: Spacing.md,
     borderRadius: BorderRadius.md,
+  },
+  pnlHeroSection: {
+    width: "100%",
+    marginBottom: Spacing.lg,
+  },
+  pnlHeroHeader: {
+    alignItems: "center",
+    marginBottom: Spacing.md,
+  },
+  priceStatsRow: {
+    flexDirection: "row",
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+    width: "100%",
+  },
+  priceStat: {
+    flex: 1,
+    alignItems: "center",
+    gap: Spacing.xs,
+  },
+  priceStatDivider: {
+    width: 1,
+    height: "100%",
   },
 });
