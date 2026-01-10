@@ -94,9 +94,7 @@ export async function pairWithUri(uri: string): Promise<void> {
 export function buildNamespaces(
   proposal: SessionProposal,
   evmAddress: `0x${string}`
-): ReturnType<typeof buildApprovedNamespaces> {
-  const { requiredNamespaces, optionalNamespaces } = proposal.params;
-
+): Record<string, { accounts: string[]; methods: string[]; events: string[]; chains?: string[] }> {
   const supportedChainIds = Object.values(SUPPORTED_CHAINS).map((c) => c.namespace);
 
   const accounts: string[] = [];
@@ -104,17 +102,34 @@ export function buildNamespaces(
     accounts.push(`${chainNamespace}:${evmAddress}`);
   }
 
-  return buildApprovedNamespaces({
-    proposal: proposal.params,
-    supportedNamespaces: {
-      eip155: {
-        chains: supportedChainIds,
-        methods: SUPPORTED_METHODS,
-        events: SUPPORTED_EVENTS,
-        accounts,
+  try {
+    const approvedNamespaces = buildApprovedNamespaces({
+      proposal: proposal.params,
+      supportedNamespaces: {
+        eip155: {
+          chains: supportedChainIds,
+          methods: SUPPORTED_METHODS,
+          events: SUPPORTED_EVENTS,
+          accounts,
+        },
       },
+    });
+
+    if (approvedNamespaces && Object.keys(approvedNamespaces).length > 0) {
+      return approvedNamespaces;
+    }
+  } catch (err) {
+    console.warn("[WalletConnect] buildApprovedNamespaces failed, using fallback:", err);
+  }
+
+  return {
+    eip155: {
+      accounts,
+      methods: SUPPORTED_METHODS,
+      events: SUPPORTED_EVENTS,
+      chains: supportedChainIds,
     },
-  });
+  };
 }
 
 export async function approveSession(
@@ -124,6 +139,12 @@ export async function approveSession(
   const wallet = await initWalletConnect();
 
   const namespaces = buildNamespaces(proposal, evmAddress);
+  
+  console.log("[WalletConnect] Approving session with namespaces:", JSON.stringify(namespaces, null, 2));
+
+  if (!namespaces || Object.keys(namespaces).length === 0) {
+    throw new Error("Failed to build namespaces for session approval");
+  }
 
   const session = await wallet.approveSession({
     id: proposal.id,
