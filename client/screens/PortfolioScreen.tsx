@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { View, StyleSheet, ScrollView, Pressable, RefreshControl, ActivityIndicator } from "react-native";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
@@ -13,12 +13,10 @@ import * as WebBrowser from "expo-web-browser";
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
-import { NetworkBadge, NetworkId } from "@/components/NetworkBadge";
-import { EmptyState } from "@/components/EmptyState";
 import { useWallet } from "@/lib/wallet-context";
-import { usePortfolio, formatTimeSince } from "@/hooks/usePortfolio";
+import { useAllChainsPortfolio, MultiChainAsset } from "@/hooks/useAllChainsPortfolio";
+import { formatTimeSince } from "@/hooks/usePortfolio";
 import { getExplorerAddressUrl } from "@/lib/blockchain/chains";
-import { NETWORKS } from "@/lib/types";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
@@ -27,6 +25,7 @@ function getTokenIcon(symbol: string): keyof typeof Feather.glyphMap {
   const iconMap: Record<string, keyof typeof Feather.glyphMap> = {
     ETH: "hexagon",
     MATIC: "octagon",
+    POL: "octagon",
     BNB: "circle",
     USDC: "dollar-sign",
     USDT: "dollar-sign",
@@ -38,27 +37,31 @@ function getTokenIcon(symbol: string): keyof typeof Feather.glyphMap {
   return iconMap[symbol] || "disc";
 }
 
+function getChainColor(chainName: string): string {
+  const colorMap: Record<string, string> = {
+    Ethereum: "#627EEA",
+    Polygon: "#8247E5",
+    "BNB Chain": "#F3BA2F",
+  };
+  return colorMap[chainName] || "#888";
+}
+
 export default function PortfolioScreen() {
   const headerHeight = useHeaderHeight();
   const tabBarHeight = useBottomTabBarHeight();
   const insets = useSafeAreaInsets();
   const { theme } = useTheme();
   const navigation = useNavigation<Navigation>();
-  const { activeWallet, selectedNetwork, setSelectedNetwork } = useWallet();
+  const { activeWallet } = useWallet();
   const [copied, setCopied] = useState(false);
 
-  const { assets, isLoading, isRefreshing, error, lastUpdated, refresh } = usePortfolio(
-    activeWallet?.address,
-    selectedNetwork
+  const { assets, isLoading, isRefreshing, error, lastUpdated, refresh } = useAllChainsPortfolio(
+    activeWallet?.address
   );
-
-  const networks: NetworkId[] = ["ethereum", "polygon", "bsc"];
-
-  const chainId = NETWORKS[selectedNetwork].chainId;
 
   const handleViewExplorer = async () => {
     if (activeWallet) {
-      const url = getExplorerAddressUrl(chainId, activeWallet.address);
+      const url = getExplorerAddressUrl(1, activeWallet.address);
       if (url) {
         await WebBrowser.openBrowserAsync(url);
       }
@@ -94,6 +97,13 @@ export default function PortfolioScreen() {
       </View>
     );
   }
+
+  const handleAssetPress = (asset: MultiChainAsset) => {
+    navigation.navigate("AssetDetail", {
+      tokenSymbol: asset.symbol,
+      balance: asset.balance,
+    });
+  };
 
   return (
     <ScrollView
@@ -136,7 +146,7 @@ export default function PortfolioScreen() {
         ) : null}
 
         <View style={styles.actionButtons}>
-          <Pressable 
+          <Pressable
             style={[styles.actionButton, { backgroundColor: theme.backgroundSecondary }]}
             onPress={() => navigation.navigate("Send", {})}
           >
@@ -146,7 +156,7 @@ export default function PortfolioScreen() {
             <ThemedText type="small">Send</ThemedText>
           </Pressable>
 
-          <Pressable 
+          <Pressable
             style={[styles.actionButton, { backgroundColor: theme.backgroundSecondary }]}
             onPress={() => navigation.navigate("Receive", { walletAddress: activeWallet.address })}
           >
@@ -156,7 +166,7 @@ export default function PortfolioScreen() {
             <ThemedText type="small">Receive</ThemedText>
           </Pressable>
 
-          <Pressable 
+          <Pressable
             style={[styles.actionButton, { backgroundColor: theme.backgroundSecondary }]}
             onPress={() => {}}
           >
@@ -166,24 +176,6 @@ export default function PortfolioScreen() {
             <ThemedText type="small">Swap</ThemedText>
           </Pressable>
         </View>
-      </View>
-
-      <View style={styles.networkSection}>
-        <ThemedText type="small" style={[styles.sectionLabel, { color: theme.textSecondary }]}>
-          Network
-        </ThemedText>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.networkScroll}>
-          <View style={styles.networkRow}>
-            {networks.map((network) => (
-              <NetworkBadge
-                key={network}
-                networkId={network}
-                selected={selectedNetwork === network}
-                onPress={() => setSelectedNetwork(network)}
-              />
-            ))}
-          </View>
-        </ScrollView>
       </View>
 
       <View style={styles.assetsSection}>
@@ -203,27 +195,28 @@ export default function PortfolioScreen() {
               {error}
             </ThemedText>
             <Pressable onPress={refresh}>
-              <ThemedText type="small" style={{ color: theme.accent }}>Retry</ThemedText>
+              <ThemedText type="small" style={{ color: theme.accent }}>
+                Retry
+              </ThemedText>
             </Pressable>
           </View>
         ) : null}
 
         {isLoading ? (
           <View style={styles.loadingContainer}>
-            <View style={[styles.skeletonRow, { backgroundColor: theme.backgroundDefault }]}>
-              <View style={[styles.skeletonIcon, { backgroundColor: theme.backgroundSecondary }]} />
-              <View style={styles.skeletonInfo}>
-                <View style={[styles.skeletonText, { backgroundColor: theme.backgroundSecondary, width: 80 }]} />
-                <View style={[styles.skeletonText, { backgroundColor: theme.backgroundSecondary, width: 120 }]} />
+            {[1, 2, 3].map((i) => (
+              <View key={i} style={[styles.skeletonRow, { backgroundColor: theme.backgroundDefault }]}>
+                <View style={[styles.skeletonIcon, { backgroundColor: theme.backgroundSecondary }]} />
+                <View style={styles.skeletonInfo}>
+                  <View
+                    style={[styles.skeletonText, { backgroundColor: theme.backgroundSecondary, width: 80 }]}
+                  />
+                  <View
+                    style={[styles.skeletonText, { backgroundColor: theme.backgroundSecondary, width: 120 }]}
+                  />
+                </View>
               </View>
-            </View>
-            <View style={[styles.skeletonRow, { backgroundColor: theme.backgroundDefault }]}>
-              <View style={[styles.skeletonIcon, { backgroundColor: theme.backgroundSecondary }]} />
-              <View style={styles.skeletonInfo}>
-                <View style={[styles.skeletonText, { backgroundColor: theme.backgroundSecondary, width: 60 }]} />
-                <View style={[styles.skeletonText, { backgroundColor: theme.backgroundSecondary, width: 100 }]} />
-              </View>
-            </View>
+            ))}
           </View>
         ) : assets.length === 0 && !error ? (
           <View style={[styles.emptyAssets, { backgroundColor: theme.backgroundDefault }]}>
@@ -232,23 +225,35 @@ export default function PortfolioScreen() {
               No assets found
             </ThemedText>
             <ThemedText type="caption" style={{ color: theme.textSecondary, textAlign: "center" }}>
-              This wallet has no tokens on {NETWORKS[selectedNetwork].name}
+              This wallet has no tokens on any supported network
             </ThemedText>
           </View>
         ) : assets.length > 0 ? (
-          assets.map((asset) => (
+          assets.map((asset, index) => (
             <Pressable
-              key={asset.isNative ? "native" : asset.address}
+              key={`${asset.chainId}-${asset.isNative ? "native" : asset.address}-${index}`}
               style={[styles.tokenRow, { backgroundColor: theme.backgroundDefault }]}
-              onPress={() => navigation.navigate("AssetDetail", { tokenSymbol: asset.symbol, balance: asset.balance })}
+              onPress={() => handleAssetPress(asset)}
             >
               <View style={[styles.tokenIcon, { backgroundColor: theme.accent + "15" }]}>
                 <Feather name={getTokenIcon(asset.symbol)} size={20} color={theme.accent} />
               </View>
               <View style={styles.tokenInfo}>
-                <ThemedText type="body" style={{ fontWeight: "600" }}>
-                  {asset.symbol}
-                </ThemedText>
+                <View style={styles.tokenHeader}>
+                  <ThemedText type="body" style={{ fontWeight: "600" }}>
+                    {asset.symbol}
+                  </ThemedText>
+                  <View
+                    style={[styles.chainBadge, { backgroundColor: getChainColor(asset.chainName) + "20" }]}
+                  >
+                    <ThemedText
+                      type="caption"
+                      style={{ color: getChainColor(asset.chainName), fontSize: 10 }}
+                    >
+                      {asset.chainName}
+                    </ThemedText>
+                  </View>
+                </View>
                 <ThemedText type="caption" style={{ color: theme.textSecondary }}>
                   {asset.name}
                 </ThemedText>
@@ -297,14 +302,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: Spacing.xs,
   },
-  totalBalance: {
-    textAlign: "center",
-    marginBottom: Spacing.xs,
-  },
-  changeText: {
-    textAlign: "center",
-    marginBottom: Spacing.xl,
-  },
   actionButtons: {
     flexDirection: "row",
     justifyContent: "space-around",
@@ -323,20 +320,6 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.sm,
     alignItems: "center",
     justifyContent: "center",
-  },
-  networkSection: {
-    marginBottom: Spacing.xl,
-  },
-  sectionLabel: {
-    marginBottom: Spacing.sm,
-  },
-  networkScroll: {
-    marginHorizontal: -Spacing.lg,
-    paddingHorizontal: Spacing.lg,
-  },
-  networkRow: {
-    flexDirection: "row",
-    gap: Spacing.sm,
   },
   assetsSection: {
     gap: Spacing.md,
@@ -364,6 +347,16 @@ const styles = StyleSheet.create({
   tokenInfo: {
     flex: 1,
     gap: Spacing.xs,
+  },
+  tokenHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+  },
+  chainBadge: {
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 2,
+    borderRadius: BorderRadius.xs,
   },
   tokenBalance: {
     gap: Spacing.xs,
