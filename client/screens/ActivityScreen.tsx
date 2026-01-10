@@ -369,12 +369,25 @@ export default function ActivityScreen() {
     };
 
     const getUsdValue = (): string | null => {
-      const amount = parseFloat(item.amount);
+      let amount: number;
+      let symbol: string;
+      let tokenAddress: string | undefined;
+      
+      if (activityType === "swap" && item.toAmount && item.toTokenSymbol) {
+        amount = parseFloat(item.toAmount);
+        symbol = item.toTokenSymbol.toUpperCase();
+        tokenAddress = undefined;
+      } else {
+        amount = parseFloat(item.amount);
+        symbol = item.tokenSymbol.toUpperCase();
+        tokenAddress = item.tokenAddress;
+      }
+      
       if (isNaN(amount) || amount === 0) return null;
       
-      let price = prices[item.tokenSymbol.toUpperCase()];
-      if (!price && item.tokenAddress) {
-        price = prices[item.tokenAddress];
+      let price = prices[symbol];
+      if (!price && tokenAddress) {
+        price = prices[tokenAddress];
       }
       
       if (!price) return null;
