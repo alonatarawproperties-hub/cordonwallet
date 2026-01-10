@@ -35,8 +35,15 @@ interface PriceCache {
   timestamp: number;
 }
 
+interface HistoricalPriceCache {
+  [key: string]: { price: number; timestamp: number };
+}
+
 let priceCache: PriceCache = { data: {}, timestamp: 0 };
 const PRICE_CACHE_DURATION = 60000;
+
+let historicalPriceCache: HistoricalPriceCache = {};
+const HISTORICAL_CACHE_DURATION = 3600000;
 
 export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/transactions/:address", async (req: Request, res: Response) => {
@@ -154,6 +161,101 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.json({ prices: priceCache.data, cached: true, stale: true });
       }
       res.status(500).json({ error: "Failed to fetch prices" });
+    }
+  });
+
+  app.get("/api/historical-price/:geckoId/:timestamp", async (req: Request, res: Response) => {
+    try {
+      const { geckoId, timestamp } = req.params;
+      const ts = parseInt(timestamp);
+      
+      if (!geckoId || isNaN(ts)) {
+        return res.status(400).json({ error: "Missing geckoId or invalid timestamp" });
+      }
+
+      const cacheKey = `${geckoId}_${Math.floor(ts / 86400000)}`;
+      const cached = historicalPriceCache[cacheKey];
+      const now = Date.now();
+      
+      if (cached && now - cached.timestamp < HISTORICAL_CACHE_DURATION) {
+        return res.json({ price: cached.price, cached: true });
+      }
+
+      const date = new Date(ts);
+      const dateStr = `${String(date.getDate()).padStart(2, '0')}-${String(date.getMonth() + 1).padStart(2, '0')}-${date.getFullYear()}`;
+      
+      console.log(`[Historical Price] Fetching ${geckoId} for ${dateStr}`);
+      
+      const url = `${COINGECKO_API}/coins/${geckoId}/history?date=${dateStr}&localization=false`;
+      const response = await fetch(url, {
+        headers: { "Accept": "application/json" },
+      });
+
+      if (!response.ok) {
+        console.error("[Historical Price] CoinGecko error:", response.status);
+        return res.status(502).json({ error: "Failed to fetch historical price" });
+      }
+
+      const data = await response.json();
+      const price = data?.market_data?.current_price?.usd || 0;
+      
+      historicalPriceCache[cacheKey] = { price, timestamp: now };
+      
+      res.json({ price, cached: false });
+    } catch (error) {
+      console.error("[Historical Price] Error:", error);
+      res.status(500).json({ error: "Failed to fetch historical price" });
+    }
+  });
+
+  app.post("/api/enrich-transactions", async (req: Request, res: Response) => {
+    try {
+      const { transactions } = req.body;
+      
+      if (!Array.isArray(transactions)) {
+        return res.status(400).json({ error: "transactions must be an array" });
+      }
+
+      const enriched = await Promise.all(transactions.map(async (tx: any) => {
+        if (tx.priceUsd) return tx;
+        
+        const geckoId = NATIVE_TOKEN_IDS[tx.chainId];
+        if (!geckoId) return tx;
+        
+        const cacheKey = `${geckoId}_${Math.floor(tx.createdAt / 86400000)}`;
+        const cached = historicalPriceCache[cacheKey];
+        const now = Date.now();
+        
+        if (cached && now - cached.timestamp < HISTORICAL_CACHE_DURATION) {
+          return { ...tx, priceUsd: cached.price };
+        }
+        
+        try {
+          const date = new Date(tx.createdAt);
+          const dateStr = `${String(date.getDate()).padStart(2, '0')}-${String(date.getMonth() + 1).padStart(2, '0')}-${date.getFullYear()}`;
+          
+          const url = `${COINGECKO_API}/coins/${geckoId}/history?date=${dateStr}&localization=false`;
+          const response = await fetch(url, {
+            headers: { "Accept": "application/json" },
+          });
+          
+          if (response.ok) {
+            const data = await response.json();
+            const price = data?.market_data?.current_price?.usd || 0;
+            historicalPriceCache[cacheKey] = { price, timestamp: now };
+            return { ...tx, priceUsd: price };
+          }
+        } catch (e) {
+          console.error("[Enrich] Failed to get historical price for tx:", tx.hash);
+        }
+        
+        return tx;
+      }));
+      
+      res.json({ transactions: enriched });
+    } catch (error) {
+      console.error("[Enrich Transactions] Error:", error);
+      res.status(500).json({ error: "Failed to enrich transactions" });
     }
   });
 

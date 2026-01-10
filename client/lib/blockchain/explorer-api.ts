@@ -40,6 +40,33 @@ function formatAmount(value: string, decimals: number): string {
   return `${whole}.${trimmed}`;
 }
 
+async function enrichTransactionsWithPrices(transactions: TxRecord[]): Promise<TxRecord[]> {
+  if (transactions.length === 0) return transactions;
+  
+  try {
+    const apiUrl = getApiUrl();
+    const url = new URL("/api/enrich-transactions", apiUrl);
+    
+    const response = await fetch(url.toString(), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ transactions }),
+    });
+    
+    if (!response.ok) {
+      console.log("[ExplorerAPI] Failed to enrich transactions, using original");
+      return transactions;
+    }
+    
+    const data = await response.json();
+    console.log("[ExplorerAPI] Enriched transactions with prices");
+    return data.transactions || transactions;
+  } catch (error) {
+    console.error("[ExplorerAPI] Error enriching transactions:", error);
+    return transactions;
+  }
+}
+
 export async function fetchTransactionHistory(
   walletAddress: string,
   chainId: number
@@ -92,7 +119,8 @@ export async function fetchTransactionHistory(
         };
       });
 
-    return transactions;
+    const enrichedTransactions = await enrichTransactionsWithPrices(transactions);
+    return enrichedTransactions;
   } catch (error) {
     console.error(`Failed to fetch transactions for chain ${chainId}:`, error);
     return [];
