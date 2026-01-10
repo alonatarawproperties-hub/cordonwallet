@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { getApiUrl } from "@/lib/query-client";
+import { getCustomTokens, getHiddenTokens, CustomToken } from "@/lib/token-preferences";
 
 interface SolBalance {
   lamports: number;
@@ -147,6 +148,40 @@ export function useSolanaPortfolio(address: string | undefined) {
         });
       });
 
+      // Add custom Solana tokens (chainId 0) that aren't hidden
+      try {
+        const [customTokens, hiddenTokens] = await Promise.all([
+          getCustomTokens(),
+          getHiddenTokens(),
+        ]);
+        
+        const solanaCustomTokens = customTokens.filter((ct: CustomToken) => ct.chainId === 0);
+        
+        solanaCustomTokens.forEach((ct: CustomToken) => {
+          const tokenKey = `${ct.chainId}:${ct.symbol}`;
+          if (hiddenTokens.includes(tokenKey)) return;
+          
+          // Check if we already have this token from the RPC
+          const existingToken = assets.find(a => a.mint === ct.contractAddress);
+          if (existingToken) return;
+          
+          // Add custom token with zero balance (actual balance comes from RPC if they hold it)
+          assets.push({
+            symbol: ct.symbol,
+            name: ct.name,
+            balance: "0",
+            rawBalance: BigInt(0),
+            decimals: ct.decimals,
+            isNative: false,
+            mint: ct.contractAddress,
+            chainId: "solana",
+            chainName: "Solana",
+          });
+        });
+      } catch (customTokenError) {
+        console.log("[Solana Portfolio] Failed to load custom tokens:", customTokenError);
+      }
+
       let solPrice = 0;
       let solChange24h = 0;
       try {
@@ -175,6 +210,36 @@ export function useSolanaPortfolio(address: string | undefined) {
           asset.valueUsd = solPrice * balanceNum;
         }
       });
+
+      // Fetch prices for SPL tokens via DexScreener
+      const tokensWithMint = assets.filter(a => a.mint && !a.isNative);
+      if (tokensWithMint.length > 0) {
+        try {
+          const apiUrl = getApiUrl();
+          const mintAddresses = tokensWithMint.map(t => t.mint).join(",");
+          const dexUrl = new URL("/api/dexscreener/tokens", apiUrl);
+          dexUrl.searchParams.set("addresses", mintAddresses);
+          dexUrl.searchParams.set("chainId", "solana");
+          
+          const dexResponse = await fetch(dexUrl.toString());
+          if (dexResponse.ok) {
+            const dexData = await dexResponse.json();
+            if (dexData.prices) {
+              tokensWithMint.forEach((token) => {
+                const priceInfo = dexData.prices[token.mint!];
+                if (priceInfo) {
+                  token.priceUsd = priceInfo.price;
+                  token.priceChange24h = priceInfo.change24h;
+                  const balanceNum = parseFloat(token.balance.replace(/,/g, "")) || 0;
+                  token.valueUsd = priceInfo.price * balanceNum;
+                }
+              });
+            }
+          }
+        } catch (dexError) {
+          console.log("[Solana Portfolio] DexScreener price fetch failed:", dexError);
+        }
+      }
 
       assets.sort((a, b) => {
         if (a.isNative && !b.isNative) return -1;

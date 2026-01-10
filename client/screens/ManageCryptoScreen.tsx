@@ -118,11 +118,16 @@ export default function ManageCryptoScreen() {
     }
   };
 
+  const getChainName = (chainId: number): string => {
+    if (chainId === 0) return "Solana";
+    return supportedChains.find((c: ChainConfig) => c.chainId === chainId)?.name || "Unknown";
+  };
+
   const allAssets: MultiChainAsset[] = [...assets, ...customTokens.map((ct: CustomToken) => ({
     symbol: ct.symbol,
     name: ct.name,
     chainId: ct.chainId,
-    chainName: supportedChains.find((c: ChainConfig) => c.chainId === ct.chainId)?.name || "Unknown",
+    chainName: getChainName(ct.chainId),
     isNative: false,
     balance: "0",
     address: ct.contractAddress,
