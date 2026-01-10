@@ -164,6 +164,71 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/market-chart/:symbol", async (req: Request, res: Response) => {
+    try {
+      const { symbol } = req.params;
+      const days = req.query.days as string || "7";
+      
+      if (!symbol) {
+        return res.status(400).json({ error: "Missing symbol" });
+      }
+
+      const symbolToGeckoId: Record<string, string> = {
+        "ETH": "ethereum",
+        "WETH": "ethereum",
+        "MATIC": "polygon-ecosystem-token",
+        "POL": "polygon-ecosystem-token",
+        "BNB": "binancecoin",
+        "BTC": "bitcoin",
+        "WBTC": "bitcoin",
+        "BTCB": "bitcoin",
+        "USDC": "usd-coin",
+        "USDT": "tether",
+        "DAI": "dai",
+      };
+
+      const geckoId = symbolToGeckoId[symbol.toUpperCase()];
+      if (!geckoId) {
+        return res.status(404).json({ error: "Token not supported for chart data" });
+      }
+
+      const cacheKey = `chart_${geckoId}_${days}`;
+      const cached = historicalPriceCache[cacheKey];
+      const now = Date.now();
+      const cacheDuration = parseInt(days) <= 1 ? 300000 : 1800000;
+      
+      if (cached && now - cached.timestamp < cacheDuration) {
+        return res.json({ prices: cached.price, cached: true });
+      }
+
+      console.log(`[Market Chart] Fetching ${geckoId} for ${days} days`);
+      
+      const url = `${COINGECKO_API}/coins/${geckoId}/market_chart?vs_currency=usd&days=${days}`;
+      const response = await fetch(url, {
+        headers: { "Accept": "application/json" },
+      });
+
+      if (!response.ok) {
+        console.error("[Market Chart] CoinGecko error:", response.status);
+        if (cached) {
+          return res.json({ prices: cached.price, cached: true, stale: true });
+        }
+        return res.status(502).json({ error: "Failed to fetch chart data" });
+      }
+
+      const data = await response.json();
+      const prices = data.prices || [];
+      
+      historicalPriceCache[cacheKey] = { price: prices, timestamp: now };
+      
+      console.log(`[Market Chart] Fetched ${prices.length} data points`);
+      res.json({ prices, cached: false });
+    } catch (error) {
+      console.error("[Market Chart] Error:", error);
+      res.status(500).json({ error: "Failed to fetch chart data" });
+    }
+  });
+
   app.get("/api/historical-price/:geckoId/:timestamp", async (req: Request, res: Response) => {
     try {
       const { geckoId, timestamp } = req.params;

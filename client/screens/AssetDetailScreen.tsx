@@ -13,6 +13,7 @@ import { Spacing, BorderRadius } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
 import { PnlChart } from "@/components/PnlChart";
+import { PriceChart } from "@/components/PriceChart";
 import { useWallet } from "@/lib/wallet-context";
 import { fetchTransactionHistory } from "@/lib/blockchain/explorer-api";
 import { TxRecord } from "@/lib/transaction-history";
@@ -520,6 +521,13 @@ export default function AssetDetailScreen({ route }: Props) {
               </ThemedText>
             </View>
           )}
+        </View>
+
+        <View style={{ marginBottom: Spacing.lg }}>
+          <ThemedText type="body" style={{ color: theme.textSecondary, marginBottom: Spacing.sm }}>
+            Price Chart
+          </ThemedText>
+          <PriceChart symbol={tokenSymbol} currentPrice={priceUsd} />
         </View>
 
         <View style={[styles.tabsContainer, { borderBottomColor: theme.border }]}>
