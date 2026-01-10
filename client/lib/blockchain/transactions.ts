@@ -21,12 +21,13 @@ import { getPublicClient, formatRpcError } from "./client";
 import { getMnemonic, requireUnlocked, isUnlocked, WalletLockedError } from "../wallet-engine";
 
 import { 
-  detectApproval, 
-  checkApprovalPolicy, 
-  ApprovalPolicyResult,
+  checkApprovalPolicy,
   saveApproval,
   getSpenderLabel,
+  DetectedApproval,
+  MAX_UINT256,
 } from "../approvals";
+import type { PolicySettings } from "../types";
 
 const ERC20_ABI = [
   {
@@ -92,9 +93,7 @@ export interface SendApprovalParams {
   tokenName?: string;
   spender: `0x${string}`;
   amount: string;
-  policySettings: {
-    blockUnlimitedApprovals: boolean;
-  };
+  policySettings: PolicySettings;
 }
 
 export interface ApprovalBlockedError {
@@ -578,15 +577,32 @@ export async function sendApproval(params: SendApprovalParams): Promise<Transact
   }
 
   const parsedAmount = parseUnits(amount, tokenDecimals);
-
-  const policyResult = checkApprovalPolicy(parsedAmount, policySettings);
   
-  if (policyResult.blocked) {
+  const isUnlimited = parsedAmount >= MAX_UINT256 / 2n;
+  
+  const detectedApproval: DetectedApproval = {
+    tokenAddress,
+    spender,
+    amountRaw: parsedAmount,
+    isUnlimited,
+  };
+
+  const policyResult = checkApprovalPolicy({
+    chainId,
+    approval: detectedApproval,
+    policySettings,
+    tokenDecimals,
+    tokenSymbol: tokenSymbol || "tokens",
+  });
+  
+  if (!policyResult.allowed) {
     throw new ApprovalPolicyError({
       code: "APPROVAL_BLOCKED",
       message: policyResult.reason || "Approval blocked by policy",
-      suggestion: policyResult.suggestion || "Try a smaller amount",
-      suggestedAmount: policyResult.suggestedAmount,
+      suggestion: policyResult.suggestedCapFormatted 
+        ? `Use a capped amount of ${policyResult.suggestedCapFormatted}` 
+        : "Try a smaller amount",
+      suggestedAmount: policyResult.suggestedCap?.toString(),
     });
   }
 
