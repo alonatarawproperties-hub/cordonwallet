@@ -62,6 +62,7 @@ export type RootStackParamList = {
     priceUsd?: number;
     valueUsd?: number;
     priceChange24h?: number;
+    chainType?: "evm" | "solana";
   };
   TransactionDetail: TransactionDetailParams;
   WalletManager: undefined;

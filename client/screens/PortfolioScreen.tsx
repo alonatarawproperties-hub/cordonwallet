@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { View, StyleSheet, ScrollView, Pressable, RefreshControl, ActivityIndicator, Image } from "react-native";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
@@ -15,10 +15,12 @@ import { Spacing, BorderRadius } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
 import { useWallet } from "@/lib/wallet-context";
 import { useAllChainsPortfolio, MultiChainAsset } from "@/hooks/useAllChainsPortfolio";
+import { useSolanaPortfolio, SolanaAsset } from "@/hooks/useSolanaPortfolio";
 import { formatTimeSince } from "@/hooks/usePortfolio";
 import { getExplorerAddressUrl } from "@/lib/blockchain/chains";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { getTokenLogoUrl } from "@/lib/token-logos";
+import { ChainSelector, ChainType } from "@/components/ChainSelector";
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
@@ -43,6 +45,7 @@ function getChainColor(chainName: string): string {
     Ethereum: "#627EEA",
     Polygon: "#8247E5",
     "BNB Chain": "#F3BA2F",
+    Solana: "#9945FF",
   };
   return colorMap[chainName] || "#888";
 }
@@ -64,6 +67,8 @@ function formatValue(value: number): string {
   return `$${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+type UnifiedAsset = (MultiChainAsset | SolanaAsset) & { chainType: ChainType };
+
 export default function PortfolioScreen() {
   const headerHeight = useHeaderHeight();
   const tabBarHeight = useBottomTabBarHeight();
@@ -72,14 +77,54 @@ export default function PortfolioScreen() {
   const navigation = useNavigation<Navigation>();
   const { activeWallet } = useWallet();
   const [copied, setCopied] = useState(false);
+  const [selectedChainType, setSelectedChainType] = useState<ChainType>("evm");
 
-  const { assets, isLoading, isRefreshing, error, lastUpdated, refresh } = useAllChainsPortfolio(
-    activeWallet?.address
-  );
+  const evmAddress = activeWallet?.addresses?.evm || activeWallet?.address;
+  const solanaAddress = activeWallet?.addresses?.solana;
+
+  const evmPortfolio = useAllChainsPortfolio(evmAddress);
+  const solanaPortfolio = useSolanaPortfolio(solanaAddress);
+
+  const { assets, isLoading, isRefreshing, error, lastUpdated, refresh } = useMemo(() => {
+    if (selectedChainType === "solana") {
+      const solAssets: UnifiedAsset[] = solanaPortfolio.assets.map((a) => ({
+        ...a,
+        chainId: "solana" as any,
+        chainType: "solana" as ChainType,
+      }));
+      return {
+        assets: solAssets,
+        isLoading: solanaPortfolio.isLoading,
+        isRefreshing: solanaPortfolio.isRefreshing,
+        error: solanaPortfolio.error,
+        lastUpdated: solanaPortfolio.lastUpdated,
+        refresh: solanaPortfolio.refresh,
+      };
+    }
+    const evmAssets: UnifiedAsset[] = evmPortfolio.assets.map((a) => ({
+      ...a,
+      chainType: "evm" as ChainType,
+    }));
+    return {
+      assets: evmAssets,
+      isLoading: evmPortfolio.isLoading,
+      isRefreshing: evmPortfolio.isRefreshing,
+      error: evmPortfolio.error,
+      lastUpdated: evmPortfolio.lastUpdated,
+      refresh: evmPortfolio.refresh,
+    };
+  }, [selectedChainType, evmPortfolio, solanaPortfolio]);
+
+  const currentAddress = selectedChainType === "solana" ? solanaAddress : evmAddress;
 
   const handleViewExplorer = async () => {
-    if (activeWallet) {
-      const url = getExplorerAddressUrl(1, activeWallet.address);
+    if (!currentAddress) return;
+    
+    if (selectedChainType === "solana") {
+      const url = `https://solscan.io/account/${currentAddress}`;
+      await WebBrowser.openBrowserAsync(url);
+    } else {
+      const url = getExplorerAddressUrl(1, currentAddress);
       if (url) {
         await WebBrowser.openBrowserAsync(url);
       }
@@ -87,8 +132,8 @@ export default function PortfolioScreen() {
   };
 
   const handleCopyAddress = async () => {
-    if (activeWallet) {
-      await Clipboard.setStringAsync(activeWallet.address);
+    if (currentAddress) {
+      await Clipboard.setStringAsync(currentAddress);
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
@@ -116,18 +161,19 @@ export default function PortfolioScreen() {
     );
   }
 
-  const handleAssetPress = (asset: MultiChainAsset) => {
+  const handleAssetPress = (asset: UnifiedAsset) => {
     navigation.navigate("AssetDetail", {
       tokenSymbol: asset.symbol,
       tokenName: asset.name,
       balance: asset.balance,
-      chainId: asset.chainId,
+      chainId: typeof asset.chainId === "string" ? 0 : asset.chainId,
       chainName: asset.chainName,
       isNative: asset.isNative,
-      address: asset.address,
+      address: "address" in asset ? asset.address : ("mint" in asset ? asset.mint : undefined),
       priceUsd: asset.priceUsd,
       valueUsd: asset.valueUsd,
       priceChange24h: asset.priceChange24h,
+      chainType: asset.chainType,
     });
   };
 
@@ -145,6 +191,14 @@ export default function PortfolioScreen() {
       }
     >
       <View style={[styles.balanceCard, { backgroundColor: theme.backgroundDefault }]}>
+        <View style={styles.chainSelectorRow}>
+          <ChainSelector
+            selected={selectedChainType}
+            onSelect={setSelectedChainType}
+            compact
+          />
+        </View>
+
         <Pressable style={styles.walletSelector} onPress={() => navigation.navigate("WalletManager")}>
           <View style={[styles.walletIcon, { backgroundColor: theme.accent + "20" }]}>
             <Feather name="user" size={16} color={theme.accent} />
@@ -155,7 +209,7 @@ export default function PortfolioScreen() {
             </ThemedText>
             <Pressable onPress={handleCopyAddress} style={styles.addressRow}>
               <ThemedText type="caption" style={{ color: theme.textSecondary }}>
-                {truncateAddress(activeWallet.address)}
+                {currentAddress ? truncateAddress(currentAddress) : "No address"}
               </ThemedText>
               <Feather name={copied ? "check" : "copy"} size={12} color={theme.accent} />
             </Pressable>
@@ -184,7 +238,7 @@ export default function PortfolioScreen() {
 
           <Pressable
             style={[styles.actionButton, { backgroundColor: theme.backgroundSecondary }]}
-            onPress={() => navigation.navigate("Receive", { walletAddress: activeWallet.address })}
+            onPress={() => navigation.navigate("Receive", { walletAddress: currentAddress || activeWallet.address })}
           >
             <View style={[styles.actionIcon, { backgroundColor: theme.success + "20" }]}>
               <Feather name="arrow-down-left" size={20} color={theme.success} />
@@ -341,6 +395,10 @@ const styles = StyleSheet.create({
     padding: Spacing.xl,
     borderRadius: BorderRadius.lg,
     marginBottom: Spacing.xl,
+  },
+  chainSelectorRow: {
+    marginBottom: Spacing.lg,
+    alignItems: "flex-start",
   },
   walletSelector: {
     flexDirection: "row",
