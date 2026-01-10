@@ -236,11 +236,56 @@ export function useSolanaPortfolio(address: string | undefined) {
         }
       });
 
-      // Fetch prices and metadata for SPL tokens via DexScreener
+      // Fetch prices and metadata for SPL tokens
       const tokensWithMint = assets.filter(a => a.mint && !a.isNative);
+      const apiUrl = getApiUrl();
+      
       if (tokensWithMint.length > 0) {
+        // First, fetch metadata for tokens that need it (truncated names or missing metadata)
+        const tokensNeedingMetadata = tokensWithMint.filter(t => 
+          t.symbol.includes("...") || t.name.includes("Token ") || !t.logoUrl
+        );
+        
+        // Fetch metadata from dedicated endpoint (uses DexScreener + Metaplex)
+        if (tokensNeedingMetadata.length > 0) {
+          try {
+            const metadataPromises = tokensNeedingMetadata.map(async (token) => {
+              try {
+                const metaUrl = new URL(`/api/solana/token-metadata/${token.mint}`, apiUrl);
+                const response = await fetch(metaUrl.toString());
+                if (response.ok) {
+                  const metadata = await response.json();
+                  return { mint: token.mint!, metadata };
+                }
+              } catch {}
+              return null;
+            });
+            
+            const results = await Promise.all(metadataPromises);
+            results.forEach((result) => {
+              if (result?.metadata) {
+                const token = tokensWithMint.find(t => t.mint === result.mint);
+                if (token) {
+                  if (result.metadata.symbol) {
+                    token.symbol = result.metadata.symbol;
+                  }
+                  if (result.metadata.name) {
+                    token.name = result.metadata.name;
+                  }
+                  if (result.metadata.logoUri) {
+                    token.logoUrl = result.metadata.logoUri;
+                  }
+                  console.log(`[Solana Portfolio] Enriched ${token.symbol} with metadata from server`);
+                }
+              }
+            });
+          } catch (metadataError) {
+            console.log("[Solana Portfolio] Token metadata fetch failed:", metadataError);
+          }
+        }
+        
+        // Then fetch prices via batch DexScreener API
         try {
-          const apiUrl = getApiUrl();
           const mintAddresses = tokensWithMint.map(t => t.mint).join(",");
           const dexUrl = new URL("/api/dexscreener/tokens", apiUrl);
           dexUrl.searchParams.set("addresses", mintAddresses);
@@ -262,18 +307,6 @@ export function useSolanaPortfolio(address: string | undefined) {
                   token.priceChange24h = priceInfo.change24h;
                   const balanceNum = parseFloat(token.balance.replace(/,/g, "")) || 0;
                   token.valueUsd = priceInfo.price * balanceNum;
-                  
-                  // Use DexScreener metadata if token name/symbol is missing or truncated
-                  if (priceInfo.symbol && token.symbol.includes("...")) {
-                    token.symbol = priceInfo.symbol;
-                  }
-                  if (priceInfo.name && token.name.includes("Token ")) {
-                    token.name = priceInfo.name;
-                  }
-                  if (priceInfo.logoUrl && !token.logoUrl) {
-                    token.logoUrl = priceInfo.logoUrl;
-                  }
-                  
                   console.log(`[Solana Portfolio] Set price for ${token.symbol}: $${priceInfo.price}`);
                 }
               });
