@@ -50,7 +50,7 @@ export type RootStackParamList = {
   Unlock: undefined;
   Main: undefined;
   Send: { tokenSymbol?: string } | undefined;
-  Receive: { walletAddress: string };
+  Receive: { walletAddress: string; solanaAddress?: string };
   AssetDetail: {
     tokenSymbol: string;
     tokenName: string;

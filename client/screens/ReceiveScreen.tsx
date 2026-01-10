@@ -13,41 +13,105 @@ import { Spacing, BorderRadius } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
 import { Button } from "@/components/Button";
-import { NetworkBadge } from "@/components/NetworkBadge";
 import { useWallet } from "@/lib/wallet-context";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
+import type { ChainType } from "@/lib/types";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Receive">;
+
+const CHAIN_OPTIONS: { id: ChainType; name: string; color: string }[] = [
+  { id: "evm", name: "EVM", color: "#627EEA" },
+  { id: "solana", name: "Solana", color: "#9945FF" },
+];
 
 export default function ReceiveScreen({ route }: Props) {
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
   const { theme } = useTheme();
-  const { walletAddress } = route.params;
-  const { selectedNetwork } = useWallet();
+  const { walletAddress, solanaAddress } = route.params;
+  const { activeWallet } = useWallet();
   const [copied, setCopied] = useState(false);
+  const [selectedChainType, setSelectedChainType] = useState<ChainType>(
+    activeWallet?.walletType === "solana-only" ? "solana" : "evm"
+  );
+
+  const isSolanaOnly = activeWallet?.walletType === "solana-only";
+  const displayAddress = selectedChainType === "solana" 
+    ? (solanaAddress || activeWallet?.addresses?.solana || "") 
+    : walletAddress;
 
   const handleCopy = async () => {
-    await Clipboard.setStringAsync(walletAddress);
+    await Clipboard.setStringAsync(displayAddress);
     await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const getChainLabel = () => {
+    if (selectedChainType === "solana") return "Solana";
+    return "EVM Networks";
+  };
+
+  const getWarningText = () => {
+    if (selectedChainType === "solana") {
+      return "Only send SOL or Solana SPL tokens to this address. Sending tokens from other networks may result in permanent loss.";
+    }
+    return "Only send EVM-compatible tokens (Ethereum, Polygon, BNB Chain) to this address. Sending other tokens may result in permanent loss.";
+  };
+
   return (
     <ThemedView style={[styles.container, { paddingTop: headerHeight + Spacing.lg, paddingBottom: insets.bottom + Spacing["2xl"] }]}>
       <View style={styles.content}>
-        <View style={[styles.networkCard, { backgroundColor: theme.backgroundDefault }]}>
-          <ThemedText type="small" style={{ color: theme.textSecondary }}>
-            Receiving on
-          </ThemedText>
-          <NetworkBadge networkId={selectedNetwork} selected />
-        </View>
+        {!isSolanaOnly ? (
+          <View style={[styles.chainSelectorCard, { backgroundColor: theme.backgroundDefault }]}>
+            <ThemedText type="small" style={{ color: theme.textSecondary }}>
+              Receiving on
+            </ThemedText>
+            <View style={styles.chainSelector}>
+              {CHAIN_OPTIONS.map((chain) => (
+                <Pressable
+                  key={chain.id}
+                  style={[
+                    styles.chainOption,
+                    { 
+                      backgroundColor: selectedChainType === chain.id ? chain.color + "20" : "transparent",
+                      borderColor: selectedChainType === chain.id ? chain.color : theme.border,
+                    },
+                  ]}
+                  onPress={() => setSelectedChainType(chain.id)}
+                >
+                  <View style={[styles.chainDot, { backgroundColor: chain.color }]} />
+                  <ThemedText 
+                    type="small" 
+                    style={{ 
+                      color: selectedChainType === chain.id ? chain.color : theme.textSecondary,
+                      fontWeight: selectedChainType === chain.id ? "600" : "400",
+                    }}
+                  >
+                    {chain.name}
+                  </ThemedText>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+        ) : (
+          <View style={[styles.networkCard, { backgroundColor: theme.backgroundDefault }]}>
+            <ThemedText type="small" style={{ color: theme.textSecondary }}>
+              Receiving on
+            </ThemedText>
+            <View style={[styles.solanaBadge, { backgroundColor: "#9945FF20" }]}>
+              <View style={[styles.chainDot, { backgroundColor: "#9945FF" }]} />
+              <ThemedText type="small" style={{ color: "#9945FF", fontWeight: "600" }}>
+                Solana
+              </ThemedText>
+            </View>
+          </View>
+        )}
 
         <View style={[styles.qrContainer, { backgroundColor: theme.backgroundDefault }]}>
           <View style={styles.qrWrapper}>
             <QRCode
-              value={walletAddress}
+              value={displayAddress || "loading"}
               size={180}
               backgroundColor="white"
               color="black"
@@ -60,17 +124,17 @@ export default function ReceiveScreen({ route }: Props) {
 
         <View style={[styles.addressCard, { backgroundColor: theme.backgroundDefault }]}>
           <ThemedText type="small" style={{ color: theme.textSecondary }}>
-            Your Address
+            Your {getChainLabel()} Address
           </ThemedText>
           <ThemedText type="body" style={styles.address} selectable>
-            {walletAddress}
+            {displayAddress}
           </ThemedText>
         </View>
 
         <View style={[styles.warningCard, { backgroundColor: theme.warning + "15", borderColor: theme.warning + "40" }]}>
           <Feather name="alert-triangle" size={20} color={theme.warning} />
           <ThemedText type="small" style={{ color: theme.warning, flex: 1 }}>
-            Only send EVM-compatible tokens to this address. Sending other tokens may result in permanent loss.
+            {getWarningText()}
           </ThemedText>
         </View>
       </View>
@@ -104,6 +168,37 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     padding: Spacing.lg,
     borderRadius: BorderRadius.md,
+  },
+  chainSelectorCard: {
+    padding: Spacing.lg,
+    borderRadius: BorderRadius.md,
+    gap: Spacing.md,
+  },
+  chainSelector: {
+    flexDirection: "row",
+    gap: Spacing.sm,
+  },
+  chainOption: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    gap: Spacing.xs,
+  },
+  chainDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  solanaBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: Spacing.xs,
+    paddingHorizontal: Spacing.md,
+    borderRadius: BorderRadius.md,
+    gap: Spacing.xs,
   },
   qrContainer: {
     alignItems: "center",

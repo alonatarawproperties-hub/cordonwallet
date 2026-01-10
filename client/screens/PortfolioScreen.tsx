@@ -271,7 +271,10 @@ export default function PortfolioScreen() {
 
           <Pressable
             style={[styles.actionButton, { backgroundColor: theme.backgroundSecondary }]}
-            onPress={() => navigation.navigate("Receive", { walletAddress: evmAddress || activeWallet.address })}
+            onPress={() => navigation.navigate("Receive", { 
+                walletAddress: evmAddress || activeWallet.address,
+                solanaAddress: activeWallet.addresses?.solana,
+              })}
           >
             <View style={[styles.actionIcon, { backgroundColor: theme.success + "20" }]}>
               <Feather name="arrow-down-left" size={20} color={theme.success} />

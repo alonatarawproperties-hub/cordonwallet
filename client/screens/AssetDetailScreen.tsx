@@ -576,7 +576,10 @@ export default function AssetDetailScreen({ route }: Props) {
         </Pressable>
         <Pressable
           style={[styles.bottomButton, { backgroundColor: theme.success + "20" }]}
-          onPress={() => activeWallet && navigation.navigate("Receive", { walletAddress: activeWallet.address })}
+          onPress={() => activeWallet && navigation.navigate("Receive", { 
+            walletAddress: activeWallet.addresses?.evm || activeWallet.address,
+            solanaAddress: activeWallet.addresses?.solana,
+          })}
         >
           <Feather name="arrow-down-left" size={20} color={theme.success} />
           <ThemedText type="small" style={{ color: theme.success }}>Receive</ThemedText>
