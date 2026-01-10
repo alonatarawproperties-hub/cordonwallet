@@ -3,7 +3,8 @@ import { View, StyleSheet, SectionList, Pressable, RefreshControl } from "react-
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useFocusEffect } from "@react-navigation/native";
+import { useFocusEffect, useNavigation } from "@react-navigation/native";
+import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import * as WebBrowser from "expo-web-browser";
 import { Feather } from "@expo/vector-icons";
 
@@ -15,6 +16,7 @@ import { Badge } from "@/components/Badge";
 import { EmptyState } from "@/components/EmptyState";
 import { useWallet } from "@/lib/wallet-context";
 import { TxRecord, ActivityType, getTransactionsByWallet } from "@/lib/transaction-history";
+import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 import {
   fetchAllChainsHistory,
   groupTransactionsByDate,
@@ -30,7 +32,10 @@ const NETWORK_TO_CHAIN_ID: Record<NetworkId, number> = {
 
 type NetworkFilter = "all" | number;
 
+type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
+
 export default function ActivityScreen() {
+  const navigation = useNavigation<NavigationProp>();
   const headerHeight = useHeaderHeight();
   const tabBarHeight = useBottomTabBarHeight();
   const insets = useSafeAreaInsets();
@@ -132,8 +137,19 @@ export default function ActivityScreen() {
     }
   };
 
-  const handleViewExplorer = async (url: string) => {
-    await WebBrowser.openBrowserAsync(url);
+  const handleTransactionPress = (tx: TxRecord) => {
+    navigation.navigate("TransactionDetail", {
+      hash: tx.hash,
+      chainId: tx.chainId,
+      activityType: tx.activityType,
+      tokenSymbol: tx.tokenSymbol,
+      amount: tx.amount,
+      to: tx.to,
+      from: tx.from,
+      status: tx.status,
+      createdAt: tx.createdAt,
+      explorerUrl: tx.explorerUrl,
+    });
   };
 
   const handleCheckExplorer = async () => {
@@ -193,7 +209,7 @@ export default function ActivityScreen() {
     return (
       <Pressable
         style={styles.transactionRow}
-        onPress={() => handleViewExplorer(item.explorerUrl)}
+        onPress={() => handleTransactionPress(item)}
       >
         <View style={[styles.txIcon, { backgroundColor: theme.backgroundDefault }]}>
           <Feather name={activityIcon} size={18} color={theme.text} />

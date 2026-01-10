@@ -22,6 +22,21 @@ import ApprovalsScreen from "@/screens/ApprovalsScreen";
 import PolicySettingsScreen from "@/screens/PolicySettingsScreen";
 import CreateBundleScreen from "@/screens/CreateBundleScreen";
 
+export type TransactionDetailParams = {
+  hash: string;
+  chainId: number;
+  activityType: "send" | "receive" | "swap";
+  tokenSymbol: string;
+  amount: string;
+  to: string;
+  from?: string;
+  status: "pending" | "confirmed" | "failed";
+  createdAt: number;
+  explorerUrl: string;
+  gasUsed?: string;
+  gasPrice?: string;
+};
+
 export type RootStackParamList = {
   Welcome: undefined;
   CreateWallet: undefined;
@@ -34,7 +49,7 @@ export type RootStackParamList = {
   Send: { tokenSymbol?: string } | undefined;
   Receive: { walletAddress: string };
   AssetDetail: { tokenSymbol: string; balance: string };
-  TransactionDetail: { txHash: string };
+  TransactionDetail: TransactionDetailParams;
   WalletManager: undefined;
   Approvals: undefined;
   PolicySettings: undefined;

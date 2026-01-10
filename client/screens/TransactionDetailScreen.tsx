@@ -1,54 +1,141 @@
-import { View, StyleSheet, ScrollView, Pressable, Linking } from "react-native";
+import { View, StyleSheet, ScrollView, Pressable, Share, Platform } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
+import { HeaderButton } from "@react-navigation/elements";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { Feather } from "@expo/vector-icons";
+import * as WebBrowser from "expo-web-browser";
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
-import { useState } from "react";
+import { useLayoutEffect, useState } from "react";
 
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
-import { Badge } from "@/components/Badge";
-import { Button } from "@/components/Button";
+import { getChainById } from "@/lib/blockchain/chains";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 
 type Props = NativeStackScreenProps<RootStackParamList, "TransactionDetail">;
 
-export default function TransactionDetailScreen({ route }: Props) {
+function formatDate(timestamp: number): string {
+  const date = new Date(timestamp);
+  const now = new Date();
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+
+  const timeStr = date.toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+
+  if (date.toDateString() === now.toDateString()) {
+    return `Today at ${timeStr}`;
+  } else if (date.toDateString() === yesterday.toDateString()) {
+    return `Yesterday at ${timeStr}`;
+  } else {
+    return date.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    }) + ` at ${timeStr}`;
+  }
+}
+
+function truncateAddress(address: string): string {
+  return `${address.slice(0, 6)}...${address.slice(-6)}`;
+}
+
+export default function TransactionDetailScreen({ route, navigation }: Props) {
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
   const { theme } = useTheme();
-  const { txHash } = route.params;
   const [copied, setCopied] = useState(false);
+  
+  const {
+    hash,
+    chainId,
+    activityType,
+    tokenSymbol,
+    amount,
+    to,
+    from,
+    status,
+    createdAt,
+    explorerUrl,
+  } = route.params;
 
-  const mockTx = {
-    hash: "0xabc123def456789...123",
-    type: "send",
-    status: "success",
-    amount: "-0.5 ETH",
-    amountUsd: "$890.50",
-    from: "0x1234...5678",
-    to: "0x8765...4321",
-    network: "Ethereum",
-    gasUsed: "21,000",
-    gasFee: "0.002 ETH",
-    gasFeeUsd: "$3.56",
-    timestamp: "Jan 8, 2026, 2:30 PM",
-    blockNumber: "18,234,567",
+  const chain = getChainById(chainId);
+  const isReceive = activityType === "receive";
+  const isSwap = activityType === "swap";
+  
+  const getTitle = () => {
+    if (isReceive) return `Receive ${tokenSymbol}`;
+    if (isSwap) return `Swap ${tokenSymbol}`;
+    return `Send ${tokenSymbol}`;
   };
 
-  const handleCopyHash = async () => {
-    await Clipboard.setStringAsync(mockTx.hash);
+  const getAmountDisplay = () => {
+    if (isReceive) return `+${amount} ${tokenSymbol}`;
+    if (isSwap) return `${amount} ${tokenSymbol}`;
+    return `-${amount} ${tokenSymbol}`;
+  };
+
+  const amountColor = isReceive ? theme.success : theme.text;
+
+  const handleShare = async () => {
+    try {
+      await Share.share({
+        message: `Transaction ${hash}\n${explorerUrl}`,
+        url: explorerUrl,
+      });
+    } catch (error) {
+      console.error("Failed to share:", error);
+    }
+  };
+
+  const handleCopyAddress = async (address: string) => {
+    await Clipboard.setStringAsync(address);
     await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const handleViewExplorer = () => {
-    Linking.openURL(`https://etherscan.io/tx/${mockTx.hash}`);
+  const handleViewExplorer = async () => {
+    await WebBrowser.openBrowserAsync(explorerUrl);
+  };
+
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerTitle: getTitle(),
+      headerRight: () => (
+        <HeaderButton onPress={handleShare}>
+          <Feather name="share" size={20} color={theme.text} />
+        </HeaderButton>
+      ),
+    });
+  }, [navigation, theme, tokenSymbol, activityType]);
+
+  const getStatusLabel = () => {
+    switch (status) {
+      case "confirmed":
+        return "Completed";
+      case "pending":
+        return "Pending";
+      case "failed":
+        return "Failed";
+    }
+  };
+
+  const getCounterpartyLabel = () => {
+    if (isReceive) return "Sender";
+    return "Recipient";
+  };
+
+  const getCounterpartyAddress = () => {
+    if (isReceive && from) return from;
+    return to;
   };
 
   return (
@@ -60,121 +147,90 @@ export default function TransactionDetailScreen({ route }: Props) {
         ]}
         showsVerticalScrollIndicator={false}
       >
-        <View style={[styles.statusCard, { backgroundColor: theme.backgroundDefault }]}>
-          <View style={[styles.statusIcon, { backgroundColor: theme.success + "20" }]}>
-            <Feather name="check-circle" size={32} color={theme.success} />
-          </View>
-          <ThemedText type="h3">Transaction Successful</ThemedText>
-          <Badge label="Confirmed" variant="success" />
-        </View>
-
-        <View style={[styles.amountCard, { backgroundColor: theme.backgroundDefault }]}>
-          <ThemedText type="small" style={{ color: theme.textSecondary }}>
-            Amount
-          </ThemedText>
-          <ThemedText type="h1" style={styles.amount}>
-            {mockTx.amount}
-          </ThemedText>
-          <ThemedText type="body" style={{ color: theme.textSecondary }}>
-            {mockTx.amountUsd}
-          </ThemedText>
-        </View>
-
-        <View style={styles.section}>
-          <ThemedText type="h4" style={styles.sectionTitle}>
-            Details
-          </ThemedText>
-          
-          <View style={[styles.detailsCard, { backgroundColor: theme.backgroundDefault }]}>
-            <View style={styles.detailRow}>
-              <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                From
-              </ThemedText>
-              <ThemedText type="body" style={styles.detailValue}>
-                {mockTx.from}
-              </ThemedText>
-            </View>
-            
-            <View style={[styles.divider, { backgroundColor: theme.border }]} />
-            
-            <View style={styles.detailRow}>
-              <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                To
-              </ThemedText>
-              <ThemedText type="body" style={styles.detailValue}>
-                {mockTx.to}
-              </ThemedText>
-            </View>
-            
-            <View style={[styles.divider, { backgroundColor: theme.border }]} />
-            
-            <View style={styles.detailRow}>
-              <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                Network
-              </ThemedText>
-              <ThemedText type="body" style={styles.detailValue}>
-                {mockTx.network}
-              </ThemedText>
-            </View>
-            
-            <View style={[styles.divider, { backgroundColor: theme.border }]} />
-            
-            <View style={styles.detailRow}>
-              <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                Gas Fee
-              </ThemedText>
-              <View style={styles.detailValueCol}>
-                <ThemedText type="body" style={styles.detailValue}>
-                  {mockTx.gasFee}
-                </ThemedText>
-                <ThemedText type="caption" style={{ color: theme.textSecondary }}>
-                  {mockTx.gasFeeUsd}
-                </ThemedText>
-              </View>
-            </View>
-            
-            <View style={[styles.divider, { backgroundColor: theme.border }]} />
-            
-            <View style={styles.detailRow}>
-              <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                Block
-              </ThemedText>
-              <ThemedText type="body" style={styles.detailValue}>
-                {mockTx.blockNumber}
-              </ThemedText>
-            </View>
-            
-            <View style={[styles.divider, { backgroundColor: theme.border }]} />
-            
-            <View style={styles.detailRow}>
-              <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                Time
-              </ThemedText>
-              <ThemedText type="body" style={styles.detailValue}>
-                {mockTx.timestamp}
-              </ThemedText>
-            </View>
-          </View>
-        </View>
-
-        <View style={styles.section}>
-          <ThemedText type="h4" style={styles.sectionTitle}>
-            Transaction Hash
-          </ThemedText>
-          <Pressable 
-            style={[styles.hashCard, { backgroundColor: theme.backgroundDefault }]}
-            onPress={handleCopyHash}
+        <View style={styles.amountSection}>
+          <ThemedText
+            type="h1"
+            style={[styles.amountText, { color: amountColor }]}
           >
-            <ThemedText type="body" style={styles.hashText} numberOfLines={1}>
-              {mockTx.hash}
+            {getAmountDisplay()}
+          </ThemedText>
+        </View>
+
+        <View style={[styles.card, { backgroundColor: theme.backgroundDefault }]}>
+          <View style={styles.row}>
+            <ThemedText type="body" style={{ color: theme.textSecondary }}>
+              Date
             </ThemedText>
-            <Feather name={copied ? "check" : "copy"} size={18} color={theme.accent} />
+            <ThemedText type="body" style={styles.rowValue}>
+              {formatDate(createdAt)}
+            </ThemedText>
+          </View>
+
+          <View style={[styles.divider, { backgroundColor: theme.border }]} />
+
+          <View style={styles.row}>
+            <View style={styles.rowLabelWithIcon}>
+              <ThemedText type="body" style={{ color: theme.textSecondary }}>
+                Status
+              </ThemedText>
+              <Pressable>
+                <Feather name="info" size={14} color={theme.textSecondary} />
+              </Pressable>
+            </View>
+            <ThemedText 
+              type="body" 
+              style={[
+                styles.rowValue, 
+                { color: status === "confirmed" ? theme.text : status === "pending" ? theme.warning : theme.danger }
+              ]}
+            >
+              {getStatusLabel()}
+            </ThemedText>
+          </View>
+
+          <View style={[styles.divider, { backgroundColor: theme.border }]} />
+
+          <Pressable 
+            style={styles.row}
+            onPress={() => handleCopyAddress(getCounterpartyAddress())}
+          >
+            <ThemedText type="body" style={{ color: theme.textSecondary }}>
+              {getCounterpartyLabel()}
+            </ThemedText>
+            <View style={styles.addressRow}>
+              <ThemedText type="body" style={styles.rowValue}>
+                {truncateAddress(getCounterpartyAddress())}
+              </ThemedText>
+              <Feather 
+                name={copied ? "check" : "copy"} 
+                size={14} 
+                color={copied ? theme.success : theme.textSecondary} 
+              />
+            </View>
           </Pressable>
         </View>
 
-        <Button onPress={handleViewExplorer} style={styles.explorerButton}>
-          View on Explorer
-        </Button>
+        <View style={[styles.card, { backgroundColor: theme.backgroundDefault }]}>
+          <View style={styles.row}>
+            <View style={styles.rowLabelWithIcon}>
+              <ThemedText type="body" style={{ color: theme.textSecondary }}>
+                Network
+              </ThemedText>
+              <Pressable>
+                <Feather name="info" size={14} color={theme.textSecondary} />
+              </Pressable>
+            </View>
+            <ThemedText type="body" style={styles.rowValue}>
+              {chain?.name || "Unknown"}
+            </ThemedText>
+          </View>
+        </View>
+
+        <Pressable style={styles.explorerLink} onPress={handleViewExplorer}>
+          <ThemedText type="body" style={{ color: theme.accent }}>
+            View on block explorer
+          </ThemedText>
+        </Pressable>
       </ScrollView>
     </ThemedView>
   );
@@ -187,70 +243,44 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: Spacing.lg,
   },
-  statusCard: {
-    padding: Spacing["2xl"],
+  amountSection: {
+    alignItems: "center",
+    marginBottom: Spacing["2xl"],
+  },
+  amountText: {
+    fontSize: 36,
+    fontWeight: "700",
+  },
+  card: {
     borderRadius: BorderRadius.lg,
-    alignItems: "center",
-    gap: Spacing.md,
-    marginBottom: Spacing.xl,
-  },
-  statusIcon: {
-    width: 64,
-    height: 64,
-    borderRadius: BorderRadius.full,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  amountCard: {
-    padding: Spacing.xl,
-    borderRadius: BorderRadius.lg,
-    alignItems: "center",
-    marginBottom: Spacing.xl,
-  },
-  amount: {
-    marginVertical: Spacing.sm,
-  },
-  section: {
-    marginBottom: Spacing.xl,
-  },
-  sectionTitle: {
-    marginBottom: Spacing.md,
-  },
-  detailsCard: {
-    borderRadius: BorderRadius.md,
     padding: Spacing.lg,
+    marginBottom: Spacing.lg,
   },
-  detailRow: {
+  row: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "flex-start",
+    alignItems: "center",
     paddingVertical: Spacing.sm,
   },
-  detailValue: {
-    fontWeight: "500",
-    textAlign: "right",
-    flex: 1,
-    marginLeft: Spacing.lg,
+  rowLabelWithIcon: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.xs,
   },
-  detailValueCol: {
-    alignItems: "flex-end",
+  rowValue: {
+    fontWeight: "500",
+  },
+  addressRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
   },
   divider: {
     height: 1,
+    marginVertical: Spacing.xs,
   },
-  hashCard: {
-    flexDirection: "row",
+  explorerLink: {
     alignItems: "center",
-    padding: Spacing.lg,
-    borderRadius: BorderRadius.md,
-    gap: Spacing.md,
-  },
-  hashText: {
-    flex: 1,
-    fontFamily: "monospace",
-    fontSize: 13,
-  },
-  explorerButton: {
-    marginTop: Spacing.md,
+    paddingVertical: Spacing.lg,
   },
 });
