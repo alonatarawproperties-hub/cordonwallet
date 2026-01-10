@@ -118,7 +118,15 @@ export default function PortfolioScreen() {
   const handleAssetPress = (asset: MultiChainAsset) => {
     navigation.navigate("AssetDetail", {
       tokenSymbol: asset.symbol,
+      tokenName: asset.name,
       balance: asset.balance,
+      chainId: asset.chainId,
+      chainName: asset.chainName,
+      isNative: asset.isNative,
+      address: asset.address,
+      priceUsd: asset.priceUsd,
+      valueUsd: asset.valueUsd,
+      priceChange24h: asset.priceChange24h,
     });
   };
 

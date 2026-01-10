@@ -48,7 +48,18 @@ export type RootStackParamList = {
   Main: undefined;
   Send: { tokenSymbol?: string } | undefined;
   Receive: { walletAddress: string };
-  AssetDetail: { tokenSymbol: string; balance: string };
+  AssetDetail: {
+    tokenSymbol: string;
+    tokenName: string;
+    balance: string;
+    chainId: number;
+    chainName: string;
+    isNative: boolean;
+    address?: string;
+    priceUsd?: number;
+    valueUsd?: number;
+    priceChange24h?: number;
+  };
   TransactionDetail: TransactionDetailParams;
   WalletManager: undefined;
   Approvals: undefined;
