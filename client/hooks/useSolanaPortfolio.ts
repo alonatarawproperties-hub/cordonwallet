@@ -122,6 +122,26 @@ export function useSolanaPortfolio(address: string | undefined) {
       const portfolio = await fetchSolanaPortfolio(address);
       const assets: SolanaAsset[] = [];
 
+      // Load custom tokens first to create a lookup map by mint address
+      let customTokenMap: Map<string, CustomToken> = new Map();
+      let hiddenTokens: string[] = [];
+      try {
+        const [customTokens, hidden] = await Promise.all([
+          getCustomTokens(),
+          getHiddenTokens(),
+        ]);
+        hiddenTokens = hidden;
+        
+        // Create map of custom tokens by mint address (lowercase for case-insensitive matching)
+        customTokens
+          .filter((ct: CustomToken) => ct.chainId === 0)
+          .forEach((ct: CustomToken) => {
+            customTokenMap.set(ct.contractAddress.toLowerCase(), ct);
+          });
+      } catch (customTokenError) {
+        console.log("[Solana Portfolio] Failed to load custom tokens:", customTokenError);
+      }
+
       const solBalanceNum = parseFloat(portfolio.nativeBalance.sol);
       assets.push({
         symbol: "SOL",
@@ -135,9 +155,12 @@ export function useSolanaPortfolio(address: string | undefined) {
       });
 
       portfolio.tokens.forEach((token) => {
+        // Check if this token has custom metadata saved by the user
+        const customToken = customTokenMap.get(token.mint.toLowerCase());
+        
         assets.push({
-          symbol: token.symbol || shortenMint(token.mint),
-          name: token.name || `Token ${shortenMint(token.mint)}`,
+          symbol: customToken?.symbol || token.symbol || shortenMint(token.mint),
+          name: customToken?.name || token.name || `Token ${shortenMint(token.mint)}`,
           balance: formatBalance(token.uiAmount.toString()),
           rawBalance: BigInt(token.amount),
           decimals: token.decimals,
@@ -146,43 +169,33 @@ export function useSolanaPortfolio(address: string | undefined) {
           tokenAccount: token.tokenAccount,
           chainId: "solana",
           chainName: "Solana",
+          logoUrl: customToken?.logoUrl,
         });
       });
 
-      // Add custom Solana tokens (chainId 0) that aren't hidden
-      try {
-        const [customTokens, hiddenTokens] = await Promise.all([
-          getCustomTokens(),
-          getHiddenTokens(),
-        ]);
+      // Add custom Solana tokens that aren't in RPC results (zero balance tokens user wants to track)
+      customTokenMap.forEach((ct, mintLower) => {
+        const tokenKey = `${ct.chainId}:${ct.symbol}`;
+        if (hiddenTokens.includes(tokenKey)) return;
         
-        const solanaCustomTokens = customTokens.filter((ct: CustomToken) => ct.chainId === 0);
+        // Check if we already have this token from RPC
+        const existingToken = assets.find(a => a.mint?.toLowerCase() === mintLower);
+        if (existingToken) return;
         
-        solanaCustomTokens.forEach((ct: CustomToken) => {
-          const tokenKey = `${ct.chainId}:${ct.symbol}`;
-          if (hiddenTokens.includes(tokenKey)) return;
-          
-          // Check if we already have this token from the RPC
-          const existingToken = assets.find(a => a.mint === ct.contractAddress);
-          if (existingToken) return;
-          
-          // Add custom token with zero balance (actual balance comes from RPC if they hold it)
-          assets.push({
-            symbol: ct.symbol,
-            name: ct.name,
-            balance: "0",
-            rawBalance: BigInt(0),
-            decimals: ct.decimals,
-            isNative: false,
-            mint: ct.contractAddress,
-            chainId: "solana",
-            chainName: "Solana",
-            logoUrl: ct.logoUrl,
-          });
+        // Add custom token with zero balance
+        assets.push({
+          symbol: ct.symbol,
+          name: ct.name,
+          balance: "0",
+          rawBalance: BigInt(0),
+          decimals: ct.decimals,
+          isNative: false,
+          mint: ct.contractAddress,
+          chainId: "solana",
+          chainName: "Solana",
+          logoUrl: ct.logoUrl,
         });
-      } catch (customTokenError) {
-        console.log("[Solana Portfolio] Failed to load custom tokens:", customTokenError);
-      }
+      });
 
       let solPrice = 0;
       let solChange24h = 0;
