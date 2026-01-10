@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { View, StyleSheet, TextInput, Pressable, Alert, Image } from "react-native";
+import { View, StyleSheet, TextInput, Pressable, Alert, Image, Keyboard, Platform } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { Feather } from "@expo/vector-icons";
@@ -26,7 +26,23 @@ export default function UnlockScreen({ navigation }: Props) {
   const [pin, setPin] = useState("");
   const [isUnlocking, setIsUnlocking] = useState(false);
   const [attempts, setAttempts] = useState(0);
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
   const inputRef = useRef<TextInput>(null);
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener(
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow",
+      () => setKeyboardVisible(true)
+    );
+    const hideSub = Keyboard.addListener(
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide",
+      () => setKeyboardVisible(false)
+    );
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   useEffect(() => {
     const init = async () => {
@@ -192,23 +208,27 @@ export default function UnlockScreen({ navigation }: Props) {
           editable={!isUnlocking}
         />
 
-        <Pressable 
-          style={styles.inputArea} 
-          onPress={() => inputRef.current?.focus()}
-        >
-          <ThemedText type="small" style={{ color: theme.textSecondary }}>
-            Tap here if keyboard disappeared
-          </ThemedText>
-        </Pressable>
+        {!keyboardVisible && (
+          <Pressable 
+            style={styles.inputArea} 
+            onPress={() => inputRef.current?.focus()}
+          >
+            <ThemedText type="small" style={{ color: theme.textSecondary }}>
+              Tap here if keyboard disappeared
+            </ThemedText>
+          </Pressable>
+        )}
 
-        <Pressable style={styles.biometricButton} onPress={tryBiometric}>
-          <View style={[styles.biometricIcon, { backgroundColor: theme.backgroundDefault }]}>
-            <Feather name="smartphone" size={24} color={theme.accent} />
-          </View>
-          <ThemedText type="small" style={{ color: theme.accent }}>
-            Use Biometrics
-          </ThemedText>
-        </Pressable>
+        {!keyboardVisible && (
+          <Pressable style={styles.biometricButton} onPress={tryBiometric}>
+            <View style={[styles.biometricIcon, { backgroundColor: theme.backgroundDefault }]}>
+              <Feather name="smartphone" size={24} color={theme.accent} />
+            </View>
+            <ThemedText type="small" style={{ color: theme.accent }}>
+              Use Biometrics
+            </ThemedText>
+          </Pressable>
+        )}
       </View>
 
       {isUnlocking && (
