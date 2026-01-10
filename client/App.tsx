@@ -14,6 +14,7 @@ import { queryClient } from "@/lib/query-client";
 import { WalletProvider } from "@/lib/wallet-context";
 import { CapAllowanceProvider } from "@/lib/cap-allowance-context";
 import { WalletConnectProvider } from "@/lib/walletconnect/context";
+import { WalletConnectHandler } from "@/components/WalletConnectHandler";
 
 import RootStackNavigator from "@/navigation/RootStackNavigator";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
@@ -26,14 +27,16 @@ export default function App() {
           <SafeAreaProvider>
             <CapAllowanceProvider>
               <WalletConnectProvider>
-                <GestureHandlerRootView style={styles.root}>
-                  <KeyboardProvider>
-                    <NavigationContainer>
-                      <RootStackNavigator />
-                    </NavigationContainer>
-                    <StatusBar style="auto" />
-                  </KeyboardProvider>
-                </GestureHandlerRootView>
+                <WalletConnectHandler>
+                  <GestureHandlerRootView style={styles.root}>
+                    <KeyboardProvider>
+                      <NavigationContainer>
+                        <RootStackNavigator />
+                      </NavigationContainer>
+                      <StatusBar style="auto" />
+                    </KeyboardProvider>
+                  </GestureHandlerRootView>
+                </WalletConnectHandler>
               </WalletConnectProvider>
             </CapAllowanceProvider>
           </SafeAreaProvider>

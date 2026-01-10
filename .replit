@@ -76,3 +76,4 @@ ensurePreviewReachable = "/status"
 [userenv]
 
 [userenv.shared]
+EXPO_PUBLIC_WC_PROJECT_ID = "33d13a2ca48035be9c03aa63b062d131"

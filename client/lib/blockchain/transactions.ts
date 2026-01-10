@@ -674,3 +674,101 @@ export async function sendApproval(params: SendApprovalParams): Promise<Transact
     throw new TransactionFailedError(txError);
   }
 }
+
+export interface SignMessageParams {
+  walletId: string;
+  message: string;
+}
+
+export async function signPersonalMessage(params: SignMessageParams): Promise<`0x${string}`> {
+  const { walletId, message } = params;
+  
+  try {
+    const privateKey = await derivePrivateKey(walletId);
+    const account = privateKeyToAccount(privateKey);
+    
+    const signature = await account.signMessage({
+      message: message.startsWith("0x") 
+        ? { raw: message as `0x${string}` }
+        : message,
+    });
+    
+    return signature;
+  } catch (error) {
+    if (error instanceof WalletLockedError) {
+      throw error;
+    }
+    const txError = formatTransactionError(error);
+    throw new TransactionFailedError(txError);
+  }
+}
+
+export interface SendRawTransactionParams {
+  chainId: number;
+  walletId: string;
+  to: `0x${string}`;
+  value?: bigint;
+  data?: `0x${string}`;
+  gas?: bigint;
+}
+
+export async function sendRawTransaction(params: SendRawTransactionParams): Promise<TransactionResult> {
+  const { chainId, walletId, to, value = 0n, data, gas } = params;
+
+  const chainConfig = getChainById(chainId);
+  if (!chainConfig) {
+    throw new Error(`Unsupported chain: ${chainId}`);
+  }
+
+  try {
+    const privateKey = await derivePrivateKey(walletId);
+    const account = privateKeyToAccount(privateKey);
+    const walletClient = createWalletClientForChain(chainConfig, account);
+    const publicClient = getPublicClient(chainId);
+
+    const estimatedGas = gas || await publicClient.estimateGas({
+      account: account.address,
+      to,
+      value,
+      data,
+    });
+
+    const feeData = await publicClient.estimateFeesPerGas();
+    const isLegacyChain = !feeData.maxPriorityFeePerGas;
+
+    const txParams = isLegacyChain
+      ? {
+          account,
+          chain: chainConfig.viemChain,
+          to,
+          value,
+          data,
+          gas: estimatedGas,
+          gasPrice: feeData.gasPrice,
+        }
+      : {
+          account,
+          chain: chainConfig.viemChain,
+          to,
+          value,
+          data,
+          gas: estimatedGas,
+          maxFeePerGas: feeData.maxFeePerGas,
+          maxPriorityFeePerGas: feeData.maxPriorityFeePerGas,
+        };
+
+    const hash = await walletClient.sendTransaction(txParams as any);
+
+    return {
+      hash,
+      chainId,
+      explorerUrl: getExplorerTxUrl(chainId, hash),
+    };
+  } catch (error) {
+    if (error instanceof WalletLockedError) {
+      throw error;
+    }
+    const txError = formatTransactionError(error);
+    throw new TransactionFailedError(txError);
+  }
+}

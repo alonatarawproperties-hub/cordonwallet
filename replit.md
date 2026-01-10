@@ -162,9 +162,14 @@ Preferred communication style: Simple, everyday language.
   - `WCScannerScreen`: Camera-based QR code scanning for WC URIs
   - `SessionApprovalSheet`: Modal for approving/rejecting dApp connection requests
   - `SignRequestSheet`: Modal for signing messages and transactions with firewall integration
+  - `WalletConnectHandler`: Global component wrapping the app, renders sheets and handles signing logic
+- **Signing Infrastructure**:
+  - `signPersonalMessage()` in transactions.ts: Signs personal messages using derived private key
+  - `sendRawTransaction()` in transactions.ts: Sends arbitrary transactions with gas estimation
+  - Both functions derive keys on-demand from unlocked vault, never persist private keys
 - **Supported Methods**: eth_sendTransaction, personal_sign, eth_sign, eth_signTypedData, eth_signTypedData_v4
 - **Supported Chains**: eip155:1 (Ethereum), eip155:137 (Polygon), eip155:56 (BNB Chain)
-- **Firewall Integration**: Approval intents detected via `checkWalletConnectApprove()`, unlimited approvals can trigger Cap Allowance flow
+- **Firewall Integration**: Approval intents detected via `checkTransactionFirewall()`, unlimited approvals trigger Cap Allowance flow via CapAllowanceProvider
 - **Environment Variable**: Requires `WC_PROJECT_ID` secret from WalletConnect Cloud
 
 ### Database

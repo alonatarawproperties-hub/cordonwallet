@@ -70,7 +70,7 @@ export async function initWalletConnect(): Promise<IWeb3Wallet> {
   });
 
   web3wallet = await Web3Wallet.init({
-    core,
+    core: core as any,
     metadata: {
       name: "Cordon",
       description: "Non-custodial EVM + Solana wallet with Wallet Firewall",
