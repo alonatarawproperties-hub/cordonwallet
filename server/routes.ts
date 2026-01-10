@@ -9,6 +9,7 @@ import {
   checkAtaExists,
   getSplTokenMetadata,
   getSolanaTransactionHistory,
+  estimateSolanaFee,
 } from "./solana-api";
 
 const ETHERSCAN_V2_API = "https://api.etherscan.io/v2/api";
@@ -702,6 +703,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("[Solana API] Check ATA error:", error);
       res.status(500).json({ error: "Failed to check token account" });
+    }
+  });
+
+  app.get("/api/solana/estimate-fee", async (req: Request, res: Response) => {
+    try {
+      const isToken = req.query.isToken === "true";
+      const estimate = await estimateSolanaFee(isToken);
+      res.json(estimate);
+    } catch (error) {
+      console.error("[Solana API] Fee estimation error:", error);
+      res.status(500).json({ error: "Failed to estimate fee" });
     }
   });
 

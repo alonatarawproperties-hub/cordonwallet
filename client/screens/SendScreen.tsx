@@ -194,6 +194,7 @@ export default function SendScreen({ navigation }: Props) {
 
   const handleSelectToken = (asset: UnifiedAsset) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    const logoUrl = getTokenLogoUrl(asset, customTokens);
     navigation.push("SendDetails", {
       tokenSymbol: asset.symbol,
       tokenAddress: asset.address || asset.mint,
@@ -203,6 +204,7 @@ export default function SendScreen({ navigation }: Props) {
       balance: asset.balance,
       priceUsd: asset.priceUsd,
       isNative: asset.isNative,
+      logoUrl,
     });
   };
 

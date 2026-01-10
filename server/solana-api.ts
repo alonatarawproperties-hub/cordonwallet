@@ -598,3 +598,46 @@ export async function getSolanaTransactionHistory(
   
   return transactions;
 }
+
+export interface SolanaFeeEstimate {
+  lamports: number;
+  sol: string;
+  formatted: string;
+}
+
+export async function estimateSolanaFee(isToken: boolean = false): Promise<SolanaFeeEstimate> {
+  try {
+    const { feeCalculator } = await connection.getRecentBlockhash();
+    let baseFee = feeCalculator?.lamportsPerSignature || 5000;
+    
+    if (isToken) {
+      baseFee = baseFee * 2 + 2039280;
+    }
+    
+    const sol = baseFee / LAMPORTS_PER_SOL;
+    let formatted: string;
+    
+    if (sol < 0.0001) {
+      formatted = `~${(sol * 1000000).toFixed(0)} microSOL`;
+    } else if (sol < 0.001) {
+      formatted = `~${sol.toFixed(6)} SOL`;
+    } else {
+      formatted = `~${sol.toFixed(4)} SOL`;
+    }
+    
+    return {
+      lamports: baseFee,
+      sol: sol.toFixed(9),
+      formatted,
+    };
+  } catch (error) {
+    console.error("[Solana] Fee estimation error:", error);
+    const defaultFee = isToken ? 2049280 : 5000;
+    const sol = defaultFee / LAMPORTS_PER_SOL;
+    return {
+      lamports: defaultFee,
+      sol: sol.toFixed(9),
+      formatted: isToken ? "~0.002 SOL" : "~0.000005 SOL",
+    };
+  }
+}

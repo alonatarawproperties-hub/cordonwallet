@@ -84,6 +84,7 @@ export type RootStackParamList = {
     priceUsd?: number;
     isNative: boolean;
     scannedAddress?: string;
+    logoUrl?: string;
   };
   ScanQR: undefined;
 };

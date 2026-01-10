@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from "react";
-import { View, StyleSheet, Pressable, Alert, ActivityIndicator, TextInput } from "react-native";
+import { View, StyleSheet, Pressable, Alert, ActivityIndicator, TextInput, Image } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
@@ -28,6 +28,7 @@ import {
 import { sendSol, sendSplToken } from "@/lib/solana/transactions";
 import { getMnemonic } from "@/lib/wallet-engine";
 import { saveTransaction, updateTransactionStatus } from "@/lib/transaction-history";
+import { getApiUrl } from "@/lib/query-client";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 
 type Props = NativeStackScreenProps<RootStackParamList, "SendDetails">;
@@ -76,14 +77,46 @@ export default function SendDetailsScreen({ navigation, route }: Props) {
 
   const estimateGas = useCallback(async () => {
     if (params.chainType === "solana") {
-      setGasEstimate({
-        gasLimit: BigInt(5000),
-        maxFeePerGas: BigInt(1),
-        maxPriorityFeePerGas: BigInt(1),
-        estimatedFeeNative: "0.00001",
-        estimatedFeeFormatted: "< 0.001 SOL",
-        nativeSymbol: "SOL",
-      });
+      setGasLoading(true);
+      try {
+        const apiUrl = getApiUrl();
+        const url = new URL("/api/solana/estimate-fee", apiUrl);
+        url.searchParams.set("isToken", params.isNative ? "false" : "true");
+        
+        const response = await fetch(url.toString());
+        if (response.ok) {
+          const data = await response.json();
+          setGasEstimate({
+            gasLimit: BigInt(data.lamports),
+            maxFeePerGas: BigInt(1),
+            maxPriorityFeePerGas: BigInt(1),
+            estimatedFeeNative: data.sol,
+            estimatedFeeFormatted: data.formatted,
+            nativeSymbol: "SOL",
+          });
+        } else {
+          setGasEstimate({
+            gasLimit: BigInt(5000),
+            maxFeePerGas: BigInt(1),
+            maxPriorityFeePerGas: BigInt(1),
+            estimatedFeeNative: "0.000005",
+            estimatedFeeFormatted: "~5 microSOL",
+            nativeSymbol: "SOL",
+          });
+        }
+      } catch (error) {
+        console.error("Solana fee estimation failed:", error);
+        setGasEstimate({
+          gasLimit: BigInt(5000),
+          maxFeePerGas: BigInt(1),
+          maxPriorityFeePerGas: BigInt(1),
+          estimatedFeeNative: "0.000005",
+          estimatedFeeFormatted: "~5 microSOL",
+          nativeSymbol: "SOL",
+        });
+      } finally {
+        setGasLoading(false);
+      }
       return;
     }
 
@@ -481,9 +514,13 @@ export default function SendDetailsScreen({ navigation, route }: Props) {
       >
         <View style={[styles.tokenCard, { backgroundColor: theme.backgroundDefault }]}>
           <View style={[styles.tokenIcon, { backgroundColor: theme.accent + "20" }]}>
-            <ThemedText type="h2" style={{ color: theme.accent }}>
-              {params.tokenSymbol.slice(0, 2)}
-            </ThemedText>
+            {params.logoUrl ? (
+              <Image source={{ uri: params.logoUrl }} style={styles.tokenLogo} />
+            ) : (
+              <ThemedText type="h2" style={{ color: theme.accent }}>
+                {params.tokenSymbol.slice(0, 2)}
+              </ThemedText>
+            )}
           </View>
           <ThemedText type="h3">{params.tokenSymbol}</ThemedText>
           <ThemedText type="caption" style={{ color: theme.textSecondary }}>
@@ -643,6 +680,12 @@ const styles = StyleSheet.create({
     borderRadius: 30,
     alignItems: "center",
     justifyContent: "center",
+    overflow: "hidden",
+  },
+  tokenLogo: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
     marginBottom: Spacing.sm,
   },
   form: {
