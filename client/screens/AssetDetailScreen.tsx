@@ -127,10 +127,10 @@ export default function AssetDetailScreen({ route }: Props) {
   }, [activeTab]);
 
   useEffect(() => {
-    if (transactions.length > 0 && priceUsd) {
+    if (priceUsd && balance) {
       calculatePnlData();
     }
-  }, [transactions, priceUsd]);
+  }, [priceUsd, balance, priceChange24h]);
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -153,40 +153,20 @@ export default function AssetDetailScreen({ route }: Props) {
   }, [navigation, tokenSymbol, chainName, theme]);
 
   const calculatePnlData = () => {
-    const sortedTxs = [...transactions].sort((a, b) => a.createdAt - b.createdAt);
-    const dataPoints: { timestamp: number; value: number }[] = [];
+    if (!priceUsd || !balance) return;
     
-    let cumulativeTokens = 0;
-    let cumulativeCost = 0;
+    const currentValue = balance * priceUsd;
+    const priceYesterday = priceUsd / (1 + (priceChange24h || 0) / 100);
+    const valueYesterday = balance * priceYesterday;
+    const pnl24h = currentValue - valueYesterday;
     
-    for (const tx of sortedTxs) {
-      const amount = parseFloat(tx.amount) || 0;
-      const txPrice = tx.priceUsd || priceUsd || 0;
-      
-      if (tx.activityType === "receive") {
-        cumulativeTokens += amount;
-        cumulativeCost += amount * txPrice;
-      } else if (tx.activityType === "send") {
-        const avgCost = cumulativeTokens > 0 ? cumulativeCost / cumulativeTokens : 0;
-        cumulativeTokens -= amount;
-        cumulativeCost -= amount * avgCost;
-      }
-      
-      const currentValue = cumulativeTokens * (priceUsd || 0);
-      const pnl = currentValue - cumulativeCost;
-      
-      dataPoints.push({
-        timestamp: tx.createdAt,
-        value: pnl,
-      });
-    }
+    const now = Date.now();
+    const yesterday = now - 24 * 60 * 60 * 1000;
     
-    if (dataPoints.length > 0) {
-      dataPoints.push({
-        timestamp: Date.now(),
-        value: dataPoints[dataPoints.length - 1].value,
-      });
-    }
+    const dataPoints = [
+      { timestamp: yesterday, value: 0 },
+      { timestamp: now, value: pnl24h },
+    ];
     
     setPnlData(dataPoints);
   };
@@ -252,8 +232,7 @@ export default function AssetDetailScreen({ route }: Props) {
   ];
 
   const totalPnl = pnlData.length > 0 ? pnlData[pnlData.length - 1].value : 0;
-  const costBasis = valueUsd ? valueUsd - totalPnl : 0;
-  const pnlPercent = costBasis > 0 ? (totalPnl / costBasis) * 100 : 0;
+  const pnlPercent = priceChange24h || 0;
 
   const renderHoldingsTab = () => (
     <View style={styles.tabContent}>
@@ -449,7 +428,7 @@ export default function AssetDetailScreen({ route }: Props) {
         <View style={[styles.pnlCard, { backgroundColor: theme.backgroundDefault }]}>
           <View style={styles.pnlCardHeader}>
             <ThemedText type="small" style={{ color: theme.textSecondary }}>
-              Profit / Loss
+              24h Change
             </ThemedText>
             <View style={[styles.priceChip, { backgroundColor: theme.border + "30" }]}>
               <ThemedText type="small" style={{ color: theme.textSecondary, fontSize: 11 }}>
@@ -493,15 +472,11 @@ export default function AssetDetailScreen({ route }: Props) {
 
           {pnlData.length >= 2 ? (
             <PnlChart data={pnlData} height={120} />
-          ) : isLoadingHistory ? (
-            <View style={styles.chartPlaceholderSmall}>
-              <ActivityIndicator size="small" color={theme.accent} />
-            </View>
           ) : (
             <View style={styles.chartPlaceholderSmall}>
               <Feather name="trending-up" size={18} color={theme.textSecondary} />
               <ThemedText type="small" style={{ color: theme.textSecondary, marginLeft: 6 }}>
-                No trading activity yet
+                Loading price data...
               </ThemedText>
             </View>
           )}
