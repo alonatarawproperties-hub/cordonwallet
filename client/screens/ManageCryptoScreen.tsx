@@ -8,6 +8,7 @@ import {
   Switch,
   ActivityIndicator,
   Image,
+  Alert,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight, HeaderButton } from "@react-navigation/elements";
@@ -22,7 +23,7 @@ import { Spacing } from "@/constants/theme";
 import { useWallet } from "@/lib/wallet-context";
 import { useAllChainsPortfolio, MultiChainAsset } from "@/hooks/useAllChainsPortfolio";
 import { useSolanaPortfolio } from "@/hooks/useSolanaPortfolio";
-import { getHiddenTokens, hideToken, showToken, getCustomTokens, CustomToken } from "@/lib/token-preferences";
+import { getHiddenTokens, hideToken, showToken, getCustomTokens, removeCustomToken, CustomToken } from "@/lib/token-preferences";
 import { supportedChains, ChainConfig } from "@/lib/blockchain/chains";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { getTokenLogoUrl } from "@/lib/token-logos";
@@ -118,6 +119,33 @@ export default function ManageCryptoScreen() {
     }
   };
 
+  const isCustomToken = (chainId: number, address?: string): boolean => {
+    if (!address) return false;
+    return customTokens.some(
+      ct => ct.chainId === chainId && ct.contractAddress.toLowerCase() === address.toLowerCase()
+    );
+  };
+
+  const handleDeleteCustomToken = (chainId: number, symbol: string, address: string) => {
+    Alert.alert(
+      "Remove Token",
+      `Are you sure you want to remove ${symbol}? You can add it again later.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Remove",
+          style: "destructive",
+          onPress: async () => {
+            await removeCustomToken(chainId, address);
+            setCustomTokens(prev => prev.filter(
+              ct => !(ct.chainId === chainId && ct.contractAddress.toLowerCase() === address.toLowerCase())
+            ));
+          },
+        },
+      ]
+    );
+  };
+
   const getChainName = (chainId: number): string => {
     if (chainId === 0) return "Solana";
     return supportedChains.find((c: ChainConfig) => c.chainId === chainId)?.name || "Unknown";
@@ -158,6 +186,7 @@ export default function ManageCryptoScreen() {
 
   const renderAssetItem = ({ item }: { item: MultiChainAsset }) => {
     const visible = !isHidden(item.chainId, item.symbol);
+    const itemIsCustom = isCustomToken(item.chainId, item.address);
     
     return (
       <View style={[styles.assetRow, { borderBottomColor: theme.border }]}>
@@ -181,11 +210,26 @@ export default function ManageCryptoScreen() {
                 {item.chainName}
               </ThemedText>
             </View>
+            {itemIsCustom ? (
+              <View style={[styles.customBadge, { backgroundColor: theme.accent + "20" }]}>
+                <ThemedText type="small" style={{ color: theme.accent, fontSize: 10 }}>
+                  Custom
+                </ThemedText>
+              </View>
+            ) : null}
           </View>
           <ThemedText type="caption" style={{ color: theme.textSecondary }}>
             {item.name}
           </ThemedText>
         </View>
+        {itemIsCustom && item.address ? (
+          <Pressable
+            style={styles.deleteButton}
+            onPress={() => handleDeleteCustomToken(item.chainId, item.symbol, item.address!)}
+          >
+            <Feather name="trash-2" size={18} color="#EF4444" />
+          </Pressable>
+        ) : null}
         <Switch
           value={visible}
           onValueChange={(value) => handleToggle(item.chainId, item.symbol, value)}
@@ -334,6 +378,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 4,
+  },
+  customBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  deleteButton: {
+    padding: Spacing.sm,
+    marginRight: Spacing.xs,
   },
   loadingContainer: {
     flex: 1,
