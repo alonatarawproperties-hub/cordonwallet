@@ -428,11 +428,11 @@ export default function AssetDetailScreen({ route }: Props) {
         <View style={styles.header}>
           <View style={styles.headerCompact}>
             <View style={[styles.tokenIconSmall, { backgroundColor: theme.accent + "15" }]}>
-              <ThemedText type="body" style={{ color: theme.accent, fontWeight: "600", fontSize: 14 }}>
+              <ThemedText type="body" style={{ color: theme.accent, fontWeight: "600", fontSize: 16 }}>
                 {tokenSymbol.slice(0, 2)}
               </ThemedText>
             </View>
-            <ThemedText type="body" style={{ fontWeight: "600" }}>{tokenSymbol}</ThemedText>
+            <ThemedText type="h4">{tokenSymbol}</ThemedText>
             <View style={[styles.chainPill, { backgroundColor: getChainColor(chainName) + "15" }]}>
               <ThemedText type="small" style={{ color: getChainColor(chainName), fontSize: 10 }}>
                 {chainName}
@@ -635,11 +635,11 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: Spacing.md,
+    paddingHorizontal: Spacing.lg,
   },
   header: {
-    alignItems: "flex-start",
-    marginBottom: Spacing.lg,
+    width: "100%",
+    marginBottom: Spacing.md,
   },
   headerTop: {
     flexDirection: "row",
@@ -821,12 +821,12 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.md,
   },
   pnlHeroSection: {
-    width: "100%",
-    marginBottom: Spacing.lg,
+    alignSelf: "stretch",
+    marginBottom: Spacing.md,
   },
   pnlHeroHeader: {
     alignItems: "flex-start",
-    marginBottom: Spacing.sm,
+    marginBottom: Spacing.xs,
   },
   priceStatsRow: {
     flexDirection: "row",
@@ -846,12 +846,13 @@ const styles = StyleSheet.create({
   headerCompact: {
     flexDirection: "row",
     alignItems: "center",
+    alignSelf: "stretch",
     gap: Spacing.sm,
-    marginBottom: Spacing.md,
+    marginBottom: Spacing.sm,
   },
   tokenIconSmall: {
-    width: 32,
-    height: 32,
+    width: 40,
+    height: 40,
     borderRadius: BorderRadius.sm,
     alignItems: "center",
     justifyContent: "center",
@@ -871,16 +872,17 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.md,
     alignItems: "center",
     justifyContent: "center",
+    alignSelf: "stretch",
   },
   priceStatsCompact: {
     flexDirection: "row",
+    justifyContent: "space-between",
     borderRadius: BorderRadius.sm,
-    paddingHorizontal: Spacing.md,
+    paddingHorizontal: Spacing.lg,
     paddingVertical: Spacing.sm,
-    width: "100%",
+    alignSelf: "stretch",
   },
   priceStatCompact: {
-    flex: 1,
     alignItems: "center",
     gap: 2,
   },
