@@ -66,7 +66,7 @@ export default function TransactionDetailScreen({ route, navigation }: Props) {
     explorerUrl,
   } = route.params;
 
-  const chain = getChainById(chainId);
+  const chain = chainId === 0 ? { name: "Solana", id: 0 } : getChainById(chainId);
   const isReceive = activityType === "receive";
   const isSwap = activityType === "swap";
   

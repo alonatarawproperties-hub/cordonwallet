@@ -16,7 +16,7 @@ import { PnlChart } from "@/components/PnlChart";
 import { PriceChart } from "@/components/PriceChart";
 import { useWallet } from "@/lib/wallet-context";
 import { fetchTransactionHistory } from "@/lib/blockchain/explorer-api";
-import { TxRecord } from "@/lib/transaction-history";
+import { TxRecord, getTransactionsByWallet } from "@/lib/transaction-history";
 import { getApiUrl } from "@/lib/query-client";
 import { getTokenLogoUrl } from "@/lib/token-logos";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
@@ -221,9 +221,24 @@ export default function AssetDetailScreen({ route }: Props) {
     if (!activeWallet) return;
     setIsLoadingHistory(true);
     try {
-      const history = await fetchTransactionHistory(activeWallet.address, chainId);
-      const filtered = history.filter(tx => tx.tokenSymbol === tokenSymbol);
-      setTransactions(filtered);
+      let allTxs: TxRecord[] = [];
+      
+      if (chainId === 0) {
+        const solanaAddr = activeWallet.addresses?.solana || "";
+        if (solanaAddr) {
+          const localTxs = await getTransactionsByWallet(solanaAddr);
+          allTxs = localTxs.filter(tx => 
+            tx.chainId === 0 && 
+            (tx.tokenSymbol === tokenSymbol || 
+             (address && tx.tokenAddress?.toLowerCase() === address.toLowerCase()))
+          );
+        }
+      } else {
+        const history = await fetchTransactionHistory(activeWallet.address, chainId);
+        allTxs = history.filter(tx => tx.tokenSymbol === tokenSymbol);
+      }
+      
+      setTransactions(allTxs);
     } catch (error) {
       console.error("Failed to load transaction history:", error);
     } finally {

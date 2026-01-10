@@ -229,17 +229,17 @@ export default function ActivityScreen() {
         "Solana API:", solanaTxs.length);
 
       const explorerHashes = new Set(explorerTxs.map((tx) => tx.hash.toLowerCase()));
-      const solanaHashes = new Set(solanaTxs.map((tx) => tx.hash.toLowerCase()));
+      const localSolanaHashes = new Set(localSolanaTxs.map((tx) => tx.hash.toLowerCase()));
       
       const uniqueLocalEvmTxs = localEvmTxs.filter(
         (tx) => !explorerHashes.has(tx.hash.toLowerCase())
       );
       
-      const uniqueLocalSolanaTxs = localSolanaTxs.filter(
-        (tx) => !solanaHashes.has(tx.hash.toLowerCase())
+      const uniqueApiSolanaTxs = solanaTxs.filter(
+        (tx) => !localSolanaHashes.has(tx.hash.toLowerCase())
       );
 
-      const allTxs = [...uniqueLocalEvmTxs, ...uniqueLocalSolanaTxs, ...explorerTxs, ...solanaTxs];
+      const allTxs = [...uniqueLocalEvmTxs, ...localSolanaTxs, ...explorerTxs, ...uniqueApiSolanaTxs];
       allTxs.sort((a, b) => b.createdAt - a.createdAt);
 
       console.log("[Activity] Total transactions:", allTxs.length);

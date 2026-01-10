@@ -440,13 +440,26 @@ export async function getSolanaTransactionHistory(
             const sourceOwner = info.authority || info.source;
             const destOwner = info.destination;
             
+            tokenMint = info.mint;
+            
             if (info.tokenAmount) {
               amount = info.tokenAmount.uiAmountString || info.tokenAmount.uiAmount?.toString();
-            } else if (info.amount) {
-              amount = info.amount;
+            } else if (info.amount && tokenMint) {
+              try {
+                const mintInfo = await connection.getParsedAccountInfo(new PublicKey(tokenMint));
+                let decimals = 9;
+                if (mintInfo.value?.data && "parsed" in mintInfo.value.data) {
+                  decimals = mintInfo.value.data.parsed.info.decimals;
+                }
+                const rawAmount = BigInt(info.amount);
+                const divisor = BigInt(10 ** decimals);
+                const uiAmount = Number(rawAmount) / Number(divisor);
+                amount = uiAmount.toString();
+              } catch {
+                amount = info.amount;
+              }
             }
             
-            tokenMint = info.mint;
             from = sourceOwner;
             to = destOwner;
             
