@@ -55,7 +55,12 @@ async function fetchSolanaHistory(
     const url = new URL(`/api/solana/history/${address}`, apiUrl);
     url.searchParams.set("limit", "30");
     
-    const response = await fetch(url.toString());
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    
+    const response = await fetch(url.toString(), { signal: controller.signal });
+    clearTimeout(timeout);
+    
     if (!response.ok) return [];
     
     const transactions: SolanaApiTransaction[] = await response.json();
