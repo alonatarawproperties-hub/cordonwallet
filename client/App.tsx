@@ -22,8 +22,8 @@ export default function App() {
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
         <WalletProvider>
-          <CapAllowanceProvider>
-            <SafeAreaProvider>
+          <SafeAreaProvider>
+            <CapAllowanceProvider>
               <GestureHandlerRootView style={styles.root}>
                 <KeyboardProvider>
                   <NavigationContainer>
@@ -32,8 +32,8 @@ export default function App() {
                   <StatusBar style="auto" />
                 </KeyboardProvider>
               </GestureHandlerRootView>
-            </SafeAreaProvider>
-          </CapAllowanceProvider>
+            </CapAllowanceProvider>
+          </SafeAreaProvider>
         </WalletProvider>
       </QueryClientProvider>
     </ErrorBoundary>
