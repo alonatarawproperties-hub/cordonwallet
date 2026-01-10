@@ -16,12 +16,6 @@ import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 type Props = NativeStackScreenProps<RootStackParamList, "AssetDetail">;
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
-const MOCK_TXS = [
-  { id: "1", type: "receive", amount: "+0.5 ETH", time: "2 hours ago" },
-  { id: "2", type: "send", amount: "-0.1 ETH", time: "1 day ago" },
-  { id: "3", type: "receive", amount: "+1.2 ETH", time: "3 days ago" },
-];
-
 export default function AssetDetailScreen({ route }: Props) {
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
@@ -107,48 +101,6 @@ export default function AssetDetailScreen({ route }: Props) {
             <ThemedText type="body" style={{ fontWeight: "600" }}>Swap</ThemedText>
           </Pressable>
         </View>
-
-        <View style={styles.section}>
-          <ThemedText type="h4" style={styles.sectionTitle}>
-            Recent Transactions
-          </ThemedText>
-          {MOCK_TXS.map((tx) => (
-            <Pressable
-              key={tx.id}
-              style={[styles.txRow, { backgroundColor: theme.backgroundDefault }]}
-              onPress={() => navigation.navigate("TransactionDetail", { txHash: tx.id })}
-            >
-              <View style={[
-                styles.txIcon, 
-                { backgroundColor: tx.type === "receive" ? theme.success + "20" : theme.danger + "20" }
-              ]}>
-                <Feather 
-                  name={tx.type === "receive" ? "arrow-down-left" : "arrow-up-right"} 
-                  size={18} 
-                  color={tx.type === "receive" ? theme.success : theme.danger} 
-                />
-              </View>
-              <View style={styles.txInfo}>
-                <ThemedText type="body" style={{ fontWeight: "600", textTransform: "capitalize" }}>
-                  {tx.type}
-                </ThemedText>
-                <ThemedText type="caption" style={{ color: theme.textSecondary }}>
-                  {tx.time}
-                </ThemedText>
-              </View>
-              <ThemedText 
-                type="body" 
-                style={{ 
-                  fontWeight: "600",
-                  color: tx.type === "receive" ? theme.success : theme.text,
-                }}
-              >
-                {tx.amount}
-              </ThemedText>
-              <Feather name="chevron-right" size={18} color={theme.textSecondary} />
-            </Pressable>
-          ))}
-        </View>
       </ScrollView>
     </ThemedView>
   );
@@ -212,30 +164,5 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.md,
     alignItems: "center",
     justifyContent: "center",
-  },
-  section: {
-    marginBottom: Spacing.xl,
-  },
-  sectionTitle: {
-    marginBottom: Spacing.md,
-  },
-  txRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    padding: Spacing.lg,
-    borderRadius: BorderRadius.md,
-    gap: Spacing.md,
-    marginBottom: Spacing.sm,
-  },
-  txIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: BorderRadius.sm,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  txInfo: {
-    flex: 1,
-    gap: Spacing.xs,
   },
 });
