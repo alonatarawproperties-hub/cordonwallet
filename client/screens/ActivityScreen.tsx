@@ -24,6 +24,7 @@ import {
 import { supportedChains, getChainById, getExplorerAddressUrl } from "@/lib/blockchain/chains";
 import { NetworkId } from "@/lib/types";
 import { getApiUrl } from "@/lib/query-client";
+import { getCustomTokens, CustomToken } from "@/lib/token-preferences";
 
 const NETWORK_TO_CHAIN_ID: Record<NetworkId, number> = {
   ethereum: 1,
@@ -45,7 +46,10 @@ interface SolanaApiTransaction {
   to?: string;
 }
 
-async function fetchSolanaHistory(address: string): Promise<TxRecord[]> {
+async function fetchSolanaHistory(
+  address: string,
+  customTokens: CustomToken[]
+): Promise<TxRecord[]> {
   try {
     const apiUrl = getApiUrl();
     const url = new URL(`/api/solana/history/${address}`, apiUrl);
@@ -55,6 +59,17 @@ async function fetchSolanaHistory(address: string): Promise<TxRecord[]> {
     if (!response.ok) return [];
     
     const transactions: SolanaApiTransaction[] = await response.json();
+    
+    const getTokenSymbol = (tx: SolanaApiTransaction): string => {
+      if (tx.tokenSymbol) return tx.tokenSymbol;
+      if (!tx.tokenMint) return "SOL";
+      
+      const customToken = customTokens.find(
+        t => t.chainId === 0 && 
+             t.contractAddress.toLowerCase() === tx.tokenMint?.toLowerCase()
+      );
+      return customToken?.symbol || tx.tokenMint.slice(0, 4).toUpperCase();
+    };
     
     return transactions
       .filter(tx => tx.type !== "unknown")
@@ -66,7 +81,7 @@ async function fetchSolanaHistory(address: string): Promise<TxRecord[]> {
         type: tx.tokenMint ? "spl" : "native",
         activityType: tx.type as ActivityType,
         tokenAddress: tx.tokenMint,
-        tokenSymbol: tx.tokenSymbol || (tx.tokenMint ? "SPL" : "SOL"),
+        tokenSymbol: getTokenSymbol(tx),
         to: tx.to || "",
         from: tx.from,
         amount: tx.amount || "0",
@@ -112,6 +127,7 @@ export default function ActivityScreen() {
     console.log("[Activity] Loading transactions for EVM:", evmAddress?.slice(0, 8), "Solana:", solanaAddress?.slice(0, 8));
 
     try {
+      const customTokens = await getCustomTokens();
       const fetchPromises: Promise<TxRecord[]>[] = [];
 
       if (!isSolanaOnly && evmAddress) {
@@ -120,7 +136,7 @@ export default function ActivityScreen() {
       }
 
       if (solanaAddress) {
-        fetchPromises.push(fetchSolanaHistory(solanaAddress));
+        fetchPromises.push(fetchSolanaHistory(solanaAddress, customTokens));
       }
 
       const results = await Promise.all(fetchPromises);
