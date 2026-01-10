@@ -1,0 +1,385 @@
+import React, { useState, useCallback, useMemo } from "react";
+import {
+  View,
+  StyleSheet,
+  Modal,
+  Pressable,
+  ScrollView,
+  ActivityIndicator,
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Feather } from "@expo/vector-icons";
+import * as Haptics from "expo-haptics";
+
+import { ThemedText } from "@/components/ThemedText";
+import { ThemedView } from "@/components/ThemedView";
+import { Button } from "@/components/Button";
+import { Badge } from "@/components/Badge";
+import { useTheme } from "@/hooks/useTheme";
+import { Spacing } from "@/constants/theme";
+import {
+  PersonalSignRequest,
+  SendTransactionRequest,
+  ParsedRequest,
+  getChainName,
+} from "@/lib/walletconnect/handlers";
+import { getChainById } from "@/lib/blockchain/chains";
+import { formatAllowance } from "@/lib/approvals/firewall";
+import { getSpenderLabel } from "@/lib/approvals/spenders";
+
+interface Props {
+  visible: boolean;
+  request: {
+    request: {
+      id: number;
+      topic: string;
+      params: {
+        request: { method: string; params: unknown[] };
+        chainId: string;
+      };
+    };
+    parsed: ParsedRequest;
+  } | null;
+  dappName: string;
+  dappUrl: string;
+  isSigning: boolean;
+  isApprovalBlocked: boolean;
+  onSign: () => void;
+  onReject: () => void;
+  onCapAllowance: () => void;
+}
+
+export function SignRequestSheet({
+  visible,
+  request,
+  dappName,
+  dappUrl,
+  isSigning,
+  isApprovalBlocked,
+  onSign,
+  onReject,
+  onCapAllowance,
+}: Props) {
+  const { theme } = useTheme();
+  const insets = useSafeAreaInsets();
+
+  const handleSign = useCallback(() => {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    onSign();
+  }, [onSign]);
+
+  const handleReject = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    onReject();
+  }, [onReject]);
+
+  const handleCapAllowance = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    onCapAllowance();
+  }, [onCapAllowance]);
+
+  if (!request) return null;
+
+  const { parsed } = request;
+  const isPersonalSign = parsed.method === "personal_sign";
+  const isSendTx = parsed.method === "eth_sendTransaction";
+
+  const chainId = isSendTx ? (parsed as SendTransactionRequest).chainId : 1;
+  const chain = getChainById(chainId);
+  const chainName = chain?.name || `Chain ${chainId}`;
+
+  return (
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={handleReject}>
+      <View style={styles.overlay}>
+        <Pressable style={styles.backdrop} onPress={handleReject} />
+
+        <ThemedView style={[styles.sheet, { paddingBottom: insets.bottom + Spacing.lg }]}>
+          <View style={styles.handle} />
+
+          <View style={styles.header}>
+            <ThemedText type="h3">
+              {isPersonalSign ? "Sign Message" : "Review Transaction"}
+            </ThemedText>
+            <Pressable onPress={handleReject} hitSlop={12}>
+              <Feather name="x" size={24} color={theme.textSecondary} />
+            </Pressable>
+          </View>
+
+          <ScrollView showsVerticalScrollIndicator={false} style={styles.scrollContent}>
+            <View style={styles.dappRow}>
+              <View style={[styles.dappIcon, { backgroundColor: theme.accent + "20" }]}>
+                <Feather name="globe" size={20} color={theme.accent} />
+              </View>
+              <View style={{ flex: 1, marginLeft: Spacing.sm }}>
+                <ThemedText type="body" style={{ fontWeight: "600" }}>
+                  {dappName}
+                </ThemedText>
+                <ThemedText type="small" style={{ color: theme.textSecondary }}>
+                  {dappUrl.replace(/^https?:\/\//, "")}
+                </ThemedText>
+              </View>
+              <Badge label={chainName} variant="warning" />
+            </View>
+
+            {isPersonalSign ? (
+              <PersonalSignContent request={parsed as PersonalSignRequest} />
+            ) : null}
+
+            {isSendTx ? (
+              <SendTransactionContent
+                request={parsed as SendTransactionRequest}
+                isApprovalBlocked={isApprovalBlocked}
+              />
+            ) : null}
+
+            {isApprovalBlocked ? (
+              <View style={[styles.blockedCard, { backgroundColor: theme.danger + "15", borderColor: theme.danger }]}>
+                <Feather name="shield-off" size={20} color={theme.danger} />
+                <View style={{ flex: 1, marginLeft: Spacing.sm }}>
+                  <ThemedText type="small" style={{ fontWeight: "600", color: theme.danger }}>
+                    Unlimited Approval Blocked
+                  </ThemedText>
+                  <ThemedText type="small" style={{ color: theme.textSecondary, marginTop: 2 }}>
+                    This transaction requests unlimited token spending. Set a cap to proceed safely.
+                  </ThemedText>
+                </View>
+              </View>
+            ) : null}
+          </ScrollView>
+
+          <View style={styles.buttons}>
+            <Pressable
+              onPress={handleReject}
+              disabled={isSigning}
+              style={[
+                styles.secondaryButton,
+                { backgroundColor: theme.backgroundDefault, borderColor: theme.border, flex: 1, marginRight: Spacing.sm }
+              ]}
+            >
+              <ThemedText type="body" style={{ fontWeight: "600" }}>Reject</ThemedText>
+            </Pressable>
+            {isApprovalBlocked ? (
+              <Button
+                onPress={handleCapAllowance}
+                style={{ flex: 1, marginLeft: Spacing.sm }}
+              >
+                Cap Allowance
+              </Button>
+            ) : (
+              <Button
+                onPress={handleSign}
+                style={{ flex: 1, marginLeft: Spacing.sm }}
+                disabled={isSigning}
+              >
+                {isSigning ? "Signing..." : "Sign"}
+              </Button>
+            )}
+          </View>
+        </ThemedView>
+      </View>
+    </Modal>
+  );
+}
+
+function PersonalSignContent({
+  request,
+}: {
+  request: PersonalSignRequest;
+}) {
+  const { theme } = useTheme();
+  return (
+    <View style={[styles.contentCard, { backgroundColor: theme.backgroundDefault }]}>
+      <ThemedText type="small" style={{ color: theme.textSecondary, marginBottom: Spacing.sm }}>
+        Message to sign:
+      </ThemedText>
+      <ThemedText type="body" style={{ lineHeight: 22 }}>
+        {request.displayMessage}
+      </ThemedText>
+    </View>
+  );
+}
+
+function SendTransactionContent({
+  request,
+  isApprovalBlocked,
+}: {
+  request: SendTransactionRequest;
+  isApprovalBlocked: boolean;
+}) {
+  const { theme } = useTheme();
+  const { tx, chainId, valueFormatted, approval, isApproval, isNativeTransfer } = request;
+  const chain = getChainById(chainId);
+  const nativeSymbol = chain?.nativeSymbol || "ETH";
+
+  const spenderLabel = approval
+    ? getSpenderLabel(chainId, approval.spender) || shortenAddress(approval.spender)
+    : "";
+
+  return (
+    <View style={[styles.contentCard, { backgroundColor: theme.backgroundDefault }]}>
+      {isApproval && approval ? (
+        <>
+          <View style={styles.txRow}>
+            <ThemedText type="small" style={{ color: theme.textSecondary }}>
+              Type
+            </ThemedText>
+            <Badge label="Token Approval" variant={isApprovalBlocked ? "danger" : "warning"} />
+          </View>
+          <View style={styles.txRow}>
+            <ThemedText type="small" style={{ color: theme.textSecondary }}>
+              Token
+            </ThemedText>
+            <ThemedText type="body">{shortenAddress(approval.tokenAddress)}</ThemedText>
+          </View>
+          <View style={styles.txRow}>
+            <ThemedText type="small" style={{ color: theme.textSecondary }}>
+              Spender
+            </ThemedText>
+            <ThemedText type="body">{spenderLabel}</ThemedText>
+          </View>
+          <View style={styles.txRow}>
+            <ThemedText type="small" style={{ color: theme.textSecondary }}>
+              Amount
+            </ThemedText>
+            <ThemedText
+              type="body"
+              style={{ color: approval.isUnlimited ? theme.danger : theme.text, fontWeight: "600" }}
+            >
+              {approval.isUnlimited ? "UNLIMITED" : formatAllowance(approval.amountRaw, 18, "")}
+            </ThemedText>
+          </View>
+        </>
+      ) : isNativeTransfer ? (
+        <>
+          <View style={styles.txRow}>
+            <ThemedText type="small" style={{ color: theme.textSecondary }}>
+              Type
+            </ThemedText>
+            <Badge label="Transfer" variant="neutral" />
+          </View>
+          <View style={styles.txRow}>
+            <ThemedText type="small" style={{ color: theme.textSecondary }}>
+              To
+            </ThemedText>
+            <ThemedText type="body">{shortenAddress(tx.to)}</ThemedText>
+          </View>
+          <View style={styles.txRow}>
+            <ThemedText type="small" style={{ color: theme.textSecondary }}>
+              Amount
+            </ThemedText>
+            <ThemedText type="body" style={{ fontWeight: "600" }}>
+              {valueFormatted} {nativeSymbol}
+            </ThemedText>
+          </View>
+        </>
+      ) : (
+        <>
+          <View style={styles.txRow}>
+            <ThemedText type="small" style={{ color: theme.textSecondary }}>
+              Type
+            </ThemedText>
+            <Badge label="Contract Interaction" variant="neutral" />
+          </View>
+          <View style={styles.txRow}>
+            <ThemedText type="small" style={{ color: theme.textSecondary }}>
+              To
+            </ThemedText>
+            <ThemedText type="body">{shortenAddress(tx.to)}</ThemedText>
+          </View>
+          {parseFloat(valueFormatted) > 0 ? (
+            <View style={styles.txRow}>
+              <ThemedText type="small" style={{ color: theme.textSecondary }}>
+                Value
+              </ThemedText>
+              <ThemedText type="body" style={{ fontWeight: "600" }}>
+                {valueFormatted} {nativeSymbol}
+              </ThemedText>
+            </View>
+          ) : null}
+        </>
+      )}
+    </View>
+  );
+}
+
+function shortenAddress(address: string): string {
+  if (address.length < 12) return address;
+  return `${address.slice(0, 6)}...${address.slice(-4)}`;
+}
+
+const styles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    justifyContent: "flex-end",
+  },
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.5)",
+  },
+  sheet: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: Spacing.lg,
+    maxHeight: "85%",
+  },
+  handle: {
+    width: 40,
+    height: 4,
+    backgroundColor: "rgba(128,128,128,0.4)",
+    borderRadius: 2,
+    alignSelf: "center",
+    marginTop: Spacing.sm,
+    marginBottom: Spacing.md,
+  },
+  header: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: Spacing.lg,
+  },
+  scrollContent: {
+    flexGrow: 0,
+  },
+  dappRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: Spacing.lg,
+  },
+  dappIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 10,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  contentCard: {
+    borderRadius: 12,
+    padding: Spacing.md,
+    marginBottom: Spacing.md,
+  },
+  txRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: Spacing.xs,
+  },
+  blockedCard: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    padding: Spacing.md,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: Spacing.lg,
+  },
+  buttons: {
+    flexDirection: "row",
+    marginTop: Spacing.md,
+  },
+  secondaryButton: {
+    padding: Spacing.md,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+});

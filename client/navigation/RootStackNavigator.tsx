@@ -26,6 +26,8 @@ import ManageCryptoScreen from "@/screens/ManageCryptoScreen";
 import ImportTokenScreen from "@/screens/ImportTokenScreen";
 import SendDetailsScreen from "@/screens/SendDetailsScreen";
 import ScanQRScreen from "@/screens/ScanQRScreen";
+import WalletConnectScreen from "@/screens/WalletConnectScreen";
+import WCScannerScreen from "@/screens/WCScannerScreen";
 
 export type TransactionDetailParams = {
   hash: string;
@@ -87,6 +89,8 @@ export type RootStackParamList = {
     logoUrl?: string;
   };
   ScanQR: undefined;
+  WalletConnect: undefined;
+  WCScanner: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -227,6 +231,16 @@ export default function RootStackNavigator() {
       <Stack.Screen
         name="ScanQR"
         component={ScanQRScreen}
+        options={{ headerShown: false, presentation: "fullScreenModal" }}
+      />
+      <Stack.Screen
+        name="WalletConnect"
+        component={WalletConnectScreen}
+        options={{ headerTitle: "WalletConnect" }}
+      />
+      <Stack.Screen
+        name="WCScanner"
+        component={WCScannerScreen}
         options={{ headerShown: false, presentation: "fullScreenModal" }}
       />
     </Stack.Navigator>
