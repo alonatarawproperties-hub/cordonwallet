@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useLayoutEffect } from "react";
+import React, { useState, useCallback, useLayoutEffect } from "react";
 import {
   View,
   StyleSheet,
@@ -14,7 +14,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight, HeaderButton } from "@react-navigation/elements";
 import { Feather } from "@expo/vector-icons";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useFocusEffect } from "@react-navigation/native";
 
 import { ThemedView } from "@/components/ThemedView";
 import { ThemedText } from "@/components/ThemedText";
@@ -88,11 +88,7 @@ export default function ManageCryptoScreen() {
     });
   }, [navigation, theme]);
 
-  useEffect(() => {
-    loadPreferences();
-  }, []);
-
-  const loadPreferences = async () => {
+  const loadPreferences = useCallback(async () => {
     setIsLoadingPrefs(true);
     const [hidden, custom] = await Promise.all([
       getHiddenTokens(),
@@ -101,7 +97,13 @@ export default function ManageCryptoScreen() {
     setHiddenTokens(hidden);
     setCustomTokens(custom);
     setIsLoadingPrefs(false);
-  };
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadPreferences();
+    }, [loadPreferences])
+  );
 
   const getTokenKey = (chainId: number, symbol: string) => `${chainId}:${symbol}`;
 
