@@ -98,6 +98,16 @@ export function useSolanaPortfolio(address: string | undefined) {
 
     const cacheKey = `${CACHE_KEY_PREFIX}${address}`;
 
+    let customTokenMap: Map<string, CustomToken> = new Map();
+    try {
+      const customTokens = await getCustomTokens();
+      customTokens
+        .filter((ct: CustomToken) => ct.chainId === 0)
+        .forEach((ct: CustomToken) => {
+          customTokenMap.set(ct.contractAddress.toLowerCase(), ct);
+        });
+    } catch {}
+
     if (!isRefresh) {
       try {
         const cached = await AsyncStorage.getItem(cacheKey);
@@ -105,9 +115,21 @@ export function useSolanaPortfolio(address: string | undefined) {
           const { assets, timestamp } = JSON.parse(cached);
           if (Date.now() - timestamp < CACHE_DURATION) {
             if (isMounted.current) {
+              const enrichedAssets = assets.map((a: any) => {
+                const asset = { ...a, rawBalance: BigInt(a.rawBalance) };
+                if (asset.mint) {
+                  const customToken = customTokenMap.get(asset.mint.toLowerCase());
+                  if (customToken) {
+                    asset.symbol = customToken.symbol;
+                    asset.name = customToken.name;
+                    asset.logoUrl = customToken.logoUrl;
+                  }
+                }
+                return asset;
+              });
               setState(prev => ({
                 ...prev,
-                assets: assets.map((a: any) => ({ ...a, rawBalance: BigInt(a.rawBalance) })),
+                assets: enrichedAssets,
                 isLoading: false,
                 lastUpdated: timestamp,
               }));
@@ -122,25 +144,10 @@ export function useSolanaPortfolio(address: string | undefined) {
       const portfolio = await fetchSolanaPortfolio(address);
       const assets: SolanaAsset[] = [];
 
-      // Load custom tokens first to create a lookup map by mint address
-      let customTokenMap: Map<string, CustomToken> = new Map();
       let hiddenTokens: string[] = [];
       try {
-        const [customTokens, hidden] = await Promise.all([
-          getCustomTokens(),
-          getHiddenTokens(),
-        ]);
-        hiddenTokens = hidden;
-        
-        // Create map of custom tokens by mint address (lowercase for case-insensitive matching)
-        customTokens
-          .filter((ct: CustomToken) => ct.chainId === 0)
-          .forEach((ct: CustomToken) => {
-            customTokenMap.set(ct.contractAddress.toLowerCase(), ct);
-          });
-      } catch (customTokenError) {
-        console.log("[Solana Portfolio] Failed to load custom tokens:", customTokenError);
-      }
+        hiddenTokens = await getHiddenTokens();
+      } catch {}
 
       const solBalanceNum = parseFloat(portfolio.nativeBalance.sol);
       assets.push({
