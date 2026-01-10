@@ -11,10 +11,11 @@ const DEXSCREENER_CHAIN_IDS: Record<number, string> = {
   56: "bsc",
 };
 
-const NATIVE_TOKEN_IDS: Record<number, string> = {
+const NATIVE_TOKEN_IDS: Record<number | string, string> = {
   1: "ethereum",
   137: "polygon-ecosystem-token",
   56: "binancecoin",
+  "solana": "solana",
 };
 
 const EXTRA_TOKEN_IDS = ["bitcoin"];
@@ -150,6 +151,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (data["binancecoin"]?.usd) {
         prices["BNB"] = { price: data["binancecoin"].usd, change24h: data["binancecoin"].usd_24h_change };
       }
+      if (data["solana"]?.usd) {
+        prices["SOL"] = { price: data["solana"].usd, change24h: data["solana"].usd_24h_change };
+        prices["native_solana"] = { price: data["solana"].usd, change24h: data["solana"].usd_24h_change };
+      }
 
       priceCache = { data: prices, timestamp: now };
       
@@ -185,6 +190,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         "USDC": "usd-coin",
         "USDT": "tether",
         "DAI": "dai",
+        "SOL": "solana",
       };
 
       const geckoId = symbolToGeckoId[symbol.toUpperCase()];
