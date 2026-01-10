@@ -1,0 +1,135 @@
+Implement WalletConnect v2 dApp integration in the existing Cordon mobile wallet (Expo RN), MAINNET ONLY, and ensure ALL signing requests go through Cordon Firewall (including cap-allowance UI for approve).
+
+GOAL (MVP)
+- User can connect Cordon to any WalletConnect-enabled dApp (desktop browser) by scanning QR or pasting WC URI.
+- Support core methods:
+  1) personal_sign (message signing) — show readable message preview
+  2) eth_sendTransaction — run Firewall preview, block unlimited approvals by default, allow cap-allowance replacement, then sign + broadcast and return tx hash
+- Maintain non-custodial model and existing signing session (PIN unlock).
+
+CONSTRAINTS
+- MAINNET ONLY: Ethereum, Polygon, BNB Chain (no testnets).
+- Must work in Expo Go. Avoid native modules that break Expo Go.
+- No backend required.
+
+----------------------------------------------------
+A) DEPENDENCIES (Expo friendly)
+Add WalletConnect v2 packages (use current stable):
+- @walletconnect/sign-client
+- @walletconnect/modal-core (optional) OR just use sign-client and build our own UI
+- @walletconnect/utils
+- react-native-qrcode-scanner OR expo-barcode-scanner (preferred for Expo)
+Also ensure:
+- react-native-get-random-values and react-native-url-polyfill imports stay at top.
+
+If any package is not Expo Go compatible, switch to an Expo-compatible alternative and proceed.
+
+----------------------------------------------------
+B) WALLETCONNECT CORE MODULE (packages/core)
+Create /packages/core/src/walletconnect/client.ts that:
+- initializes SignClient with:
+  - projectId (WC_PROJECT_ID from env)
+  - metadata (name: Cordon, description, url, icons)
+- persists sessions using existing storage (AsyncStorage) to survive reloads
+- exposes:
+  initWalletConnect()
+  connect({uri?}) -> returns pairing/session proposal
+  approveSession(proposal, selectedChains)
+  rejectSession(proposal)
+  listSessions()
+  disconnectSession(topic)
+
+IMPORTANT: implement a small storage wrapper so sessions persist reliably in Expo.
+
+----------------------------------------------------
+C) UI FLOWS (mobile)
+Add screens:
+1) Connect Screen:
+- Option A: “Scan QR”
+- Option B: “Paste WalletConnect URI”
+- Show connected sessions list with “Disconnect”
+
+2) Session Approval Sheet:
+- Show dApp name, url, requested chains, requested methods
+- Buttons: Approve / Reject
+- Only approve requested EVM chains we support (Ethereum/Polygon/BNB).
+
+3) Request Handling UI:
+- When a request arrives, show a modal/screen depending on method:
+  a) personal_sign: show message text clearly (with domain + address)
+     - Buttons: Sign / Reject
+  b) eth_sendTransaction: must show Cordon Firewall “Before you sign” preview.
+     - If blocked because unlimited approve: offer Cap Allowance flow.
+     - Buttons: Sign / Reject / Cap Allowance (when relevant)
+
+----------------------------------------------------
+D) REQUEST HANDLER (critical)
+In /packages/core/src/walletconnect/handlers.ts implement:
+- onSessionRequest(event):
+  - Parse method + params
+  - Resolve chainId from event (eip155:137 etc.)
+  - Ensure wallet is unlocked; if locked prompt unlock and resume.
+  - Route:
+
+1) personal_sign
+- params typically [message, address] or [address, message]
+- Normalize and display in UI
+- When user approves:
+  - signMessage using EVM signer derived from active wallet
+  - return signature to dApp
+
+2) eth_sendTransaction
+- tx object includes to, from, data, value, gas, maxFeePerGas etc.
+- Normalize tx using viem
+- Run Firewall decode+policy:
+  - detect approve/transfer/native
+  - block unlimited approvals (default)
+  - allow cap-allowance replacement
+- If user approves:
+  - sign and broadcast using existing signAndBroadcastEvmTx pipeline
+  - log activity + approvals tracking (already implemented)
+  - return tx hash to dApp
+
+If user rejects:
+- respond with WC error code indicating rejection.
+
+----------------------------------------------------
+E) FIREWALL + CAP ALLOWANCE INTEGRATION
+Reuse existing Firewall UI and cap allowance module:
+- If approve unlimited detected:
+  - show “Cap Allowance”
+  - allow user to input amount + presets
+  - replace tx.data approve amount with capped amount
+  - re-run policy => should allow
+  - proceed to sign
+
+----------------------------------------------------
+F) MAINNET SAFETY UX
+- Add visible label in the request UI: “MAINNET”
+- For eth_sendTransaction display:
+  - estimated network fee (best effort)
+  - explorer link after broadcast
+
+----------------------------------------------------
+G) ENV + README
+Add to env templates:
+- WC_PROJECT_ID
+Document:
+- How to test:
+  1) Open a WalletConnect-enabled dApp on desktop
+  2) Choose WalletConnect
+  3) Scan QR with Cordon or paste URI
+  4) Trigger an approval request or send tx
+  5) Verify Firewall blocks unlimited approvals and allows capped approvals
+No testnet instructions.
+
+----------------------------------------------------
+DONE WHEN
+- I can connect to a real dApp via WalletConnect (QR or paste).
+- personal_sign works (returns signature).
+- eth_sendTransaction works:
+  - Shows Firewall preview
+  - Blocks unlimited approvals
+  - Cap allowance allows proceed
+  - Returns tx hash and it appears on mainnet explorer
+- Sessions persist and can disconnect.
