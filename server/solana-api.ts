@@ -34,6 +34,14 @@ export interface SplTokenBalance {
   name?: string;
 }
 
+export interface SplTokenMetadata {
+  mint: string;
+  name: string;
+  symbol: string;
+  decimals: number;
+  logoUri?: string;
+}
+
 export interface SolanaPortfolio {
   nativeBalance: SolBalance;
   tokens: SplTokenBalance[];
@@ -101,6 +109,63 @@ export async function getSolanaPortfolio(address: string): Promise<SolanaPortfol
     nativeBalance,
     tokens,
   };
+}
+
+export async function getSplTokenMetadata(mintAddress: string): Promise<SplTokenMetadata | null> {
+  try {
+    const mintPubkey = new PublicKey(mintAddress);
+    
+    const mintInfo = await connection.getParsedAccountInfo(mintPubkey);
+    if (!mintInfo.value?.data || !("parsed" in mintInfo.value.data)) {
+      return null;
+    }
+    
+    const parsedData = mintInfo.value.data.parsed;
+    const decimals = parsedData.info.decimals;
+    
+    const jupiterResponse = await fetch(
+      `https://tokens.jup.ag/token/${mintAddress}`
+    );
+    
+    if (jupiterResponse.ok) {
+      const jupiterData = await jupiterResponse.json();
+      return {
+        mint: mintAddress,
+        name: jupiterData.name || "Unknown Token",
+        symbol: jupiterData.symbol || "???",
+        decimals,
+        logoUri: jupiterData.logoURI,
+      };
+    }
+    
+    const solscanResponse = await fetch(
+      `https://pro-api.solscan.io/v2.0/token/meta?address=${mintAddress}`,
+      { headers: { "Accept": "application/json" } }
+    );
+    
+    if (solscanResponse.ok) {
+      const solscanData = await solscanResponse.json();
+      if (solscanData.success && solscanData.data) {
+        return {
+          mint: mintAddress,
+          name: solscanData.data.name || "Unknown Token",
+          symbol: solscanData.data.symbol || "???",
+          decimals,
+          logoUri: solscanData.data.icon,
+        };
+      }
+    }
+    
+    return {
+      mint: mintAddress,
+      name: "Unknown Token",
+      symbol: mintAddress.slice(0, 4).toUpperCase(),
+      decimals,
+    };
+  } catch (error) {
+    console.error("[SolanaAPI] Error fetching token metadata:", error);
+    return null;
+  }
 }
 
 function parseDecimalToBigInt(amountStr: string, decimals: number): bigint {

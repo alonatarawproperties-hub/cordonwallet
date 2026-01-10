@@ -7,6 +7,7 @@ import {
   prepareSplTransfer,
   sendSignedTransaction,
   checkAtaExists,
+  getSplTokenMetadata,
 } from "./solana-api";
 
 const ETHERSCAN_V2_API = "https://api.etherscan.io/v2/api";
@@ -580,6 +581,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("[Solana API] Portfolio error:", error);
       res.status(500).json({ error: "Failed to fetch Solana portfolio" });
+    }
+  });
+
+  app.get("/api/solana/token-metadata/:mint", async (req: Request, res: Response) => {
+    try {
+      const { mint } = req.params;
+      
+      if (!mint) {
+        return res.status(400).json({ error: "Missing mint address" });
+      }
+
+      console.log(`[Solana API] Fetching token metadata for ${mint.slice(0, 8)}...`);
+      const metadata = await getSplTokenMetadata(mint);
+      
+      if (!metadata) {
+        return res.status(404).json({ error: "Token not found or invalid mint address" });
+      }
+      
+      res.json(metadata);
+    } catch (error) {
+      console.error("[Solana API] Token metadata error:", error);
+      res.status(500).json({ error: "Failed to fetch token metadata" });
     }
   });
 

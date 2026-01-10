@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   View,
   StyleSheet,
@@ -22,6 +22,7 @@ import { useTheme } from "@/hooks/useTheme";
 import { Spacing } from "@/constants/theme";
 import { addCustomToken } from "@/lib/token-preferences";
 import { supportedChains, ChainConfig } from "@/lib/blockchain/chains";
+import { getApiUrl } from "@/lib/query-client";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
@@ -53,10 +54,49 @@ export default function ImportTokenScreen() {
   const [symbol, setSymbol] = useState("");
   const [decimals, setDecimals] = useState("18");
   const [isLoading, setIsLoading] = useState(false);
+  const [isFetchingMetadata, setIsFetchingMetadata] = useState(false);
+  const [metadataFetched, setMetadataFetched] = useState(false);
   const [showChainPicker, setShowChainPicker] = useState(false);
 
   const isSolana = selectedNetwork === "solana";
   const selectedChain = networkOptions.find(n => n.id === selectedNetwork);
+
+  const validateSolanaAddress = useCallback((address: string): boolean => {
+    return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address);
+  }, []);
+
+  const fetchSolanaTokenMetadata = useCallback(async (mintAddress: string) => {
+    if (!validateSolanaAddress(mintAddress)) return;
+    
+    setIsFetchingMetadata(true);
+    try {
+      const url = new URL(`/api/solana/token-metadata/${mintAddress}`, getApiUrl());
+      const response = await fetch(url.toString());
+      
+      if (response.ok) {
+        const data = await response.json();
+        setName(data.name || "");
+        setSymbol(data.symbol || "");
+        setDecimals(data.decimals?.toString() || "9");
+        setMetadataFetched(true);
+      }
+    } catch (error) {
+      console.log("[ImportToken] Failed to fetch Solana token metadata:", error);
+    } finally {
+      setIsFetchingMetadata(false);
+    }
+  }, [validateSolanaAddress]);
+
+  useEffect(() => {
+    if (isSolana && contractAddress.length >= 32 && validateSolanaAddress(contractAddress)) {
+      const timer = setTimeout(() => {
+        fetchSolanaTokenMetadata(contractAddress);
+      }, 500);
+      return () => clearTimeout(timer);
+    } else {
+      setMetadataFetched(false);
+    }
+  }, [contractAddress, isSolana, validateSolanaAddress, fetchSolanaTokenMetadata]);
 
   const handlePaste = async () => {
     const text = await Clipboard.getStringAsync();
@@ -67,10 +107,6 @@ export default function ImportTokenScreen() {
 
   const validateEvmAddress = (address: string): boolean => {
     return /^0x[a-fA-F0-9]{40}$/.test(address);
-  };
-
-  const validateSolanaAddress = (address: string): boolean => {
-    return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address);
   };
 
   const validateAddress = (address: string): boolean => {
@@ -205,11 +241,29 @@ export default function ImportTokenScreen() {
               autoCapitalize="none"
               autoCorrect={false}
             />
+            {isFetchingMetadata ? (
+              <ActivityIndicator size="small" color={theme.accent} style={{ marginRight: 8 }} />
+            ) : metadataFetched ? (
+              <Feather name="check-circle" size={18} color={theme.success} style={{ marginRight: 8 }} />
+            ) : null}
             <Pressable onPress={handlePaste} style={styles.pasteButton}>
               <ThemedText type="body" style={{ color: theme.accent }}>Paste</ThemedText>
             </Pressable>
             <Feather name="copy" size={18} color={theme.textSecondary} />
           </View>
+          {isFetchingMetadata ? (
+            <ThemedText type="caption" style={{ color: theme.textSecondary, marginTop: Spacing.xs }}>
+              Fetching token details...
+            </ThemedText>
+          ) : null}
+          {metadataFetched && !isFetchingMetadata ? (
+            <View style={[styles.metadataFetched, { backgroundColor: theme.success + "15" }]}>
+              <Feather name="check-circle" size={14} color={theme.success} />
+              <ThemedText type="caption" style={{ color: theme.success }}>
+                Token details auto-filled
+              </ThemedText>
+            </View>
+          ) : null}
         </View>
 
         <View style={styles.formGroup}>
@@ -331,5 +385,14 @@ const styles = StyleSheet.create({
     right: 0,
     paddingHorizontal: Spacing.md,
     paddingTop: Spacing.md,
+  },
+  metadataFetched: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.xs,
+    marginTop: Spacing.sm,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: Spacing.xs,
+    borderRadius: 6,
   },
 });
