@@ -150,9 +150,22 @@ Preferred communication style: Simple, everyday language.
   - Fetches prices from on-chain DEX liquidity pools
   - Auto-selects pair with highest liquidity for price accuracy
 
-### Planned Integrations (Architecture Ready)
+### WalletConnect v2 Integration
 
-- **WalletConnect v2**: dApp connection protocol (not yet implemented)
+- **SDK**: @walletconnect/web3wallet, @walletconnect/core
+- **Location**: `client/lib/walletconnect/` module
+  - `client.ts`: Web3Wallet client initialization, session management, AsyncStorage persistence
+  - `context.tsx`: WalletConnectProvider with pending proposal/request state management
+  - `handlers.ts`: Request parsing for personal_sign, eth_sendTransaction, approval detection
+- **UI Components**:
+  - `WalletConnectScreen`: Main connection hub with QR scanner, paste URI, active sessions list
+  - `WCScannerScreen`: Camera-based QR code scanning for WC URIs
+  - `SessionApprovalSheet`: Modal for approving/rejecting dApp connection requests
+  - `SignRequestSheet`: Modal for signing messages and transactions with firewall integration
+- **Supported Methods**: eth_sendTransaction, personal_sign, eth_sign, eth_signTypedData, eth_signTypedData_v4
+- **Supported Chains**: eip155:1 (Ethereum), eip155:137 (Polygon), eip155:56 (BNB Chain)
+- **Firewall Integration**: Approval intents detected via `checkWalletConnectApprove()`, unlimited approvals can trigger Cap Allowance flow
+- **Environment Variable**: Requires `WC_PROJECT_ID` secret from WalletConnect Cloud
 
 ### Database
 
