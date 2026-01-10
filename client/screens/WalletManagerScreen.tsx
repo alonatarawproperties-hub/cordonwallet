@@ -54,9 +54,12 @@ export default function WalletManagerScreen() {
     );
   };
 
+  const truncate = (addr: string) => `${addr.slice(0, 6)}...${addr.slice(-4)}`;
+
   const renderWallet = ({ item }: { item: typeof wallets[0] }) => {
     const isActive = activeWallet?.id === item.id;
-    const truncatedAddress = `${item.address.slice(0, 6)}...${item.address.slice(-4)}`;
+    const evmAddress = item.addresses?.evm || item.address;
+    const solanaAddress = item.addresses?.solana;
 
     return (
       <Pressable
@@ -89,26 +92,53 @@ export default function WalletManagerScreen() {
                 </View>
               ) : null}
             </View>
-            <Pressable 
-              style={styles.addressRow}
-              onPress={() => handleCopyAddress(item.address)}
-            >
-              <ThemedText type="caption" style={{ color: theme.textSecondary }}>
-                {truncatedAddress}
-              </ThemedText>
-              <Feather name="copy" size={12} color={theme.accent} />
-            </Pressable>
+            <View style={styles.addressesContainer}>
+              <Pressable 
+                style={styles.addressRow}
+                onPress={() => handleCopyAddress(evmAddress)}
+              >
+                <View style={[styles.chainIndicator, { backgroundColor: "#627EEA" }]} />
+                <ThemedText type="caption" style={{ color: theme.textSecondary }}>
+                  {truncate(evmAddress)}
+                </ThemedText>
+                <Feather name="copy" size={10} color={theme.accent} />
+              </Pressable>
+              {solanaAddress ? (
+                <Pressable 
+                  style={styles.addressRow}
+                  onPress={() => handleCopyAddress(solanaAddress)}
+                >
+                  <View style={[styles.chainIndicator, { backgroundColor: "#9945FF" }]} />
+                  <ThemedText type="caption" style={{ color: theme.textSecondary }}>
+                    {truncate(solanaAddress)}
+                  </ThemedText>
+                  <Feather name="copy" size={10} color={theme.accent} />
+                </Pressable>
+              ) : null}
+            </View>
           </View>
         </View>
 
         <View style={[styles.walletActions, { borderTopColor: theme.border }]}>
           <Pressable 
             style={styles.actionButton}
-            onPress={() => handleCopyAddress(item.address)}
+            onPress={() => handleCopyAddress(evmAddress)}
           >
             <Feather name="copy" size={16} color={theme.accent} />
-            <ThemedText type="small" style={{ color: theme.accent }}>Copy</ThemedText>
+            <ThemedText type="small" style={{ color: theme.accent }}>Copy EVM</ThemedText>
           </Pressable>
+          {solanaAddress ? (
+            <>
+              <View style={[styles.actionDivider, { backgroundColor: theme.border }]} />
+              <Pressable 
+                style={styles.actionButton}
+                onPress={() => handleCopyAddress(solanaAddress)}
+              >
+                <Feather name="copy" size={16} color="#9945FF" />
+                <ThemedText type="small" style={{ color: "#9945FF" }}>Copy SOL</ThemedText>
+              </Pressable>
+            </>
+          ) : null}
           <View style={[styles.actionDivider, { backgroundColor: theme.border }]} />
           <Pressable 
             style={styles.actionButton}
@@ -221,10 +251,18 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     borderRadius: BorderRadius.full,
   },
+  addressesContainer: {
+    gap: 4,
+  },
   addressRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: Spacing.xs,
+  },
+  chainIndicator: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
   },
   walletActions: {
     flexDirection: "row",
