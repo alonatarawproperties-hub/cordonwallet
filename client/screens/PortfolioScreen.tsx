@@ -79,14 +79,15 @@ export default function PortfolioScreen() {
   const { activeWallet } = useWallet();
   const [copiedAddress, setCopiedAddress] = useState<"evm" | "solana" | null>(null);
 
+  const walletType = activeWallet?.walletType || "multi-chain";
   const evmAddress = activeWallet?.addresses?.evm || activeWallet?.address;
   const solanaAddress = activeWallet?.addresses?.solana;
 
-  const evmPortfolio = useAllChainsPortfolio(evmAddress);
+  const evmPortfolio = useAllChainsPortfolio(walletType === "solana-only" ? undefined : evmAddress);
   const solanaPortfolio = useSolanaPortfolio(solanaAddress);
 
   const { assets, isLoading, isRefreshing, error, lastUpdated, totalValue } = useMemo(() => {
-    const evmAssets: UnifiedAsset[] = evmPortfolio.assets.map((a) => ({
+    const evmAssets: UnifiedAsset[] = walletType === "solana-only" ? [] : evmPortfolio.assets.map((a) => ({
       ...a,
       chainType: "evm" as ChainType,
     }));
@@ -103,10 +104,13 @@ export default function PortfolioScreen() {
 
     const total = allAssets.reduce((sum, asset) => sum + (asset.valueUsd || 0), 0);
 
-    const isLoadingAny = evmPortfolio.isLoading || solanaPortfolio.isLoading;
-    const isRefreshingAny = evmPortfolio.isRefreshing || solanaPortfolio.isRefreshing;
-    const errorAny = evmPortfolio.error || solanaPortfolio.error;
-    const latestUpdate = Math.max(evmPortfolio.lastUpdated || 0, solanaPortfolio.lastUpdated || 0);
+    const isLoadingAny = (walletType === "solana-only" ? false : evmPortfolio.isLoading) || solanaPortfolio.isLoading;
+    const isRefreshingAny = (walletType === "solana-only" ? false : evmPortfolio.isRefreshing) || solanaPortfolio.isRefreshing;
+    const errorAny = (walletType === "solana-only" ? null : evmPortfolio.error) || solanaPortfolio.error;
+    const latestUpdate = Math.max(
+      walletType === "solana-only" ? 0 : (evmPortfolio.lastUpdated || 0), 
+      solanaPortfolio.lastUpdated || 0
+    );
 
     return {
       assets: allAssets,
@@ -116,7 +120,7 @@ export default function PortfolioScreen() {
       lastUpdated: latestUpdate > 0 ? latestUpdate : null,
       totalValue: total,
     };
-  }, [evmPortfolio, solanaPortfolio]);
+  }, [evmPortfolio, solanaPortfolio, walletType]);
 
   const handleRefresh = () => {
     evmPortfolio.refresh();
@@ -211,17 +215,19 @@ export default function PortfolioScreen() {
               {activeWallet.name}
             </ThemedText>
             <View style={styles.addressesRow}>
-              <Pressable onPress={() => handleCopyAddress("evm")} style={styles.addressChip}>
-                <View style={[styles.chainDot, { backgroundColor: "#627EEA" }]} />
-                <ThemedText type="caption" style={{ color: theme.textSecondary }}>
-                  {evmAddress ? truncateAddress(evmAddress) : ""}
-                </ThemedText>
-                <Feather 
-                  name={copiedAddress === "evm" ? "check" : "copy"} 
-                  size={10} 
-                  color={copiedAddress === "evm" ? theme.success : theme.textSecondary} 
-                />
-              </Pressable>
+              {walletType !== "solana-only" && evmAddress ? (
+                <Pressable onPress={() => handleCopyAddress("evm")} style={styles.addressChip}>
+                  <View style={[styles.chainDot, { backgroundColor: "#627EEA" }]} />
+                  <ThemedText type="caption" style={{ color: theme.textSecondary }}>
+                    {truncateAddress(evmAddress)}
+                  </ThemedText>
+                  <Feather 
+                    name={copiedAddress === "evm" ? "check" : "copy"} 
+                    size={10} 
+                    color={copiedAddress === "evm" ? theme.success : theme.textSecondary} 
+                  />
+                </Pressable>
+              ) : null}
               {solanaAddress ? (
                 <Pressable onPress={() => handleCopyAddress("solana")} style={styles.addressChip}>
                   <View style={[styles.chainDot, { backgroundColor: "#9945FF" }]} />
@@ -237,7 +243,10 @@ export default function PortfolioScreen() {
               ) : null}
             </View>
           </View>
-          <Pressable onPress={() => handleViewExplorer("evm")} style={styles.explorerButton}>
+          <Pressable 
+            onPress={() => handleViewExplorer(walletType === "solana-only" ? "solana" : "evm")} 
+            style={styles.explorerButton}
+          >
             <Feather name="external-link" size={16} color={theme.accent} />
           </Pressable>
         </Pressable>

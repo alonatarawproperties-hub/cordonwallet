@@ -16,11 +16,14 @@ export interface MultiChainAddresses {
   solana: string;
 }
 
+export type WalletType = "multi-chain" | "solana-only";
+
 export interface WalletRecord {
   id: string;
   name: string;
   address: `0x${string}`;
   addresses: MultiChainAddresses;
+  walletType: WalletType;
   createdAt: number;
 }
 
@@ -255,7 +258,8 @@ export async function repairCorruptedVault(): Promise<void> {
 export async function createWallet(
   mnemonic: string,
   name: string,
-  pin: string
+  pin: string,
+  walletType: WalletType = "multi-chain"
 ): Promise<WalletRecord> {
   if (!validateMnemonic(mnemonic)) {
     throw new Error("Invalid mnemonic");
@@ -267,8 +271,9 @@ export async function createWallet(
   const wallet: WalletRecord = {
     id: walletId,
     name,
-    address: addresses.evm,
+    address: walletType === "solana-only" ? addresses.solana as `0x${string}` : addresses.evm,
     addresses,
+    walletType,
     createdAt: Date.now(),
   };
   
@@ -301,7 +306,8 @@ export async function createWallet(
 export async function importWallet(
   mnemonic: string,
   name: string,
-  pin: string
+  pin: string,
+  walletType: WalletType = "multi-chain"
 ): Promise<WalletRecord> {
   const normalizedMnemonic = mnemonic.trim().toLowerCase().replace(/\s+/g, " ");
   
@@ -309,7 +315,7 @@ export async function importWallet(
     throw new Error("Invalid mnemonic. Please check your words and try again.");
   }
   
-  return createWallet(normalizedMnemonic, name, pin);
+  return createWallet(normalizedMnemonic, name, pin, walletType);
 }
 
 export class VaultCorruptedError extends Error {

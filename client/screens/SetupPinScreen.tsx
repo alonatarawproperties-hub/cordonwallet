@@ -20,7 +20,7 @@ type Props = NativeStackScreenProps<RootStackParamList, "SetupPin">;
 const PIN_LENGTH = 6;
 
 export default function SetupPinScreen({ navigation, route }: Props) {
-  const { mnemonic, walletName, isImport } = route.params;
+  const { mnemonic, walletName, isImport, walletType = "multi-chain" } = route.params;
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
   const { theme } = useTheme();
@@ -73,12 +73,14 @@ export default function SetupPinScreen({ navigation, route }: Props) {
     setIsProcessing(true);
 
     try {
-      const wallet = await createWallet(mnemonic, walletName, pin);
+      const wallet = await createWallet(mnemonic, walletName, pin, walletType);
       
       await addWallet({
         id: wallet.id,
         name: wallet.name,
         address: wallet.address,
+        addresses: wallet.addresses,
+        walletType: wallet.walletType,
         createdAt: wallet.createdAt,
       });
       

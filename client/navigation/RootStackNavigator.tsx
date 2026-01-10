@@ -44,7 +44,7 @@ export type RootStackParamList = {
   Welcome: undefined;
   CreateWallet: undefined;
   ImportWallet: undefined;
-  SetupPin: { mnemonic: string; walletName: string; isImport?: boolean };
+  SetupPin: { mnemonic: string; walletName: string; isImport?: boolean; walletType?: "multi-chain" | "solana-only" };
   BackupWarning: { seedPhrase: string[]; walletId: string };
   SeedPhrase: { seedPhrase: string[]; walletId: string };
   Unlock: undefined;

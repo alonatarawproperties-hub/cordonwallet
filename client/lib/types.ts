@@ -31,11 +31,14 @@ export interface MultiChainAddresses {
   solana: string;
 }
 
+export type WalletType = "multi-chain" | "solana-only";
+
 export interface Wallet {
   id: string;
   name: string;
   address: string;
   addresses?: MultiChainAddresses;
+  walletType?: WalletType;
   createdAt: number;
 }
 
