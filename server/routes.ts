@@ -13,7 +13,7 @@ const DEXSCREENER_CHAIN_IDS: Record<number, string> = {
 
 const NATIVE_TOKEN_IDS: Record<number, string> = {
   1: "ethereum",
-  137: "matic-network",
+  137: "polygon-ecosystem-token",
   56: "binancecoin",
 };
 
@@ -135,8 +135,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         prices["BTCB"] = btcData;
         prices["BTC"] = btcData;
       }
-      if (data["matic-network"]?.usd) {
-        const maticData = { price: data["matic-network"].usd, change24h: data["matic-network"].usd_24h_change };
+      if (data["polygon-ecosystem-token"]?.usd) {
+        const maticData = { price: data["polygon-ecosystem-token"].usd, change24h: data["polygon-ecosystem-token"].usd_24h_change };
         prices["MATIC"] = maticData;
         prices["POL"] = maticData;
       }
