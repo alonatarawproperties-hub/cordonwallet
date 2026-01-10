@@ -101,16 +101,15 @@ export function useSolanaPortfolio(address: string | undefined) {
     let customTokenMap: Map<string, CustomToken> = new Map();
     try {
       const customTokens = await getCustomTokens();
-      console.log("[Solana Portfolio] All custom tokens:", JSON.stringify(customTokens));
-      const solanaCustomTokens = customTokens.filter((ct: CustomToken) => ct.chainId === 0);
-      console.log("[Solana Portfolio] Solana custom tokens (chainId=0):", JSON.stringify(solanaCustomTokens));
+      // Accept both chainId 0 (number) and "solana" (string) for Solana tokens
+      const solanaCustomTokens = customTokens.filter((ct: CustomToken) => 
+        ct.chainId === 0 || (ct.chainId as any) === "solana"
+      );
       solanaCustomTokens.forEach((ct: CustomToken) => {
         customTokenMap.set(ct.contractAddress.toLowerCase(), ct);
-        console.log("[Solana Portfolio] Added to map:", ct.contractAddress.toLowerCase(), "->", ct.symbol);
       });
-    } catch (e) {
-      console.log("[Solana Portfolio] Error loading custom tokens:", e);
-    }
+    } catch {}
+
 
     if (!isRefresh) {
       try {
