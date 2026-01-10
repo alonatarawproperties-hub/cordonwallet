@@ -1,4 +1,3 @@
-import "@walletconnect/react-native-compat";
 import { Core } from "@walletconnect/core";
 import { Web3Wallet, Web3WalletTypes, IWeb3Wallet } from "@walletconnect/web3wallet";
 import { getSdkError, buildApprovedNamespaces } from "@walletconnect/utils";
