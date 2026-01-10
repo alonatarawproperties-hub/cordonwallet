@@ -235,7 +235,19 @@ export default function SendDetailsScreen({ navigation, route }: Props) {
       if (params.chainType === "solana") {
         const mnemonic = await getMnemonic(activeWallet.id);
         if (!mnemonic) {
-          throw new Error("Wallet is locked. Please unlock and try again.");
+          setIsSending(false);
+          Alert.alert(
+            "Session Expired",
+            "For security, your wallet has been locked. Please unlock to continue.",
+            [
+              { text: "Cancel", style: "cancel" },
+              { 
+                text: "Unlock", 
+                onPress: () => navigation.navigate("Unlock")
+              }
+            ]
+          );
+          return;
         }
 
         if (params.isNative) {
