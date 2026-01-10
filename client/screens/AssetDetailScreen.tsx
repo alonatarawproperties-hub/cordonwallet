@@ -426,23 +426,16 @@ export default function AssetDetailScreen({ route }: Props) {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.header}>
-          <View style={styles.headerTop}>
-            <View style={[styles.tokenIcon, { backgroundColor: theme.accent + "20" }]}>
-              <ThemedText type="h3" style={{ color: theme.accent }}>
+          <View style={styles.headerCompact}>
+            <View style={[styles.tokenIconSmall, { backgroundColor: theme.accent + "15" }]}>
+              <ThemedText type="body" style={{ color: theme.accent, fontWeight: "600", fontSize: 14 }}>
                 {tokenSymbol.slice(0, 2)}
               </ThemedText>
             </View>
-            <View style={styles.headerInfo}>
-              <View style={styles.headerTitleRow}>
-                <ThemedText type="h3">{tokenSymbol}</ThemedText>
-                <View style={[styles.chainBadge, { backgroundColor: getChainColor(chainName) + "20" }]}>
-                  <ThemedText type="caption" style={{ color: getChainColor(chainName), fontSize: 10 }}>
-                    {chainName}
-                  </ThemedText>
-                </View>
-              </View>
-              <ThemedText type="caption" style={{ color: theme.textSecondary }}>
-                {isNative ? "COIN" : "TOKEN"} | {chainName}
+            <ThemedText type="body" style={{ fontWeight: "600" }}>{tokenSymbol}</ThemedText>
+            <View style={[styles.chainPill, { backgroundColor: getChainColor(chainName) + "15" }]}>
+              <ThemedText type="small" style={{ color: getChainColor(chainName), fontSize: 10 }}>
+                {chainName}
               </ThemedText>
             </View>
           </View>
@@ -451,24 +444,25 @@ export default function AssetDetailScreen({ route }: Props) {
             {pnlData.length >= 2 ? (
               <>
                 <View style={styles.pnlHeroHeader}>
-                  <ThemedText type="caption" style={{ color: theme.textSecondary }}>
+                  <ThemedText type="small" style={{ color: theme.textSecondary, marginBottom: 4 }}>
                     Profit / Loss
                   </ThemedText>
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                     <ThemedText
-                      type="h1"
+                      type="h3"
                       style={{
                         color: totalPnl >= 0 ? "#22C55E" : "#EF4444",
+                        fontSize: 22,
                       }}
                     >
                       {totalPnl >= 0 ? "+" : ""}${Math.abs(totalPnl).toFixed(2)}
                     </ThemedText>
-                    <View style={[styles.pnlBadge, { backgroundColor: totalPnl >= 0 ? "#22C55E20" : "#EF444420" }]}>
+                    <View style={[styles.pnlBadgeSmall, { backgroundColor: totalPnl >= 0 ? "#22C55E15" : "#EF444415" }]}>
                       <ThemedText
-                        type="caption"
+                        type="small"
                         style={{
                           color: totalPnl >= 0 ? "#22C55E" : "#EF4444",
-                          fontSize: 12,
+                          fontSize: 11,
                         }}
                       >
                         {pnlPercent >= 0 ? "+" : ""}{pnlPercent.toFixed(2)}%
@@ -476,43 +470,44 @@ export default function AssetDetailScreen({ route }: Props) {
                     </View>
                   </View>
                 </View>
-                <PnlChart data={pnlData} height={160} />
+                <PnlChart data={pnlData} height={140} />
               </>
             ) : isLoadingHistory ? (
-              <View style={[styles.chartPlaceholder, { backgroundColor: theme.backgroundDefault }]}>
+              <View style={[styles.chartPlaceholderCompact, { backgroundColor: theme.backgroundDefault }]}>
                 <ActivityIndicator size="small" color={theme.accent} />
-                <ThemedText type="caption" style={{ color: theme.textSecondary, marginTop: Spacing.sm }}>
-                  Loading trading data...
+                <ThemedText type="small" style={{ color: theme.textSecondary, marginTop: Spacing.xs }}>
+                  Loading...
                 </ThemedText>
               </View>
             ) : (
-              <View style={[styles.chartPlaceholder, { backgroundColor: theme.backgroundDefault }]}>
-                <Feather name="trending-up" size={28} color={theme.textSecondary} />
-                <ThemedText type="caption" style={{ color: theme.textSecondary, marginTop: Spacing.sm, textAlign: "center" }}>
-                  PNL chart will appear once you have trading activity
+              <View style={[styles.chartPlaceholderCompact, { backgroundColor: theme.backgroundDefault }]}>
+                <Feather name="trending-up" size={20} color={theme.textSecondary} />
+                <ThemedText type="small" style={{ color: theme.textSecondary, marginTop: Spacing.xs, textAlign: "center" }}>
+                  PNL chart appears after trading
                 </ThemedText>
               </View>
             )}
           </View>
 
-          <View style={[styles.priceStatsRow, { backgroundColor: theme.backgroundDefault }]}>
-            <View style={styles.priceStat}>
-              <ThemedText type="caption" style={{ color: theme.textSecondary }}>
-                Current Price
+          <View style={[styles.priceStatsCompact, { backgroundColor: theme.backgroundDefault + "80" }]}>
+            <View style={styles.priceStatCompact}>
+              <ThemedText type="small" style={{ color: theme.textSecondary, fontSize: 11 }}>
+                Price
               </ThemedText>
-              <ThemedText type="body" style={{ fontWeight: "600" }}>
+              <ThemedText type="small" style={{ fontWeight: "600", fontSize: 13 }}>
                 ${priceUsd ? formatPrice(priceUsd) : "0.00"}
               </ThemedText>
             </View>
-            <View style={[styles.priceStatDivider, { backgroundColor: theme.border }]} />
-            <View style={styles.priceStat}>
-              <ThemedText type="caption" style={{ color: theme.textSecondary }}>
-                24h Change
+            <View style={[styles.priceStatDivider, { backgroundColor: theme.border + "50" }]} />
+            <View style={styles.priceStatCompact}>
+              <ThemedText type="small" style={{ color: theme.textSecondary, fontSize: 11 }}>
+                24h
               </ThemedText>
               <ThemedText
-                type="body"
+                type="small"
                 style={{
                   fontWeight: "600",
+                  fontSize: 13,
                   color: priceChange24h && priceChange24h >= 0 ? "#22C55E" : "#EF4444",
                 }}
               >
@@ -847,5 +842,46 @@ const styles = StyleSheet.create({
   priceStatDivider: {
     width: 1,
     height: "100%",
+  },
+  headerCompact: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+    marginBottom: Spacing.md,
+  },
+  tokenIconSmall: {
+    width: 32,
+    height: 32,
+    borderRadius: BorderRadius.sm,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  chainPill: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: BorderRadius.xs,
+  },
+  pnlBadgeSmall: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: BorderRadius.xs,
+  },
+  chartPlaceholderCompact: {
+    height: 100,
+    borderRadius: BorderRadius.md,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  priceStatsCompact: {
+    flexDirection: "row",
+    borderRadius: BorderRadius.sm,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    width: "100%",
+  },
+  priceStatCompact: {
+    flex: 1,
+    alignItems: "center",
+    gap: 2,
   },
 });
