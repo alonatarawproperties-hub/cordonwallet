@@ -366,3 +366,113 @@ export async function sendSignedTransaction(
 
   return txSignature;
 }
+
+export interface SolanaTransaction {
+  signature: string;
+  blockTime: number | null;
+  slot: number;
+  err: any;
+  type: "send" | "receive" | "unknown";
+  amount?: string;
+  tokenSymbol?: string;
+  tokenMint?: string;
+  from?: string;
+  to?: string;
+}
+
+export async function getSolanaTransactionHistory(
+  address: string,
+  limit: number = 20
+): Promise<SolanaTransaction[]> {
+  const pubkey = new PublicKey(address);
+  
+  const signatures = await connection.getSignaturesForAddress(pubkey, { limit });
+  
+  const transactions: SolanaTransaction[] = [];
+  
+  for (const sig of signatures) {
+    try {
+      const tx = await connection.getParsedTransaction(sig.signature, {
+        maxSupportedTransactionVersion: 0,
+      });
+      
+      if (!tx || !tx.meta) continue;
+      
+      let type: "send" | "receive" | "unknown" = "unknown";
+      let amount: string | undefined;
+      let tokenSymbol: string | undefined;
+      let tokenMint: string | undefined;
+      let from: string | undefined;
+      let to: string | undefined;
+      
+      const instructions = tx.transaction.message.instructions;
+      
+      for (const ix of instructions) {
+        if ("parsed" in ix && ix.program === "system" && ix.parsed?.type === "transfer") {
+          const info = ix.parsed.info;
+          amount = (info.lamports / LAMPORTS_PER_SOL).toString();
+          tokenSymbol = "SOL";
+          from = info.source;
+          to = info.destination;
+          
+          if (info.source === address) {
+            type = "send";
+          } else if (info.destination === address) {
+            type = "receive";
+          }
+          break;
+        }
+        
+        if ("parsed" in ix && ix.program === "spl-token") {
+          if (ix.parsed?.type === "transfer" || ix.parsed?.type === "transferChecked") {
+            const info = ix.parsed.info;
+            
+            const sourceOwner = info.authority || info.source;
+            const destOwner = info.destination;
+            
+            if (info.tokenAmount) {
+              amount = info.tokenAmount.uiAmountString || info.tokenAmount.uiAmount?.toString();
+            } else if (info.amount) {
+              amount = info.amount;
+            }
+            
+            tokenMint = info.mint;
+            from = sourceOwner;
+            to = destOwner;
+            
+            if (sourceOwner === address) {
+              type = "send";
+            } else {
+              type = "receive";
+            }
+            break;
+          }
+        }
+      }
+      
+      transactions.push({
+        signature: sig.signature,
+        blockTime: sig.blockTime ?? null,
+        slot: sig.slot,
+        err: sig.err,
+        type,
+        amount,
+        tokenSymbol,
+        tokenMint,
+        from,
+        to,
+      });
+    } catch (error) {
+      console.error(`[Solana] Error parsing tx ${sig.signature}:`, error);
+      transactions.push({
+        signature: sig.signature,
+        blockTime: sig.blockTime ?? null,
+        slot: sig.slot,
+        err: sig.err,
+        type: "unknown",
+      });
+    }
+  }
+  
+  return transactions;
+}

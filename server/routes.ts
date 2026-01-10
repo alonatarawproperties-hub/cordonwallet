@@ -8,6 +8,7 @@ import {
   sendSignedTransaction,
   checkAtaExists,
   getSplTokenMetadata,
+  getSolanaTransactionHistory,
 } from "./solana-api";
 
 const ETHERSCAN_V2_API = "https://api.etherscan.io/v2/api";
@@ -644,6 +645,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("[Solana API] Portfolio error:", error);
       res.status(500).json({ error: "Failed to fetch Solana portfolio" });
+    }
+  });
+
+  app.get("/api/solana/history/:address", async (req: Request, res: Response) => {
+    try {
+      const { address } = req.params;
+      const limit = parseInt(req.query.limit as string) || 20;
+      
+      if (!address) {
+        return res.status(400).json({ error: "Missing address" });
+      }
+
+      console.log(`[Solana API] Fetching transaction history for ${address.slice(0, 8)}...`);
+      const history = await getSolanaTransactionHistory(address, limit);
+      res.json(history);
+    } catch (error) {
+      console.error("[Solana API] History error:", error);
+      res.status(500).json({ error: "Failed to fetch Solana transaction history" });
     }
   });
 
