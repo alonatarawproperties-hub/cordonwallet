@@ -20,7 +20,7 @@ import { formatTimeSince } from "@/hooks/usePortfolio";
 import { getExplorerAddressUrl } from "@/lib/blockchain/chains";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { getTokenLogoUrl } from "@/lib/token-logos";
-import { ChainSelector, ChainType } from "@/components/ChainSelector";
+import type { ChainType } from "@/components/ChainSelector";
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
@@ -36,6 +36,7 @@ function getTokenIcon(symbol: string): keyof typeof Feather.glyphMap {
     WBTC: "box",
     BTCB: "box",
     WETH: "hexagon",
+    SOL: "sun",
   };
   return iconMap[symbol] || "disc";
 }
@@ -76,8 +77,7 @@ export default function PortfolioScreen() {
   const { theme } = useTheme();
   const navigation = useNavigation<Navigation>();
   const { activeWallet } = useWallet();
-  const [copied, setCopied] = useState(false);
-  const [selectedChainType, setSelectedChainType] = useState<ChainType>("evm");
+  const [copiedAddress, setCopiedAddress] = useState<"evm" | "solana" | null>(null);
 
   const evmAddress = activeWallet?.addresses?.evm || activeWallet?.address;
   const solanaAddress = activeWallet?.addresses?.solana;
@@ -85,58 +85,63 @@ export default function PortfolioScreen() {
   const evmPortfolio = useAllChainsPortfolio(evmAddress);
   const solanaPortfolio = useSolanaPortfolio(solanaAddress);
 
-  const { assets, isLoading, isRefreshing, error, lastUpdated, refresh } = useMemo(() => {
-    if (selectedChainType === "solana") {
-      const solAssets: UnifiedAsset[] = solanaPortfolio.assets.map((a) => ({
-        ...a,
-        chainId: "solana" as any,
-        chainType: "solana" as ChainType,
-      }));
-      return {
-        assets: solAssets,
-        isLoading: solanaPortfolio.isLoading,
-        isRefreshing: solanaPortfolio.isRefreshing,
-        error: solanaPortfolio.error,
-        lastUpdated: solanaPortfolio.lastUpdated,
-        refresh: solanaPortfolio.refresh,
-      };
-    }
+  const { assets, isLoading, isRefreshing, error, lastUpdated, totalValue } = useMemo(() => {
     const evmAssets: UnifiedAsset[] = evmPortfolio.assets.map((a) => ({
       ...a,
       chainType: "evm" as ChainType,
     }));
-    return {
-      assets: evmAssets,
-      isLoading: evmPortfolio.isLoading,
-      isRefreshing: evmPortfolio.isRefreshing,
-      error: evmPortfolio.error,
-      lastUpdated: evmPortfolio.lastUpdated,
-      refresh: evmPortfolio.refresh,
-    };
-  }, [selectedChainType, evmPortfolio, solanaPortfolio]);
-
-  const currentAddress = selectedChainType === "solana" ? solanaAddress : evmAddress;
-
-  const handleViewExplorer = async () => {
-    if (!currentAddress) return;
     
-    if (selectedChainType === "solana") {
-      const url = `https://solscan.io/account/${currentAddress}`;
+    const solAssets: UnifiedAsset[] = solanaPortfolio.assets.map((a) => ({
+      ...a,
+      chainId: 0,
+      chainType: "solana" as ChainType,
+    }));
+
+    const allAssets = [...evmAssets, ...solAssets].sort((a, b) => {
+      return (b.valueUsd || 0) - (a.valueUsd || 0);
+    });
+
+    const total = allAssets.reduce((sum, asset) => sum + (asset.valueUsd || 0), 0);
+
+    const isLoadingAny = evmPortfolio.isLoading || solanaPortfolio.isLoading;
+    const isRefreshingAny = evmPortfolio.isRefreshing || solanaPortfolio.isRefreshing;
+    const errorAny = evmPortfolio.error || solanaPortfolio.error;
+    const latestUpdate = Math.max(evmPortfolio.lastUpdated || 0, solanaPortfolio.lastUpdated || 0);
+
+    return {
+      assets: allAssets,
+      isLoading: isLoadingAny,
+      isRefreshing: isRefreshingAny,
+      error: errorAny,
+      lastUpdated: latestUpdate > 0 ? latestUpdate : null,
+      totalValue: total,
+    };
+  }, [evmPortfolio, solanaPortfolio]);
+
+  const handleRefresh = () => {
+    evmPortfolio.refresh();
+    solanaPortfolio.refresh();
+  };
+
+  const handleViewExplorer = async (type: "evm" | "solana") => {
+    if (type === "solana" && solanaAddress) {
+      const url = `https://solscan.io/account/${solanaAddress}`;
       await WebBrowser.openBrowserAsync(url);
-    } else {
-      const url = getExplorerAddressUrl(1, currentAddress);
+    } else if (type === "evm" && evmAddress) {
+      const url = getExplorerAddressUrl(1, evmAddress);
       if (url) {
         await WebBrowser.openBrowserAsync(url);
       }
     }
   };
 
-  const handleCopyAddress = async () => {
-    if (currentAddress) {
-      await Clipboard.setStringAsync(currentAddress);
+  const handleCopyAddress = async (type: "evm" | "solana") => {
+    const address = type === "solana" ? solanaAddress : evmAddress;
+    if (address) {
+      await Clipboard.setStringAsync(address);
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      setCopiedAddress(type);
+      setTimeout(() => setCopiedAddress(null), 2000);
     }
   };
 
@@ -166,7 +171,7 @@ export default function PortfolioScreen() {
       tokenSymbol: asset.symbol,
       tokenName: asset.name,
       balance: asset.balance,
-      chainId: typeof asset.chainId === "string" ? 0 : asset.chainId,
+      chainId: typeof asset.chainId === "number" ? asset.chainId : 0,
       chainName: asset.chainName,
       isNative: asset.isNative,
       address: "address" in asset ? asset.address : ("mint" in asset ? asset.mint : undefined),
@@ -187,16 +192,14 @@ export default function PortfolioScreen() {
       }}
       scrollIndicatorInsets={{ bottom: insets.bottom }}
       refreshControl={
-        <RefreshControl refreshing={isRefreshing} onRefresh={refresh} tintColor={theme.accent} />
+        <RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} tintColor={theme.accent} />
       }
     >
       <View style={[styles.balanceCard, { backgroundColor: theme.backgroundDefault }]}>
-        <View style={styles.chainSelectorRow}>
-          <ChainSelector
-            selected={selectedChainType}
-            onSelect={setSelectedChainType}
-            compact
-          />
+        <View style={styles.totalValueContainer}>
+          <ThemedText type="h1" style={styles.totalValue}>
+            ${totalValue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </ThemedText>
         </View>
 
         <Pressable style={styles.walletSelector} onPress={() => navigation.navigate("WalletManager")}>
@@ -207,14 +210,34 @@ export default function PortfolioScreen() {
             <ThemedText type="small" style={{ color: theme.textSecondary }}>
               {activeWallet.name}
             </ThemedText>
-            <Pressable onPress={handleCopyAddress} style={styles.addressRow}>
-              <ThemedText type="caption" style={{ color: theme.textSecondary }}>
-                {currentAddress ? truncateAddress(currentAddress) : "No address"}
-              </ThemedText>
-              <Feather name={copied ? "check" : "copy"} size={12} color={theme.accent} />
-            </Pressable>
+            <View style={styles.addressesRow}>
+              <Pressable onPress={() => handleCopyAddress("evm")} style={styles.addressChip}>
+                <View style={[styles.chainDot, { backgroundColor: "#627EEA" }]} />
+                <ThemedText type="caption" style={{ color: theme.textSecondary }}>
+                  {evmAddress ? truncateAddress(evmAddress) : ""}
+                </ThemedText>
+                <Feather 
+                  name={copiedAddress === "evm" ? "check" : "copy"} 
+                  size={10} 
+                  color={copiedAddress === "evm" ? theme.success : theme.textSecondary} 
+                />
+              </Pressable>
+              {solanaAddress ? (
+                <Pressable onPress={() => handleCopyAddress("solana")} style={styles.addressChip}>
+                  <View style={[styles.chainDot, { backgroundColor: "#9945FF" }]} />
+                  <ThemedText type="caption" style={{ color: theme.textSecondary }}>
+                    {truncateAddress(solanaAddress)}
+                  </ThemedText>
+                  <Feather 
+                    name={copiedAddress === "solana" ? "check" : "copy"} 
+                    size={10} 
+                    color={copiedAddress === "solana" ? theme.success : theme.textSecondary} 
+                  />
+                </Pressable>
+              ) : null}
+            </View>
           </View>
-          <Pressable onPress={handleViewExplorer} style={styles.explorerButton}>
+          <Pressable onPress={() => handleViewExplorer("evm")} style={styles.explorerButton}>
             <Feather name="external-link" size={16} color={theme.accent} />
           </Pressable>
         </Pressable>
@@ -238,7 +261,7 @@ export default function PortfolioScreen() {
 
           <Pressable
             style={[styles.actionButton, { backgroundColor: theme.backgroundSecondary }]}
-            onPress={() => navigation.navigate("Receive", { walletAddress: currentAddress || activeWallet.address })}
+            onPress={() => navigation.navigate("Receive", { walletAddress: evmAddress || activeWallet.address })}
           >
             <View style={[styles.actionIcon, { backgroundColor: theme.success + "20" }]}>
               <Feather name="arrow-down-left" size={20} color={theme.success} />
@@ -274,7 +297,7 @@ export default function PortfolioScreen() {
             <ThemedText type="small" style={{ color: theme.danger, flex: 1 }}>
               {error}
             </ThemedText>
-            <Pressable onPress={refresh}>
+            <Pressable onPress={handleRefresh}>
               <ThemedText type="small" style={{ color: theme.accent }}>
                 Retry
               </ThemedText>
@@ -284,7 +307,7 @@ export default function PortfolioScreen() {
 
         {isLoading ? (
           <View style={styles.loadingContainer}>
-            {[1, 2, 3].map((i) => (
+            {[1, 2, 3, 4, 5].map((i) => (
               <View key={i} style={[styles.skeletonRow, { backgroundColor: theme.backgroundDefault }]}>
                 <View style={[styles.skeletonIcon, { backgroundColor: theme.backgroundSecondary }]} />
                 <View style={styles.skeletonInfo}>
@@ -311,18 +334,18 @@ export default function PortfolioScreen() {
         ) : assets.length > 0 ? (
           assets.map((asset, index) => (
             <Pressable
-              key={`${asset.chainId}-${asset.isNative ? "native" : asset.address}-${index}`}
+              key={`${asset.chainType}-${asset.chainId}-${asset.isNative ? "native" : ("address" in asset ? asset.address : ("mint" in asset ? asset.mint : ""))}-${index}`}
               style={[styles.tokenRow, { backgroundColor: theme.backgroundDefault }]}
               onPress={() => handleAssetPress(asset)}
             >
-              <View style={[styles.tokenIcon, { backgroundColor: theme.accent + "15" }]}>
+              <View style={[styles.tokenIcon, { backgroundColor: getChainColor(asset.chainName) + "15" }]}>
                 {getTokenLogoUrl(asset.symbol) ? (
                   <Image 
                     source={{ uri: getTokenLogoUrl(asset.symbol)! }} 
                     style={styles.tokenLogoImage}
                   />
                 ) : (
-                  <Feather name={getTokenIcon(asset.symbol)} size={20} color={theme.accent} />
+                  <Feather name={getTokenIcon(asset.symbol)} size={20} color={getChainColor(asset.chainName)} />
                 )}
               </View>
               <View style={styles.tokenInfo}>
@@ -396,9 +419,13 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.lg,
     marginBottom: Spacing.xl,
   },
-  chainSelectorRow: {
+  totalValueContainer: {
+    alignItems: "center",
     marginBottom: Spacing.lg,
-    alignItems: "flex-start",
+  },
+  totalValue: {
+    fontSize: 36,
+    fontWeight: "700",
   },
   walletSelector: {
     flexDirection: "row",
@@ -415,11 +442,22 @@ const styles = StyleSheet.create({
   },
   walletInfo: {
     flex: 1,
+    gap: Spacing.xs,
   },
-  addressRow: {
+  addressesRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: Spacing.sm,
+  },
+  addressChip: {
     flexDirection: "row",
     alignItems: "center",
-    gap: Spacing.xs,
+    gap: 4,
+  },
+  chainDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
   },
   actionButtons: {
     flexDirection: "row",

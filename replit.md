@@ -69,8 +69,8 @@ Preferred communication style: Simple, everyday language.
 
 - **@scure/bip39**: BIP39-compliant mnemonic generation and validation (wordlist: english)
 - **@scure/bip32**: HD key derivation (BIP32/BIP44) using m/44'/60'/0'/0/0 path for EVM
-- **ed25519-hd-key**: Solana key derivation using m/44'/501'/0'/0' path
-- **@noble/hashes**: Cryptographic hashing (SHA-256, PBKDF2, keccak_256)
+- **@noble/hashes**: Cryptographic hashing (SHA-256, SHA-512, HMAC, PBKDF2, keccak_256)
+- **Custom Ed25519 HD key derivation**: Solana key derivation using m/44'/501'/0'/0' path (SLIP-0010 spec) - implemented in `client/lib/solana/keys.ts` using `@noble/hashes/sha2` and `@noble/hashes/hmac` to avoid Node.js dependencies
 - **@noble/ciphers**: AES-256-GCM encryption for vault storage
 - **viem**: EVM blockchain interactions (address utilities)
 - **@solana/web3.js**: Solana RPC client and transaction handling
@@ -109,7 +109,9 @@ Preferred communication style: Simple, everyday language.
 - **Balance Fetchers**: `client/lib/blockchain/balances.ts` - Native and ERC-20 balance reads
 - **Token List**: `client/lib/blockchain/tokens.ts` - Default tokens per chain (USDC, USDT, DAI, WBTC, etc.)
 - **Portfolio Hook**: `client/hooks/usePortfolio.ts` - React hook for fetching real balances with caching
-- **All-Chains Portfolio Hook**: `client/hooks/useAllChainsPortfolio.ts` - Unified portfolio view across all chains with price enrichment
+- **All-Chains Portfolio Hook**: `client/hooks/useAllChainsPortfolio.ts` - EVM portfolio fetching with price enrichment
+- **Solana Portfolio Hook**: `client/hooks/useSolanaPortfolio.ts` - Solana balance fetching via backend API
+- **Unified Portfolio UI**: TrustWallet-style unified view combining EVM and Solana assets in a single sorted list by value
 - **Transaction Module**: `client/lib/blockchain/transactions.ts` - sendNative/sendERC20 with gas estimation
   - EIP-1559 support with legacy chain fallback (BSC uses gasPrice)
   - Private keys derived on-demand from mnemonics for signing, never stored
