@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { View, StyleSheet, TextInput, Pressable, Alert } from "react-native";
+import { View, StyleSheet, TextInput, Pressable, Alert, Dimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
@@ -190,6 +190,8 @@ export default function SetupPinScreen({ navigation, route }: Props) {
   );
 }
 
+const { height: SCREEN_HEIGHT } = Dimensions.get("window");
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -198,7 +200,8 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     alignItems: "center",
-    justifyContent: "center",
+    justifyContent: "flex-start",
+    paddingTop: SCREEN_HEIGHT * 0.12,
   },
   iconContainer: {
     width: 80,
@@ -206,20 +209,20 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.lg,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: Spacing["2xl"],
+    marginBottom: Spacing.lg,
   },
   title: {
-    marginBottom: Spacing.sm,
+    marginBottom: Spacing.xs,
     textAlign: "center",
   },
   subtitle: {
     textAlign: "center",
-    marginBottom: Spacing["3xl"],
+    marginBottom: Spacing["2xl"],
   },
   dotsContainer: {
     flexDirection: "row",
     gap: Spacing.lg,
-    marginBottom: Spacing["2xl"],
+    marginBottom: Spacing.xl,
   },
   dot: {
     width: 20,
@@ -235,7 +238,8 @@ const styles = StyleSheet.create({
     left: -9999,
   },
   inputArea: {
-    padding: Spacing.lg,
+    padding: Spacing.md,
+    marginTop: Spacing.lg,
   },
   footer: {
     alignItems: "center",
