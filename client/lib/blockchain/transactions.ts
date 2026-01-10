@@ -20,7 +20,15 @@ import { getChainById, getExplorerTxUrl, ChainConfig } from "./chains";
 import { getPublicClient, formatRpcError } from "./client";
 import { getMnemonic, requireUnlocked, isUnlocked, WalletLockedError } from "../wallet-engine";
 
-const ERC20_TRANSFER_ABI = [
+import { 
+  detectApproval, 
+  checkApprovalPolicy, 
+  ApprovalPolicyResult,
+  saveApproval,
+  getSpenderLabel,
+} from "../approvals";
+
+const ERC20_ABI = [
   {
     type: "function",
     name: "transfer",
@@ -32,9 +40,30 @@ const ERC20_TRANSFER_ABI = [
   },
   {
     type: "function",
+    name: "approve",
+    inputs: [
+      { name: "spender", type: "address" },
+      { name: "amount", type: "uint256" },
+    ],
+    outputs: [{ name: "", type: "bool" }],
+  },
+  {
+    type: "function",
     name: "decimals",
     inputs: [],
     outputs: [{ name: "", type: "uint8" }],
+  },
+  {
+    type: "function",
+    name: "symbol",
+    inputs: [],
+    outputs: [{ name: "", type: "string" }],
+  },
+  {
+    type: "function",
+    name: "name",
+    inputs: [],
+    outputs: [{ name: "", type: "string" }],
   },
 ] as const;
 
@@ -52,6 +81,41 @@ export interface SendERC20Params {
   tokenDecimals: number;
   to: `0x${string}`;
   amount: string;
+}
+
+export interface SendApprovalParams {
+  chainId: number;
+  walletId: string;
+  tokenAddress: `0x${string}`;
+  tokenDecimals: number;
+  tokenSymbol?: string;
+  tokenName?: string;
+  spender: `0x${string}`;
+  amount: string;
+  policySettings: {
+    blockUnlimitedApprovals: boolean;
+  };
+}
+
+export interface ApprovalBlockedError {
+  code: "APPROVAL_BLOCKED";
+  message: string;
+  suggestion: string;
+  suggestedAmount?: string;
+}
+
+export class ApprovalPolicyError extends Error {
+  code: string;
+  suggestion: string;
+  suggestedAmount?: string;
+  
+  constructor(error: ApprovalBlockedError) {
+    super(error.message);
+    this.name = "ApprovalPolicyError";
+    this.code = error.code;
+    this.suggestion = error.suggestion;
+    this.suggestedAmount = error.suggestedAmount;
+  }
 }
 
 export interface TransactionResult {
@@ -272,7 +336,7 @@ export async function estimateERC20Gas(
   const parsedAmount = parseUnits(amount, tokenDecimals);
 
   const data = encodeFunctionData({
-    abi: ERC20_TRANSFER_ABI,
+    abi: ERC20_ABI,
     functionName: "transfer",
     args: [to, parsedAmount],
   });
@@ -378,7 +442,7 @@ export async function sendERC20(params: SendERC20Params): Promise<TransactionRes
     const parsedAmount = parseUnits(amount, tokenDecimals);
 
     const data = encodeFunctionData({
-      abi: ERC20_TRANSFER_ABI,
+      abi: ERC20_ABI,
       functionName: "transfer",
       args: [to, parsedAmount],
     });
@@ -435,11 +499,162 @@ export async function getTokenDecimals(
   try {
     const decimals = await publicClient.readContract({
       address: tokenAddress,
-      abi: ERC20_TRANSFER_ABI,
+      abi: ERC20_ABI,
       functionName: "decimals",
     });
     return Number(decimals);
   } catch {
     return 18;
+  }
+}
+
+export async function estimateApprovalGas(
+  chainId: number,
+  from: `0x${string}`,
+  tokenAddress: `0x${string}`,
+  spender: `0x${string}`,
+  amount: bigint
+): Promise<GasEstimate> {
+  const chainConfig = getChainById(chainId);
+  if (!chainConfig) {
+    throw new Error(`Unsupported chain: ${chainId}`);
+  }
+
+  const publicClient = getPublicClient(chainId);
+
+  const data = encodeFunctionData({
+    abi: ERC20_ABI,
+    functionName: "approve",
+    args: [spender, amount],
+  });
+
+  const [gasLimit, feeData] = await Promise.all([
+    publicClient.estimateGas({
+      account: from,
+      to: tokenAddress,
+      data,
+    }),
+    getFeeData(publicClient, chainId),
+  ]);
+
+  const { maxFeePerGas, maxPriorityFeePerGas } = feeData;
+  const estimatedFee = gasLimit * maxFeePerGas;
+  const estimatedFeeNative = formatEther(estimatedFee);
+
+  return {
+    gasLimit,
+    maxFeePerGas,
+    maxPriorityFeePerGas,
+    estimatedFeeNative,
+    estimatedFeeFormatted: `${parseFloat(estimatedFeeNative).toFixed(6)} ${chainConfig.nativeSymbol}`,
+    nativeSymbol: chainConfig.nativeSymbol,
+  };
+}
+
+export async function sendApproval(params: SendApprovalParams): Promise<TransactionResult> {
+  const { 
+    chainId, 
+    walletId, 
+    tokenAddress, 
+    tokenDecimals, 
+    tokenSymbol,
+    tokenName,
+    spender, 
+    amount, 
+    policySettings 
+  } = params;
+
+  const chainConfig = getChainById(chainId);
+  if (!chainConfig) {
+    throw new Error(`Unsupported chain: ${chainId}`);
+  }
+
+  if (!spender.startsWith("0x") || spender.length !== 42) {
+    throw new Error("Invalid spender address");
+  }
+
+  if (!tokenAddress.startsWith("0x") || tokenAddress.length !== 42) {
+    throw new Error("Invalid token address");
+  }
+
+  const parsedAmount = parseUnits(amount, tokenDecimals);
+
+  const policyResult = checkApprovalPolicy(parsedAmount, policySettings);
+  
+  if (policyResult.blocked) {
+    throw new ApprovalPolicyError({
+      code: "APPROVAL_BLOCKED",
+      message: policyResult.reason || "Approval blocked by policy",
+      suggestion: policyResult.suggestion || "Try a smaller amount",
+      suggestedAmount: policyResult.suggestedAmount,
+    });
+  }
+
+  try {
+    const privateKey = await derivePrivateKey(walletId);
+    const account = privateKeyToAccount(privateKey);
+    const walletClient = createWalletClientForChain(chainConfig, account);
+
+    const data = encodeFunctionData({
+      abi: ERC20_ABI,
+      functionName: "approve",
+      args: [spender, parsedAmount],
+    });
+
+    const gasEstimate = await estimateApprovalGas(
+      chainId,
+      account.address,
+      tokenAddress,
+      spender,
+      parsedAmount
+    );
+
+    const isLegacyChain = gasEstimate.maxPriorityFeePerGas === BigInt(0);
+
+    const txParams = isLegacyChain
+      ? {
+          account,
+          chain: chainConfig.viemChain,
+          to: tokenAddress,
+          data,
+          gas: gasEstimate.gasLimit,
+          gasPrice: gasEstimate.maxFeePerGas,
+        }
+      : {
+          account,
+          chain: chainConfig.viemChain,
+          to: tokenAddress,
+          data,
+          gas: gasEstimate.gasLimit,
+          maxFeePerGas: gasEstimate.maxFeePerGas,
+          maxPriorityFeePerGas: gasEstimate.maxPriorityFeePerGas,
+        };
+
+    const hash = await walletClient.sendTransaction(txParams as any);
+
+    await saveApproval({
+      chainId,
+      owner: account.address,
+      tokenAddress,
+      tokenSymbol: tokenSymbol || undefined,
+      tokenName: tokenName || undefined,
+      tokenDecimals,
+      spender,
+      spenderLabel: getSpenderLabel(chainId, spender) || undefined,
+      allowanceRaw: parsedAmount.toString(),
+      txHash: hash,
+    });
+
+    return {
+      hash,
+      chainId,
+      explorerUrl: getExplorerTxUrl(chainId, hash),
+    };
+  } catch (error) {
+    if (error instanceof ApprovalPolicyError) {
+      throw error;
+    }
+    const txError = formatTransactionError(error);
+    throw new TransactionFailedError(txError);
   }
 }
