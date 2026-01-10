@@ -231,7 +231,8 @@ export default function AssetDetailScreen({ route }: Props) {
   ];
 
   const totalPnl = pnlData.length > 0 ? pnlData[pnlData.length - 1].value : 0;
-  const pnlPercent = valueUsd && valueUsd > 0 ? (totalPnl / (valueUsd - totalPnl)) * 100 : 0;
+  const costBasis = valueUsd ? valueUsd - totalPnl : 0;
+  const pnlPercent = costBasis > 0 ? (totalPnl / costBasis) * 100 : 0;
 
   const renderHoldingsTab = () => (
     <View style={styles.tabContent}>

@@ -4,6 +4,7 @@ import { getNativeBalance, getERC20Balance, isBalanceError, BalanceResult } from
 import { getTokensForChain, TokenInfo } from "@/lib/blockchain/tokens";
 import { getChainById } from "@/lib/blockchain/chains";
 import { NETWORKS, NetworkId } from "@/lib/types";
+import { getApiUrl } from "@/lib/query-client";
 
 export interface PortfolioAsset {
   symbol: string;
@@ -13,6 +14,7 @@ export interface PortfolioAsset {
   decimals: number;
   isNative: boolean;
   address?: string;
+  priceUsd?: number;
 }
 
 export interface PortfolioState {
@@ -167,6 +169,21 @@ export function usePortfolio(address: string | undefined, networkId: NetworkId) 
       if (tokenErrors > 0 && !hasRpcError) {
         errorMessage = `Failed to load ${tokenErrors} token${tokenErrors > 1 ? "s" : ""}`;
       }
+
+      try {
+        const apiUrl = getApiUrl();
+        const priceUrl = new URL("/api/prices", apiUrl);
+        const priceResponse = await fetch(priceUrl.toString());
+        if (priceResponse.ok) {
+          const priceData = await priceResponse.json();
+          const prices = priceData.prices || {};
+          assets.forEach(asset => {
+            if (prices[asset.symbol]) {
+              asset.priceUsd = prices[asset.symbol].usd;
+            }
+          });
+        }
+      } catch {}
 
       const rpcLatency = Date.now() - startTime;
       const now = Date.now();

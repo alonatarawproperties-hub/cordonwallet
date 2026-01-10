@@ -47,6 +47,7 @@ interface TokenOption {
   address?: `0x${string}`;
   decimals: number;
   isNative: boolean;
+  priceUsd?: number;
 }
 
 export default function SendScreen({ navigation, route }: Props) {
@@ -74,6 +75,7 @@ export default function SendScreen({ navigation, route }: Props) {
       address: asset.isNative ? undefined : (asset.address as `0x${string}`),
       decimals: asset.decimals,
       isNative: asset.isNative,
+      priceUsd: asset.priceUsd,
     }));
   }, [assets]);
 
@@ -255,6 +257,7 @@ export default function SendScreen({ navigation, route }: Props) {
         tokenSymbol: selectedTokenData.symbol,
         to: recipient,
         amount,
+        priceUsd: selectedTokenData.priceUsd,
         explorerUrl: result.explorerUrl,
       });
 
