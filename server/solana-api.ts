@@ -417,22 +417,12 @@ export async function getSolanaTransactionHistory(
       
       const instructions = tx.transaction.message.instructions;
       
+      // Track SOL transfer separately - SPL token transfers take priority
+      let solTransfer: { amount: string; from: string; to: string; type: "send" | "receive" } | null = null;
+      let splTransferFound = false;
+      
       for (const ix of instructions) {
-        if ("parsed" in ix && ix.program === "system" && ix.parsed?.type === "transfer") {
-          const info = ix.parsed.info;
-          amount = (info.lamports / LAMPORTS_PER_SOL).toString();
-          tokenSymbol = "SOL";
-          from = info.source;
-          to = info.destination;
-          
-          if (info.source === address) {
-            type = "send";
-          } else if (info.destination === address) {
-            type = "receive";
-          }
-          break;
-        }
-        
+        // Check for SPL token transfers first (higher priority)
         if ("parsed" in ix && ix.program === "spl-token") {
           if (ix.parsed?.type === "transfer" || ix.parsed?.type === "transferChecked") {
             const info = ix.parsed.info;
@@ -467,7 +457,6 @@ export async function getSolanaTransactionHistory(
                 if (metadata?.symbol) {
                   tokenSymbol = metadata.symbol;
                 } else {
-                  // Fallback to shortened mint address
                   tokenSymbol = tokenMint.slice(0, 4).toUpperCase();
                 }
               } catch {
@@ -483,9 +472,42 @@ export async function getSolanaTransactionHistory(
             } else {
               type = "receive";
             }
-            break;
+            splTransferFound = true;
+            break; // SPL transfer found, no need to continue
           }
         }
+        
+        // Track SOL transfer as fallback (don't break - keep looking for SPL)
+        if ("parsed" in ix && ix.program === "system" && ix.parsed?.type === "transfer") {
+          const info = ix.parsed.info;
+          const solAmount = (info.lamports / LAMPORTS_PER_SOL).toString();
+          let solType: "send" | "receive" = "send";
+          
+          if (info.source === address) {
+            solType = "send";
+          } else if (info.destination === address) {
+            solType = "receive";
+          }
+          
+          // Only track if this is a meaningful SOL transfer (not 0 SOL for fees)
+          if (info.lamports > 0) {
+            solTransfer = {
+              amount: solAmount,
+              from: info.source,
+              to: info.destination,
+              type: solType,
+            };
+          }
+        }
+      }
+      
+      // Use SOL transfer only if no SPL transfer was found
+      if (!splTransferFound && solTransfer) {
+        amount = solTransfer.amount;
+        tokenSymbol = "SOL";
+        from = solTransfer.from;
+        to = solTransfer.to;
+        type = solTransfer.type;
       }
       
       transactions.push({
