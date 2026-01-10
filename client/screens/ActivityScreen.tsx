@@ -56,7 +56,7 @@ async function fetchSolanaHistory(
     url.searchParams.set("limit", "30");
     
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000);
+    const timeout = setTimeout(() => controller.abort(), 20000);
     
     const response = await fetch(url.toString(), { signal: controller.signal });
     clearTimeout(timeout);
