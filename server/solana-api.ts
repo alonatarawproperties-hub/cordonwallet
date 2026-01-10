@@ -112,50 +112,104 @@ export async function getSolanaPortfolio(address: string): Promise<SolanaPortfol
 }
 
 export async function getSplTokenMetadata(mintAddress: string): Promise<SplTokenMetadata | null> {
+  console.log(`[Solana API] Starting metadata fetch for ${mintAddress.slice(0, 8)}...`);
+  
+  // First try DexScreener API - it's reliable and doesn't need RPC
   try {
+    console.log("[Solana API] Trying DexScreener API first...");
+    const dexScreenerResponse = await fetch(
+      `https://api.dexscreener.com/latest/dex/tokens/${mintAddress}`,
+      { headers: { "Accept": "application/json" } }
+    );
+    
+    if (dexScreenerResponse.ok) {
+      const dexData = await dexScreenerResponse.json();
+      if (dexData.pairs && dexData.pairs.length > 0) {
+        const pair = dexData.pairs.find((p: any) => 
+          p.baseToken?.address === mintAddress
+        ) || dexData.pairs[0];
+        
+        const tokenInfo = pair.baseToken?.address === mintAddress 
+          ? pair.baseToken 
+          : pair.quoteToken;
+        
+        if (tokenInfo && tokenInfo.name && tokenInfo.symbol) {
+          console.log(`[Solana API] Found via DexScreener: ${tokenInfo.symbol} (${tokenInfo.name})`);
+          return {
+            mint: mintAddress,
+            name: tokenInfo.name,
+            symbol: tokenInfo.symbol,
+            decimals: 9, // Default for Solana tokens
+            logoUri: pair.info?.imageUrl,
+          };
+        }
+      }
+    }
+  } catch (dexError) {
+    console.log("[Solana API] DexScreener lookup failed:", dexError);
+  }
+  
+  // If DexScreener didn't work, try Solana RPC for basic info
+  try {
+    console.log("[Solana API] Trying Solana RPC for mint info...");
     const mintPubkey = new PublicKey(mintAddress);
     
     const mintInfo = await connection.getParsedAccountInfo(mintPubkey);
     if (!mintInfo.value?.data || !("parsed" in mintInfo.value.data)) {
+      console.log("[Solana API] Invalid mint address - not a valid SPL token");
       return null;
     }
     
     const parsedData = mintInfo.value.data.parsed;
     const decimals = parsedData.info.decimals;
+    console.log(`[Solana API] Got decimals from RPC: ${decimals}`);
     
-    const jupiterResponse = await fetch(
-      `https://tokens.jup.ag/token/${mintAddress}`
-    );
-    
-    if (jupiterResponse.ok) {
-      const jupiterData = await jupiterResponse.json();
-      return {
-        mint: mintAddress,
-        name: jupiterData.name || "Unknown Token",
-        symbol: jupiterData.symbol || "???",
-        decimals,
-        logoUri: jupiterData.logoURI,
-      };
-    }
-    
-    const solscanResponse = await fetch(
-      `https://pro-api.solscan.io/v2.0/token/meta?address=${mintAddress}`,
-      { headers: { "Accept": "application/json" } }
-    );
-    
-    if (solscanResponse.ok) {
-      const solscanData = await solscanResponse.json();
-      if (solscanData.success && solscanData.data) {
-        return {
-          mint: mintAddress,
-          name: solscanData.data.name || "Unknown Token",
-          symbol: solscanData.data.symbol || "???",
-          decimals,
-          logoUri: solscanData.data.icon,
-        };
+    // Fallback: Try on-chain Metaplex metadata
+    try {
+      // Metaplex Token Metadata Program ID
+      const METADATA_PROGRAM_ID = new PublicKey("metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s");
+      
+      // Derive metadata PDA
+      const [metadataPDA] = PublicKey.findProgramAddressSync(
+        [
+          Buffer.from("metadata"),
+          METADATA_PROGRAM_ID.toBuffer(),
+          mintPubkey.toBuffer(),
+        ],
+        METADATA_PROGRAM_ID
+      );
+      
+      const metadataAccount = await connection.getAccountInfo(metadataPDA);
+      if (metadataAccount && metadataAccount.data.length > 0) {
+        // Parse Metaplex metadata (simplified parsing)
+        const data = metadataAccount.data;
+        
+        // Skip first byte (key), then read name (32 bytes) and symbol (10 bytes)
+        // Name starts at offset 1 + 32 + 32 + 4 = 69, length at 65
+        const nameLength = data.readUInt32LE(65);
+        const nameBytes = data.slice(69, 69 + Math.min(nameLength, 32));
+        const name = nameBytes.toString("utf8").replace(/\0/g, "").trim();
+        
+        const symbolOffset = 69 + 32 + 4;
+        const symbolLength = data.readUInt32LE(symbolOffset - 4);
+        const symbolBytes = data.slice(symbolOffset, symbolOffset + Math.min(symbolLength, 10));
+        const symbol = symbolBytes.toString("utf8").replace(/\0/g, "").trim();
+        
+        if (name && symbol) {
+          console.log(`[Solana API] Found token via Metaplex: ${symbol}`);
+          return {
+            mint: mintAddress,
+            name,
+            symbol,
+            decimals,
+          };
+        }
       }
+    } catch (metaplexError) {
+      console.log("[Solana API] Metaplex metadata lookup failed");
     }
     
+    // Final fallback: return with minimal info
     return {
       mint: mintAddress,
       name: "Unknown Token",
