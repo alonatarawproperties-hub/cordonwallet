@@ -58,8 +58,18 @@ export async function isTokenHidden(chainId: number, symbol: string): Promise<bo
 export async function getCustomTokens(): Promise<CustomToken[]> {
   try {
     const data = await AsyncStorage.getItem(CUSTOM_TOKENS_KEY);
-    return data ? JSON.parse(data) : [];
-  } catch {
+    console.log("[TokenPrefs] Raw custom tokens data:", data);
+    if (!data) return [];
+    const tokens = JSON.parse(data) as CustomToken[];
+    // Normalize Solana chainId: convert "solana" string to 0
+    const normalizedTokens = tokens.map(t => ({
+      ...t,
+      chainId: (t.chainId as any) === "solana" ? 0 : t.chainId,
+    }));
+    console.log("[TokenPrefs] Parsed tokens:", JSON.stringify(normalizedTokens));
+    return normalizedTokens;
+  } catch (e) {
+    console.log("[TokenPrefs] Error loading custom tokens:", e);
     return [];
   }
 }
