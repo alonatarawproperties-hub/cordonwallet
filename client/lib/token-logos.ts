@@ -1,7 +1,7 @@
 const TOKEN_LOGOS: Record<string, string> = {
   ETH: "https://assets.coingecko.com/coins/images/279/small/ethereum.png",
   WETH: "https://assets.coingecko.com/coins/images/2518/small/weth.png",
-  POL: "https://assets.coingecko.com/coins/images/32440/small/polygon-matic-token-icon.png",
+  POL: "https://assets.coingecko.com/coins/images/4713/small/polygon.png",
   MATIC: "https://assets.coingecko.com/coins/images/4713/small/matic-token-icon.png",
   BNB: "https://assets.coingecko.com/coins/images/825/small/bnb-icon2_2x.png",
   BTC: "https://assets.coingecko.com/coins/images/1/small/bitcoin.png",
@@ -41,7 +41,7 @@ export function getTokenLogoUrl(symbol: string): string | null {
 export function getChainLogoUrl(chainId: number): string | null {
   const chainLogos: Record<number, string> = {
     1: "https://assets.coingecko.com/coins/images/279/small/ethereum.png",
-    137: "https://assets.coingecko.com/coins/images/32440/small/polygon-matic-token-icon.png",
+    137: "https://assets.coingecko.com/coins/images/4713/small/polygon.png",
     56: "https://assets.coingecko.com/coins/images/825/small/bnb-icon2_2x.png",
   };
   return chainLogos[chainId] || null;
