@@ -348,9 +348,9 @@ export default function PortfolioScreen() {
               onPress={() => handleAssetPress(asset)}
             >
               <View style={[styles.tokenIcon, { backgroundColor: getChainColor(asset.chainName) + "15" }]}>
-                {getTokenLogoUrl(asset.symbol) ? (
+                {("logoUrl" in asset && asset.logoUrl) || getTokenLogoUrl(asset.symbol) ? (
                   <Image 
-                    source={{ uri: getTokenLogoUrl(asset.symbol)! }} 
+                    source={{ uri: ("logoUrl" in asset && asset.logoUrl) ? asset.logoUrl : getTokenLogoUrl(asset.symbol)! }} 
                     style={styles.tokenLogoImage}
                   />
                 ) : (

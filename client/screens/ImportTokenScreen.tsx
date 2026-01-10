@@ -53,6 +53,7 @@ export default function ImportTokenScreen() {
   const [name, setName] = useState("");
   const [symbol, setSymbol] = useState("");
   const [decimals, setDecimals] = useState("18");
+  const [logoUrl, setLogoUrl] = useState<string | undefined>(undefined);
   const [isLoading, setIsLoading] = useState(false);
   const [isFetchingMetadata, setIsFetchingMetadata] = useState(false);
   const [metadataFetched, setMetadataFetched] = useState(false);
@@ -78,6 +79,7 @@ export default function ImportTokenScreen() {
         setName(data.name || "");
         setSymbol(data.symbol || "");
         setDecimals(data.decimals?.toString() || "9");
+        setLogoUrl(data.logoUri || undefined);
         setMetadataFetched(true);
       }
     } catch (error) {
@@ -149,6 +151,7 @@ export default function ImportTokenScreen() {
         name: name.trim(),
         symbol: symbol.trim().toUpperCase(),
         decimals: decimalsNum,
+        logoUrl,
       });
       Alert.alert("Token Imported", `${symbol.trim().toUpperCase()} has been added successfully.`, [
         { text: "OK", onPress: () => navigation.goBack() },

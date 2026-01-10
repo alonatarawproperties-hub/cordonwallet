@@ -49,6 +49,7 @@ export interface SolanaAsset {
   priceUsd?: number;
   valueUsd?: number;
   priceChange24h?: number;
+  logoUrl?: string;
 }
 
 export interface SolanaPortfolioState {
@@ -176,6 +177,7 @@ export function useSolanaPortfolio(address: string | undefined) {
             mint: ct.contractAddress,
             chainId: "solana",
             chainName: "Solana",
+            logoUrl: ct.logoUrl,
           });
         });
       } catch (customTokenError) {
