@@ -192,10 +192,18 @@ export default function ManageCryptoScreen() {
     }
   };
 
+  const getCustomTokenLogoUrl = (chainId: number, address?: string): string | undefined => {
+    if (!address) return undefined;
+    const customToken = customTokens.find(
+      ct => ct.chainId === chainId && ct.contractAddress.toLowerCase() === address.toLowerCase()
+    );
+    return customToken?.logoUrl;
+  };
+
   const renderAssetItem = ({ item }: { item: MultiChainAsset & { logoUrl?: string } }) => {
     const visible = !isHidden(item.chainId, item.symbol);
     const itemIsCustom = isCustomToken(item.chainId, item.address);
-    const itemLogoUrl = item.logoUrl || getTokenLogoUrl(item.symbol);
+    const itemLogoUrl = item.logoUrl || getCustomTokenLogoUrl(item.chainId, item.address) || getTokenLogoUrl(item.symbol);
     
     return (
       <View style={[styles.assetRow, { borderBottomColor: theme.border }]}>
