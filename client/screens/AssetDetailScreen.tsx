@@ -635,11 +635,11 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: Spacing.lg,
+    paddingHorizontal: Spacing.md,
   },
   header: {
-    alignItems: "center",
-    marginBottom: Spacing.xl,
+    alignItems: "flex-start",
+    marginBottom: Spacing.lg,
   },
   headerTop: {
     flexDirection: "row",
@@ -825,8 +825,8 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.lg,
   },
   pnlHeroHeader: {
-    alignItems: "center",
-    marginBottom: Spacing.md,
+    alignItems: "flex-start",
+    marginBottom: Spacing.sm,
   },
   priceStatsRow: {
     flexDirection: "row",
