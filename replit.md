@@ -112,11 +112,26 @@ Preferred communication style: Simple, everyday language.
 - **All-Chains Portfolio Hook**: `client/hooks/useAllChainsPortfolio.ts` - EVM portfolio fetching with price enrichment
 - **Solana Portfolio Hook**: `client/hooks/useSolanaPortfolio.ts` - Solana balance fetching via backend API
 - **Unified Portfolio UI**: TrustWallet-style unified view combining EVM and Solana assets in a single sorted list by value
-- **Transaction Module**: `client/lib/blockchain/transactions.ts` - sendNative/sendERC20 with gas estimation
+- **Transaction Module**: `client/lib/blockchain/transactions.ts` - sendNative/sendERC20/sendApproval with gas estimation
   - EIP-1559 support with legacy chain fallback (BSC uses gasPrice)
   - Private keys derived on-demand from mnemonics for signing, never stored
+  - Approval policy enforcement before broadcasting approval transactions
 - **Transaction History**: `client/lib/transaction-history.ts` - Local AsyncStorage for activity tracking
 - **Explorer API**: `client/lib/blockchain/explorer-api.ts` - Etherscan V2 API for fetching transaction history
+
+### EVM Approvals & Wallet Firewall
+
+- **Approvals Module**: `client/lib/approvals/` - Complete ERC20 approval tracking and management
+  - `types.ts`: ApprovalRecord, DetectedApproval, ApprovalPolicyResult interfaces
+  - `store.ts`: AsyncStorage persistence per wallet/chain at `@cordon/approvals/<address>/<chainId>`
+  - `detect.ts`: detectApproveIntent() for parsing ERC20 approve(spender, amount) calldata
+  - `firewall.ts`: checkApprovalPolicy() enforces denylist/allowlist and unlimited approval blocking
+  - `revoke.ts`: revokeApproval() sends approve(spender, 0) transaction to revoke access
+  - `spenders.ts`: Known spender labels (Uniswap, 1inch, PancakeSwap, Aave, etc.)
+- **Unlimited Detection**: Flags approvals >= MAX_UINT256 / 2 as unlimited
+- **Policy Settings**: blockUnlimitedApprovals, allowlistedAddresses, denylistedAddresses
+- **Revoke Flow**: Optimistic UI update, then on-chain approve(spender, 0) with status tracking
+- **ApprovalsScreen**: Real-time approval list with revoke buttons and firewall status indicators
 
 ### Price Data Services
 
