@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
-import { View, ActivityIndicator, StyleSheet } from "react-native";
+import { View, ActivityIndicator, StyleSheet, Pressable } from "react-native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
+import { Feather } from "@expo/vector-icons";
 import MainTabNavigator from "@/navigation/MainTabNavigator";
 import { useScreenOptions } from "@/hooks/useScreenOptions";
 import { hasVault } from "@/lib/wallet-engine";
@@ -21,6 +22,8 @@ import WalletManagerScreen from "@/screens/WalletManagerScreen";
 import ApprovalsScreen from "@/screens/ApprovalsScreen";
 import PolicySettingsScreen from "@/screens/PolicySettingsScreen";
 import CreateBundleScreen from "@/screens/CreateBundleScreen";
+import ManageCryptoScreen from "@/screens/ManageCryptoScreen";
+import ImportTokenScreen from "@/screens/ImportTokenScreen";
 
 export type TransactionDetailParams = {
   hash: string;
@@ -65,6 +68,8 @@ export type RootStackParamList = {
   Approvals: undefined;
   PolicySettings: undefined;
   CreateBundle: undefined;
+  ManageCrypto: undefined;
+  ImportToken: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -179,6 +184,23 @@ export default function RootStackNavigator() {
         name="CreateBundle"
         component={CreateBundleScreen}
         options={{ headerTitle: "Create Bundle", presentation: "modal" }}
+      />
+      <Stack.Screen
+        name="ManageCrypto"
+        component={ManageCryptoScreen}
+        options={{ 
+          headerTitle: "Manage crypto",
+          headerRight: () => (
+            <Pressable onPress={() => {}} style={{ padding: 8 }}>
+              <Feather name="plus" size={22} color={theme.accent} />
+            </Pressable>
+          ),
+        }}
+      />
+      <Stack.Screen
+        name="ImportToken"
+        component={ImportTokenScreen}
+        options={{ headerTitle: "Import crypto" }}
       />
     </Stack.Navigator>
   );

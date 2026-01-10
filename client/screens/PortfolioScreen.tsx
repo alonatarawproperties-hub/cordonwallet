@@ -311,6 +311,15 @@ export default function PortfolioScreen() {
             </Pressable>
           ))
         ) : null}
+
+        <Pressable
+          style={styles.manageCryptoButton}
+          onPress={() => navigation.navigate("ManageCrypto")}
+        >
+          <ThemedText type="body" style={{ color: theme.accent }}>
+            Manage crypto
+          </ThemedText>
+        </Pressable>
       </View>
     </ScrollView>
   );
@@ -453,5 +462,10 @@ const styles = StyleSheet.create({
     padding: Spacing.xl,
     borderRadius: BorderRadius.md,
     gap: Spacing.sm,
+  },
+  manageCryptoButton: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: Spacing.lg,
   },
 });
