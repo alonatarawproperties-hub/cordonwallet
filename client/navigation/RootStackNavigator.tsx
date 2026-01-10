@@ -24,6 +24,7 @@ import PolicySettingsScreen from "@/screens/PolicySettingsScreen";
 import CreateBundleScreen from "@/screens/CreateBundleScreen";
 import ManageCryptoScreen from "@/screens/ManageCryptoScreen";
 import ImportTokenScreen from "@/screens/ImportTokenScreen";
+import SendDetailsScreen from "@/screens/SendDetailsScreen";
 
 export type TransactionDetailParams = {
   hash: string;
@@ -72,6 +73,16 @@ export type RootStackParamList = {
   CreateBundle: undefined;
   ManageCrypto: undefined;
   ImportToken: undefined;
+  SendDetails: {
+    tokenSymbol: string;
+    tokenAddress?: string;
+    chainType: "evm" | "solana";
+    chainId: number;
+    decimals: number;
+    balance: string;
+    priceUsd?: number;
+    isNative: boolean;
+  };
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -203,6 +214,11 @@ export default function RootStackNavigator() {
         name="ImportToken"
         component={ImportTokenScreen}
         options={{ headerTitle: "Import crypto" }}
+      />
+      <Stack.Screen
+        name="SendDetails"
+        component={SendDetailsScreen}
+        options={{ headerTitle: "Send", presentation: "card" }}
       />
     </Stack.Navigator>
   );
