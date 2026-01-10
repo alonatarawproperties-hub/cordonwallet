@@ -19,9 +19,15 @@ import {
 const SOLANA_RPC_URL = process.env.SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com";
 const connection = new Connection(SOLANA_RPC_URL, "confirmed");
 
-console.log("[Solana API] Using RPC:", SOLANA_RPC_URL.includes("helius") ? "Helius" : 
-  SOLANA_RPC_URL.includes("quicknode") ? "QuickNode" : 
-  SOLANA_RPC_URL.includes("alchemy") ? "Alchemy" : "Public RPC");
+const getRpcProviderName = (url: string): string => {
+  if (url.includes("helius")) return "Helius";
+  if (url.includes("quicknode")) return "QuickNode";
+  if (url.includes("alchemy")) return "Alchemy";
+  if (url.includes("mainnet-beta.solana.com")) return "Public RPC";
+  return "Custom RPC";
+};
+
+console.log("[Solana API] Using RPC:", getRpcProviderName(SOLANA_RPC_URL));
 
 export interface SolBalance {
   lamports: number;

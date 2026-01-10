@@ -11,7 +11,7 @@ import { Spacing, BorderRadius } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
 import { useWallet } from "@/lib/wallet-context";
-import { unlockWithPin, verifyPin, VaultCorruptedError, repairCorruptedVault } from "@/lib/wallet-engine";
+import { unlockWithPin, verifyPin, VaultCorruptedError, repairCorruptedVault, getPinWithBiometrics, hasBiometricPinEnabled, savePinForBiometrics } from "@/lib/wallet-engine";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Unlock">;
@@ -41,32 +41,34 @@ export default function UnlockScreen({ navigation }: Props) {
 
   const tryBiometric = async () => {
     try {
-      const hasHardware = await LocalAuthentication.hasHardwareAsync();
-      const isEnrolled = await LocalAuthentication.isEnrolledAsync();
+      const hasBiometricEnabled = await hasBiometricPinEnabled();
+      if (!hasBiometricEnabled) {
+        console.log("Biometric unlock not enabled for this wallet");
+        return;
+      }
       
-      if (hasHardware && isEnrolled) {
-        const result = await LocalAuthentication.authenticateAsync({
-          promptMessage: "Unlock Cordon",
-          fallbackLabel: "Use PIN",
-          cancelLabel: "Cancel",
-        });
+      const pin = await getPinWithBiometrics();
+      
+      if (pin) {
+        setIsUnlocking(true);
+        const success = await unlockWithPin(pin);
         
-        if (result.success) {
-          handleBiometricSuccess();
+        if (success) {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          unlock();
+          await refreshWallets();
+          navigation.reset({
+            index: 0,
+            routes: [{ name: "Main" }],
+          });
+        } else {
+          setIsUnlocking(false);
         }
       }
     } catch (error) {
-      console.log("Biometric not available");
+      console.log("Biometric unlock failed:", error);
+      setIsUnlocking(false);
     }
-  };
-
-  const handleBiometricSuccess = async () => {
-    unlock();
-    await refreshWallets();
-    navigation.reset({
-      index: 0,
-      routes: [{ name: "Main" }],
-    });
   };
 
   const handlePinChange = (value: string) => {
@@ -87,6 +89,12 @@ export default function UnlockScreen({ navigation }: Props) {
       
       if (success) {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        
+        const hasBiometric = await hasBiometricPinEnabled();
+        if (!hasBiometric) {
+          await savePinForBiometrics(enteredPin);
+        }
+        
         unlock();
         await refreshWallets();
         navigation.reset({

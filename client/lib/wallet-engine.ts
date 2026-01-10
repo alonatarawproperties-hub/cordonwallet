@@ -42,6 +42,7 @@ const STORAGE_KEYS = {
   VAULT: "cordon_vault",
   PIN_HASH: "cordon_pin_hash",
   VAULT_META: "@cordon/vault_meta",
+  BIOMETRIC_PIN: "cordon_biometric_pin",
 };
 
 const PBKDF2_ITERATIONS = 100000;
@@ -184,6 +185,74 @@ async function deleteSecureItem(key: string): Promise<void> {
   await SecureStore.deleteItemAsync(key);
 }
 
+export async function savePinForBiometrics(pin: string): Promise<boolean> {
+  if (Platform.OS === "web") {
+    return false;
+  }
+  
+  try {
+    const canUseBiometric = await SecureStore.canUseBiometricAuthentication();
+    if (!canUseBiometric) {
+      if (__DEV__) {
+        console.log("[WalletEngine] Biometric authentication not available");
+      }
+      return false;
+    }
+    
+    await SecureStore.setItemAsync(STORAGE_KEYS.BIOMETRIC_PIN, pin, {
+      requireAuthentication: true,
+      authenticationPrompt: "Enable biometric unlock for Cordon",
+      keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
+    });
+    
+    if (__DEV__) {
+      console.log("[WalletEngine] PIN saved for biometric unlock");
+    }
+    return true;
+  } catch (error) {
+    if (__DEV__) {
+      console.log("[WalletEngine] Failed to save PIN for biometrics:", error);
+    }
+    return false;
+  }
+}
+
+export async function getPinWithBiometrics(): Promise<string | null> {
+  if (Platform.OS === "web") {
+    return null;
+  }
+  
+  try {
+    const pin = await SecureStore.getItemAsync(STORAGE_KEYS.BIOMETRIC_PIN, {
+      requireAuthentication: true,
+      authenticationPrompt: "Unlock Cordon",
+    });
+    return pin;
+  } catch (error) {
+    if (__DEV__) {
+      console.log("[WalletEngine] Failed to get PIN with biometrics:", error);
+    }
+    return null;
+  }
+}
+
+export async function hasBiometricPinEnabled(): Promise<boolean> {
+  if (Platform.OS === "web") {
+    return false;
+  }
+  
+  try {
+    const canUseBiometric = await SecureStore.canUseBiometricAuthentication();
+    if (!canUseBiometric) {
+      return false;
+    }
+    const pin = await SecureStore.getItemAsync(STORAGE_KEYS.BIOMETRIC_PIN);
+    return pin !== null;
+  } catch {
+    return false;
+  }
+}
+
 async function loadVaultMeta(): Promise<{ wallets: WalletRecord[]; activeWalletId: string | null }> {
   const meta = await AsyncStorage.getItem(STORAGE_KEYS.VAULT_META);
   if (meta) {
@@ -296,6 +365,8 @@ export async function createWallet(
   
   const pinHash = bytesToHex(sha256(new TextEncoder().encode(pin)));
   await setSecureItem(STORAGE_KEYS.PIN_HASH, pinHash);
+  
+  await savePinForBiometrics(pin);
   
   cachedSecrets = secrets;
   isVaultUnlocked = true;
@@ -451,6 +522,7 @@ export async function getActiveWalletMnemonic(): Promise<string> {
 export async function deleteVault(): Promise<void> {
   await deleteSecureItem(STORAGE_KEYS.VAULT);
   await deleteSecureItem(STORAGE_KEYS.PIN_HASH);
+  await deleteSecureItem(STORAGE_KEYS.BIOMETRIC_PIN);
   await AsyncStorage.removeItem(STORAGE_KEYS.VAULT_META);
   cachedSecrets = null;
   isVaultUnlocked = false;
