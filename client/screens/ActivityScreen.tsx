@@ -188,49 +188,60 @@ export default function ActivityScreen() {
       const tokens = await getCustomTokens();
       setCustomTokens(tokens);
       
-      const fetchPromises: Promise<TxRecord[]>[] = [];
-
-      if (!isSolanaOnly && evmAddress) {
-        fetchPromises.push(fetchAllChainsHistory(evmAddress));
-        fetchPromises.push(getTransactionsByWallet(evmAddress));
-      }
-
-      if (solanaAddress) {
-        fetchPromises.push(fetchSolanaHistory(solanaAddress, tokens));
-      }
-
-      const [txResults, priceData] = await Promise.all([
-        Promise.all(fetchPromises),
-        fetchPrices(),
-      ]);
+      const explorerPromise = (!isSolanaOnly && evmAddress) 
+        ? fetchAllChainsHistory(evmAddress).catch(e => {
+            console.error("[Activity] Explorer fetch error:", e);
+            return [] as TxRecord[];
+          })
+        : Promise.resolve([] as TxRecord[]);
       
-      let explorerTxs: TxRecord[] = [];
-      let localTxs: TxRecord[] = [];
-      let solanaTxs: TxRecord[] = [];
+      const localEvmPromise = evmAddress 
+        ? getTransactionsByWallet(evmAddress).catch(() => [] as TxRecord[])
+        : Promise.resolve([] as TxRecord[]);
+      
+      const localSolanaPromise = solanaAddress 
+        ? getTransactionsByWallet(solanaAddress).catch(() => [] as TxRecord[])
+        : Promise.resolve([] as TxRecord[]);
+      
+      const solanaHistoryPromise = solanaAddress 
+        ? fetchSolanaHistory(solanaAddress, tokens).catch(e => {
+            console.error("[Activity] Solana history error:", e);
+            return [] as TxRecord[];
+          })
+        : Promise.resolve([] as TxRecord[]);
 
-      if (!isSolanaOnly && evmAddress) {
-        explorerTxs = txResults[0] || [];
-        localTxs = txResults[1] || [];
-        solanaTxs = solanaAddress ? (txResults[2] || []) : [];
-      } else if (solanaAddress) {
-        solanaTxs = txResults[0] || [];
-      }
+      const [explorerTxs, localEvmTxs, localSolanaTxs, solanaTxs, priceData] = await Promise.all([
+        explorerPromise,
+        localEvmPromise,
+        localSolanaPromise,
+        solanaHistoryPromise,
+        fetchPrices().catch(() => ({} as Record<string, number>)),
+      ]);
 
-      console.log("[Activity] EVM Explorer txs:", explorerTxs.length, "Local txs:", localTxs.length, "Solana txs:", solanaTxs.length);
+      console.log("[Activity] Explorer txs:", explorerTxs.length, 
+        "Local EVM:", localEvmTxs.length, 
+        "Local Solana:", localSolanaTxs.length, 
+        "Solana API:", solanaTxs.length);
 
       const explorerHashes = new Set(explorerTxs.map((tx) => tx.hash.toLowerCase()));
-      const uniqueLocalTxs = localTxs.filter(
+      const solanaHashes = new Set(solanaTxs.map((tx) => tx.hash.toLowerCase()));
+      
+      const uniqueLocalEvmTxs = localEvmTxs.filter(
         (tx) => !explorerHashes.has(tx.hash.toLowerCase())
       );
+      
+      const uniqueLocalSolanaTxs = localSolanaTxs.filter(
+        (tx) => !solanaHashes.has(tx.hash.toLowerCase())
+      );
 
-      const allTxs = [...uniqueLocalTxs, ...explorerTxs, ...solanaTxs];
+      const allTxs = [...uniqueLocalEvmTxs, ...uniqueLocalSolanaTxs, ...explorerTxs, ...solanaTxs];
       allTxs.sort((a, b) => b.createdAt - a.createdAt);
 
       console.log("[Activity] Total transactions:", allTxs.length);
       setTransactions(allTxs.slice(0, 100));
       
       const uniqueMints = new Set<string>();
-      solanaTxs.forEach(tx => {
+      [...solanaTxs, ...localSolanaTxs].forEach(tx => {
         if (tx.tokenAddress) uniqueMints.add(tx.tokenAddress);
       });
       
@@ -239,8 +250,12 @@ export default function ActivityScreen() {
     } catch (error) {
       console.error("[Activity] Failed to load transactions:", error);
       const evmAddr = activeWallet.addresses?.evm || activeWallet.address || "";
-      const localTxs = evmAddr ? await getTransactionsByWallet(evmAddr) : [];
-      setTransactions(localTxs);
+      const solAddr = activeWallet.addresses?.solana || "";
+      const [evmTxs, solanaTxs] = await Promise.all([
+        evmAddr ? getTransactionsByWallet(evmAddr).catch(() => []) : [],
+        solAddr ? getTransactionsByWallet(solAddr).catch(() => []) : [],
+      ]);
+      setTransactions([...evmTxs, ...solanaTxs]);
     } finally {
       setLoading(false);
     }
