@@ -317,6 +317,8 @@ export default function SendDetailsScreen({ navigation, route }: Props) {
       console.error("Transaction failed:", error);
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       
+      const errorMessage = error instanceof Error ? error.message : "An unexpected error occurred";
+      
       if (error instanceof TransactionFailedError && error.code === "WALLET_LOCKED") {
         Alert.alert(
           "Wallet Locked",
@@ -325,10 +327,22 @@ export default function SendDetailsScreen({ navigation, route }: Props) {
             { text: "OK", onPress: () => navigation.navigate("Unlock") },
           ]
         );
+      } else if (errorMessage.includes("no record of a prior credit") || errorMessage.includes("Simulation failed")) {
+        Alert.alert(
+          "Insufficient SOL for Fees",
+          "You need SOL in your wallet to pay for transaction fees. When sending tokens to a new address, a small amount of SOL (~0.002) is also needed to create the recipient's token account.",
+          [{ text: "OK" }]
+        );
+      } else if (errorMessage.includes("insufficient") || errorMessage.includes("Insufficient")) {
+        Alert.alert(
+          "Insufficient Balance",
+          "You don't have enough balance to complete this transaction including gas fees.",
+          [{ text: "OK" }]
+        );
       } else {
         Alert.alert(
           "Transaction Failed",
-          error instanceof Error ? error.message : "An unexpected error occurred"
+          errorMessage
         );
       }
     } finally {
