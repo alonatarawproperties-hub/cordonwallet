@@ -14,6 +14,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const apiKey = process.env.ETHERSCAN_API_KEY;
+      console.log(`[Transactions API] API key configured: ${!!apiKey}`);
       
       const params = new URLSearchParams({
         chainid: chainId,
