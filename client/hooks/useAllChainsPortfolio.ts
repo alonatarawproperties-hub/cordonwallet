@@ -28,7 +28,7 @@ export interface AllChainsPortfolioState {
   lastUpdated: number | null;
 }
 
-const CACHE_KEY_PREFIX = "@cordon/all_chains_portfolio_";
+const CACHE_KEY_PREFIX = "@cordon/all_chains_portfolio_v2_";
 const CACHE_DURATION = 30000;
 
 export function useAllChainsPortfolio(address: string | undefined) {
@@ -159,7 +159,7 @@ export function useAllChainsPortfolio(address: string | undefined) {
         allAssets.push(...chainAssets);
       });
 
-      let prices: Record<string, { price: number; change24h?: number }> = {};
+      let prices: Record<string, { price: number; change24h?: number } | number> = {};
       try {
         const apiUrl = getApiUrl();
         const priceUrl = new URL("/api/prices", apiUrl);
@@ -167,23 +167,35 @@ export function useAllChainsPortfolio(address: string | undefined) {
         if (priceResponse.ok) {
           const priceData = await priceResponse.json();
           prices = priceData.prices || {};
+          console.log("[Portfolio] Fetched prices:", Object.keys(prices));
         }
       } catch (priceError) {
         console.log("[Portfolio] Failed to fetch prices:", priceError);
       }
 
+      // Helper to extract price from old or new format
+      const extractPrice = (data: { price: number; change24h?: number } | number | undefined): { price: number; change24h?: number } | null => {
+        if (!data) return null;
+        if (typeof data === "number") {
+          return { price: data };
+        }
+        return data;
+      };
+
       // Apply CoinGecko prices first
       allAssets.forEach((asset) => {
         const priceKey = asset.isNative ? `native_${asset.chainId}` : asset.symbol;
-        const symbolPriceData = prices[asset.symbol];
-        const nativePriceData = prices[priceKey];
+        const symbolPriceData = extractPrice(prices[asset.symbol]);
+        const nativePriceData = extractPrice(prices[priceKey]);
         const priceData = symbolPriceData || nativePriceData;
         
-        if (priceData) {
-          asset.priceUsd = priceData.price || 0;
+        if (priceData && priceData.price) {
+          asset.priceUsd = priceData.price;
           asset.priceChange24h = priceData.change24h;
+          console.log(`[Portfolio] Price for ${asset.symbol}: $${priceData.price} (${priceData.change24h?.toFixed(2)}%)`);
         } else {
           asset.priceUsd = 0;
+          console.log(`[Portfolio] No price for ${asset.symbol} (keys tried: ${asset.symbol}, ${priceKey})`);
         }
         
         const balanceNum = parseFloat(asset.balance.replace(/,/g, "")) || 0;
