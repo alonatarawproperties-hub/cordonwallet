@@ -194,7 +194,7 @@ export default function SendScreen({ navigation }: Props) {
 
   const handleSelectToken = (asset: UnifiedAsset) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    navigation.navigate("SendDetails", {
+    navigation.push("SendDetails", {
       tokenSymbol: asset.symbol,
       tokenAddress: asset.address || asset.mint,
       chainType: asset.chainType,
