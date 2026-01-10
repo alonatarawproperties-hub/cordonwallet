@@ -528,6 +528,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             symbol: pair.baseToken?.symbol,
             name: pair.baseToken?.name,
             liquidity: pair.liquidity?.usd,
+            logoUrl: pair.info?.imageUrl || null,
           };
         }
       }

@@ -236,7 +236,7 @@ export function useSolanaPortfolio(address: string | undefined) {
         }
       });
 
-      // Fetch prices for SPL tokens via DexScreener
+      // Fetch prices and metadata for SPL tokens via DexScreener
       const tokensWithMint = assets.filter(a => a.mint && !a.isNative);
       if (tokensWithMint.length > 0) {
         try {
@@ -262,6 +262,18 @@ export function useSolanaPortfolio(address: string | undefined) {
                   token.priceChange24h = priceInfo.change24h;
                   const balanceNum = parseFloat(token.balance.replace(/,/g, "")) || 0;
                   token.valueUsd = priceInfo.price * balanceNum;
+                  
+                  // Use DexScreener metadata if token name/symbol is missing or truncated
+                  if (priceInfo.symbol && token.symbol.includes("...")) {
+                    token.symbol = priceInfo.symbol;
+                  }
+                  if (priceInfo.name && token.name.includes("Token ")) {
+                    token.name = priceInfo.name;
+                  }
+                  if (priceInfo.logoUrl && !token.logoUrl) {
+                    token.logoUrl = priceInfo.logoUrl;
+                  }
+                  
                   console.log(`[Solana Portfolio] Set price for ${token.symbol}: $${priceInfo.price}`);
                 }
               });
