@@ -76,6 +76,7 @@ export default function SettingsScreen() {
   const walletItems = [
     { title: "Manage Wallets", subtitle: `${activeWallet?.name || "No wallet"}`, icon: "credit-card", onPress: () => navigation.navigate("WalletManager") },
     { title: "Token Approvals", subtitle: "Manage contract approvals", icon: "check-circle", onPress: () => navigation.navigate("Approvals") },
+    { title: "WalletConnect", subtitle: "Connect to dApps", icon: "link", onPress: () => navigation.navigate("WalletConnect") },
     { title: "Networks", subtitle: "Ethereum, Polygon, BSC", icon: "globe", onPress: () => {} },
   ];
 
