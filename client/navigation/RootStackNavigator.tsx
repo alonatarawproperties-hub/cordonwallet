@@ -221,7 +221,7 @@ export default function RootStackNavigator() {
       <Stack.Screen
         name="SendDetails"
         component={SendDetailsScreen}
-        options={{ headerTitle: "Send", presentation: "card" }}
+        options={{ headerTitle: "Send" }}
       />
       <Stack.Screen
         name="ScanQR"
