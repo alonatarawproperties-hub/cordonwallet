@@ -227,13 +227,19 @@ export function useSolanaPortfolio(address: string | undefined) {
           if (dexResponse.ok) {
             const dexData = await dexResponse.json();
             if (dexData.prices) {
+              const pricesLowercase: Record<string, any> = {};
+              Object.entries(dexData.prices).forEach(([addr, info]) => {
+                pricesLowercase[addr.toLowerCase()] = info;
+              });
+              
               tokensWithMint.forEach((token) => {
-                const priceInfo = dexData.prices[token.mint!];
+                const priceInfo = pricesLowercase[token.mint!.toLowerCase()];
                 if (priceInfo) {
                   token.priceUsd = priceInfo.price;
                   token.priceChange24h = priceInfo.change24h;
                   const balanceNum = parseFloat(token.balance.replace(/,/g, "")) || 0;
                   token.valueUsd = priceInfo.price * balanceNum;
+                  console.log(`[Solana Portfolio] Set price for ${token.symbol}: $${priceInfo.price}`);
                 }
               });
             }
