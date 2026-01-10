@@ -17,6 +17,7 @@ export interface MultiChainAsset {
   chainName: string;
   priceUsd?: number;
   valueUsd?: number;
+  priceChange24h?: number;
 }
 
 export interface AllChainsPortfolioState {
@@ -158,7 +159,7 @@ export function useAllChainsPortfolio(address: string | undefined) {
         allAssets.push(...chainAssets);
       });
 
-      let prices: Record<string, number> = {};
+      let prices: Record<string, { price: number; change24h?: number }> = {};
       try {
         const apiUrl = getApiUrl();
         const priceUrl = new URL("/api/prices", apiUrl);
@@ -174,11 +175,19 @@ export function useAllChainsPortfolio(address: string | undefined) {
       // Apply CoinGecko prices first
       allAssets.forEach((asset) => {
         const priceKey = asset.isNative ? `native_${asset.chainId}` : asset.symbol;
-        const symbolPrice = prices[asset.symbol];
-        const nativePrice = prices[priceKey];
-        asset.priceUsd = symbolPrice || nativePrice || 0;
+        const symbolPriceData = prices[asset.symbol];
+        const nativePriceData = prices[priceKey];
+        const priceData = symbolPriceData || nativePriceData;
+        
+        if (priceData) {
+          asset.priceUsd = priceData.price || 0;
+          asset.priceChange24h = priceData.change24h;
+        } else {
+          asset.priceUsd = 0;
+        }
+        
         const balanceNum = parseFloat(asset.balance.replace(/,/g, "")) || 0;
-        asset.valueUsd = asset.priceUsd * balanceNum;
+        asset.valueUsd = (asset.priceUsd || 0) * balanceNum;
       });
 
       // Find tokens without prices and fetch from DexScreener
@@ -219,6 +228,7 @@ export function useAllChainsPortfolio(address: string | undefined) {
               if (dexPrice?.price) {
                 const price = dexPrice.price as number;
                 asset.priceUsd = price;
+                asset.priceChange24h = dexPrice.priceChange24h as number | undefined;
                 const balanceNum = parseFloat(asset.balance.replace(/,/g, "")) || 0;
                 asset.valueUsd = price * balanceNum;
                 console.log(`[Portfolio] DexScreener price for ${asset.symbol}: $${price}`);

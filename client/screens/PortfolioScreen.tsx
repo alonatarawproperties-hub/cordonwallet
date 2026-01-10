@@ -271,9 +271,23 @@ export default function PortfolioScreen() {
                     </ThemedText>
                   </View>
                 </View>
-                <ThemedText type="caption" style={{ color: theme.textSecondary }}>
-                  {asset.priceUsd ? `$${formatPrice(asset.priceUsd)}` : asset.name}
-                </ThemedText>
+                <View style={styles.priceRow}>
+                  <ThemedText type="caption" style={{ color: theme.textSecondary }}>
+                    {asset.priceUsd ? `$${formatPrice(asset.priceUsd)}` : asset.name}
+                  </ThemedText>
+                  {asset.priceChange24h !== undefined ? (
+                    <ThemedText
+                      type="caption"
+                      style={{
+                        color: asset.priceChange24h >= 0 ? "#22C55E" : "#EF4444",
+                        marginLeft: Spacing.xs,
+                      }}
+                    >
+                      {asset.priceChange24h >= 0 ? "+" : ""}
+                      {asset.priceChange24h.toFixed(2)}%
+                    </ThemedText>
+                  ) : null}
+                </View>
               </View>
               <View style={styles.tokenBalance}>
                 <ThemedText type="body" style={{ fontWeight: "600", textAlign: "right" }}>
@@ -379,6 +393,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.sm,
     paddingVertical: 2,
     borderRadius: BorderRadius.xs,
+  },
+  priceRow: {
+    flexDirection: "row",
+    alignItems: "center",
   },
   tokenBalance: {
     gap: Spacing.xs,

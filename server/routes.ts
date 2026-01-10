@@ -25,8 +25,13 @@ const CHAIN_PLATFORM_IDS: Record<number, string> = {
   56: "binance-smart-chain",
 };
 
+interface PriceData {
+  price: number;
+  change24h?: number;
+}
+
 interface PriceCache {
-  data: Record<string, number>;
+  data: Record<string, PriceData>;
   timestamp: number;
 }
 
@@ -86,7 +91,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log("[Prices API] Fetching fresh prices from CoinGecko");
 
       const allIds = [...Object.values(NATIVE_TOKEN_IDS), ...EXTRA_TOKEN_IDS].join(",");
-      const url = `${COINGECKO_API}/simple/price?ids=${allIds}&vs_currencies=usd`;
+      const url = `${COINGECKO_API}/simple/price?ids=${allIds}&vs_currencies=usd&include_24hr_change=true`;
       
       const response = await fetch(url, {
         headers: {
@@ -104,33 +109,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const data = await response.json();
       
-      const prices: Record<string, number> = {};
+      const prices: Record<string, PriceData> = {};
       
       for (const [chainId, geckoId] of Object.entries(NATIVE_TOKEN_IDS)) {
         if (data[geckoId]?.usd) {
-          prices[`native_${chainId}`] = data[geckoId].usd;
+          prices[`native_${chainId}`] = {
+            price: data[geckoId].usd,
+            change24h: data[geckoId].usd_24h_change,
+          };
         }
       }
 
-      prices["USDC"] = 1.0;
-      prices["USDT"] = 1.0;
-      prices["DAI"] = 1.0;
+      prices["USDC"] = { price: 1.0, change24h: 0 };
+      prices["USDT"] = { price: 1.0, change24h: 0 };
+      prices["DAI"] = { price: 1.0, change24h: 0 };
 
       if (data["ethereum"]?.usd) {
-        prices["WETH"] = data["ethereum"].usd;
-        prices["ETH"] = data["ethereum"].usd;
+        const ethData = { price: data["ethereum"].usd, change24h: data["ethereum"].usd_24h_change };
+        prices["WETH"] = ethData;
+        prices["ETH"] = ethData;
       }
       if (data["bitcoin"]?.usd) {
-        prices["WBTC"] = data["bitcoin"].usd;
-        prices["BTCB"] = data["bitcoin"].usd;
-        prices["BTC"] = data["bitcoin"].usd;
+        const btcData = { price: data["bitcoin"].usd, change24h: data["bitcoin"].usd_24h_change };
+        prices["WBTC"] = btcData;
+        prices["BTCB"] = btcData;
+        prices["BTC"] = btcData;
       }
       if (data["matic-network"]?.usd) {
-        prices["MATIC"] = data["matic-network"].usd;
-        prices["POL"] = data["matic-network"].usd;
+        const maticData = { price: data["matic-network"].usd, change24h: data["matic-network"].usd_24h_change };
+        prices["MATIC"] = maticData;
+        prices["POL"] = maticData;
       }
       if (data["binancecoin"]?.usd) {
-        prices["BNB"] = data["binancecoin"].usd;
+        prices["BNB"] = { price: data["binancecoin"].usd, change24h: data["binancecoin"].usd_24h_change };
       }
 
       priceCache = { data: prices, timestamp: now };
