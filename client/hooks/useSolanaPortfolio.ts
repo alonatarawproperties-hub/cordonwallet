@@ -1,7 +1,38 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { getSolanaPortfolio, SolBalance, SplTokenBalance } from "@/lib/solana/balances";
 import { getApiUrl } from "@/lib/query-client";
+
+interface SolBalance {
+  lamports: number;
+  sol: string;
+}
+
+interface SplTokenBalance {
+  mint: string;
+  tokenAccount: string;
+  amount: string;
+  decimals: number;
+  uiAmount: number;
+  symbol?: string;
+  name?: string;
+}
+
+interface SolanaPortfolio {
+  nativeBalance: SolBalance;
+  tokens: SplTokenBalance[];
+}
+
+async function fetchSolanaPortfolio(address: string): Promise<SolanaPortfolio> {
+  const apiUrl = getApiUrl();
+  const url = new URL(`/api/solana/portfolio/${address}`, apiUrl);
+  const response = await fetch(url.toString());
+  
+  if (!response.ok) {
+    throw new Error("Failed to fetch Solana portfolio");
+  }
+  
+  return response.json();
+}
 
 export interface SolanaAsset {
   symbol: string;
@@ -86,7 +117,7 @@ export function useSolanaPortfolio(address: string | undefined) {
     }
 
     try {
-      const portfolio = await getSolanaPortfolio(address);
+      const portfolio = await fetchSolanaPortfolio(address);
       const assets: SolanaAsset[] = [];
 
       const solBalanceNum = parseFloat(portfolio.nativeBalance.sol);

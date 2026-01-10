@@ -1,5 +1,13 @@
 import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "node:http";
+import {
+  getSolanaPortfolio,
+  getSolanaBalance,
+  prepareSolTransfer,
+  prepareSplTransfer,
+  sendSignedTransaction,
+  checkAtaExists,
+} from "./solana-api";
 
 const ETHERSCAN_V2_API = "https://api.etherscan.io/v2/api";
 const COINGECKO_API = "https://api.coingecko.com/api/v3";
@@ -538,6 +546,115 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("[DexScreener API] Batch error:", error);
       res.status(500).json({ error: "Failed to fetch token prices" });
+    }
+  });
+
+  app.get("/api/solana/balance/:address", async (req: Request, res: Response) => {
+    try {
+      const { address } = req.params;
+      
+      if (!address) {
+        return res.status(400).json({ error: "Missing address" });
+      }
+
+      console.log(`[Solana API] Fetching balance for ${address.slice(0, 8)}...`);
+      const balance = await getSolanaBalance(address);
+      res.json(balance);
+    } catch (error) {
+      console.error("[Solana API] Balance error:", error);
+      res.status(500).json({ error: "Failed to fetch Solana balance" });
+    }
+  });
+
+  app.get("/api/solana/portfolio/:address", async (req: Request, res: Response) => {
+    try {
+      const { address } = req.params;
+      
+      if (!address) {
+        return res.status(400).json({ error: "Missing address" });
+      }
+
+      console.log(`[Solana API] Fetching portfolio for ${address.slice(0, 8)}...`);
+      const portfolio = await getSolanaPortfolio(address);
+      res.json(portfolio);
+    } catch (error) {
+      console.error("[Solana API] Portfolio error:", error);
+      res.status(500).json({ error: "Failed to fetch Solana portfolio" });
+    }
+  });
+
+  app.get("/api/solana/check-ata", async (req: Request, res: Response) => {
+    try {
+      const { mint, owner } = req.query;
+      
+      if (!mint || !owner) {
+        return res.status(400).json({ error: "Missing mint or owner" });
+      }
+
+      const exists = await checkAtaExists(mint as string, owner as string);
+      res.json({ exists });
+    } catch (error) {
+      console.error("[Solana API] Check ATA error:", error);
+      res.status(500).json({ error: "Failed to check token account" });
+    }
+  });
+
+  app.post("/api/solana/prepare-sol-transfer", async (req: Request, res: Response) => {
+    try {
+      const { fromAddress, toAddress, amountSol } = req.body;
+      
+      if (!fromAddress || !toAddress || !amountSol) {
+        return res.status(400).json({ error: "Missing required fields" });
+      }
+
+      console.log(`[Solana API] Preparing SOL transfer: ${amountSol} SOL`);
+      const prepared = await prepareSolTransfer(fromAddress, toAddress, amountSol);
+      res.json(prepared);
+    } catch (error) {
+      console.error("[Solana API] Prepare SOL transfer error:", error);
+      res.status(500).json({ error: "Failed to prepare transaction" });
+    }
+  });
+
+  app.post("/api/solana/prepare-spl-transfer", async (req: Request, res: Response) => {
+    try {
+      const { fromAddress, toAddress, mintAddress, amount, decimals, allowCreateAta = true } = req.body;
+      
+      if (!fromAddress || !toAddress || !mintAddress || !amount || decimals === undefined) {
+        return res.status(400).json({ error: "Missing required fields" });
+      }
+
+      console.log(`[Solana API] Preparing SPL transfer: ${amount} tokens`);
+      const prepared = await prepareSplTransfer({
+        fromAddress,
+        toAddress,
+        mintAddress,
+        amount,
+        decimals,
+        allowCreateAta,
+      });
+      res.json(prepared);
+    } catch (error: any) {
+      console.error("[Solana API] Prepare SPL transfer error:", error);
+      res.status(500).json({ error: error.message || "Failed to prepare SPL transaction" });
+    }
+  });
+
+  app.post("/api/solana/send-signed-transaction", async (req: Request, res: Response) => {
+    try {
+      const { transactionBase64, signatureBase64, publicKeyBase58 } = req.body;
+      
+      if (!transactionBase64 || !signatureBase64 || !publicKeyBase58) {
+        return res.status(400).json({ error: "Missing required fields" });
+      }
+
+      console.log(`[Solana API] Sending signed transaction...`);
+      const signature = await sendSignedTransaction(transactionBase64, signatureBase64, publicKeyBase58);
+      console.log(`[Solana API] Transaction sent: ${signature}`);
+      res.json({ signature });
+    } catch (error: any) {
+      console.error("[Solana API] Send transaction error:", error);
+      res.status(500).json({ error: error.message || "Failed to send transaction" });
     }
   });
 

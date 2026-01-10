@@ -8,7 +8,7 @@ Cordon is a production-grade, non-custodial EVM wallet application built as a mo
 2. **Bundles** - Multi-wallet management with batch operations
 3. **AI Explainer** - Plain-English transaction explanations with risk assessment
 
-The wallet supports Ethereum, Polygon, and BNB Chain networks, with architecture designed to add new EVM networks via configuration only.
+The wallet supports Ethereum, Polygon, BNB Chain, and **Solana mainnet** networks. The multi-protocol architecture derives both EVM (0x...) and Solana (base58) addresses from a single mnemonic seed phrase.
 
 **Security Model**: Keys are generated and stored exclusively on-device using secure storage (iOS Keychain / Android Keystore via Expo SecureStore). The backend handles only non-sensitive metadata like token lists and price caching.
 
@@ -68,19 +68,27 @@ Preferred communication style: Simple, everyday language.
 ### Cryptography Libraries (Implemented)
 
 - **@scure/bip39**: BIP39-compliant mnemonic generation and validation (wordlist: english)
-- **@scure/bip32**: HD key derivation (BIP32/BIP44) using m/44'/60'/0'/0/0 path
+- **@scure/bip32**: HD key derivation (BIP32/BIP44) using m/44'/60'/0'/0/0 path for EVM
+- **ed25519-hd-key**: Solana key derivation using m/44'/501'/0'/0' path
 - **@noble/hashes**: Cryptographic hashing (SHA-256, PBKDF2, keccak_256)
 - **@noble/ciphers**: AES-256-GCM encryption for vault storage
 - **viem**: EVM blockchain interactions (address utilities)
+- **@solana/web3.js**: Solana RPC client and transaction handling
+- **@solana/spl-token**: SPL token interactions (transfers, account management)
+- **tweetnacl**: Ed25519 signature verification for Solana
+- **bs58**: Base58 encoding for Solana addresses
 - **react-native-qrcode-svg**: QR code generation for receive addresses
 
 ### Wallet Security Model
 
 - **Mnemonic Generation**: BIP39 12-word seed phrases using cryptographic entropy
-- **Key Derivation**: Standard EVM HD path m/44'/60'/0'/0/0 for Ethereum-compatible addresses
+- **Multi-Chain Key Derivation**:
+  - EVM: Standard HD path m/44'/60'/0'/0/0 for Ethereum-compatible addresses
+  - Solana: HD path m/44'/501'/0'/0' for Ed25519 keypairs (SLIP-0010)
 - **Vault Encryption**: PBKDF2 (100,000 iterations) + AES-256-GCM with random salt/IV
 - **PIN Storage**: SHA-256 hash stored separately from encrypted vault
 - **Secure Storage**: Expo SecureStore (iOS Keychain / Android Keystore)
+- **Address Model**: `MultiChainAddresses` interface stores both `evm` and `solana` addresses per wallet
 
 ### Session Model
 
