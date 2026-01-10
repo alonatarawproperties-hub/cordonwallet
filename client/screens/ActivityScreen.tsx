@@ -24,7 +24,7 @@ import {
 import { supportedChains, getChainById, getExplorerAddressUrl } from "@/lib/blockchain/chains";
 import { NetworkId } from "@/lib/types";
 import { getApiUrl } from "@/lib/query-client";
-import { getCustomTokens, CustomToken } from "@/lib/token-preferences";
+import { getCustomTokens, CustomToken, buildCustomTokenMap } from "@/lib/token-preferences";
 
 const NETWORK_TO_CHAIN_ID: Record<NetworkId, number> = {
   ethereum: 1,

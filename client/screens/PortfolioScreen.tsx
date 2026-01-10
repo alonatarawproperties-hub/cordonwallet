@@ -1,9 +1,9 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { View, StyleSheet, ScrollView, Pressable, RefreshControl, ActivityIndicator, Image } from "react-native";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Feather } from "@expo/vector-icons";
 import * as Clipboard from "expo-clipboard";
@@ -21,6 +21,7 @@ import { getExplorerAddressUrl } from "@/lib/blockchain/chains";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { getTokenLogoUrl } from "@/lib/token-logos";
 import type { ChainType } from "@/components/ChainSelector";
+import { getCustomTokens, CustomToken, buildCustomTokenMap } from "@/lib/token-preferences";
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
@@ -78,6 +79,7 @@ export default function PortfolioScreen() {
   const navigation = useNavigation<Navigation>();
   const { activeWallet } = useWallet();
   const [copiedAddress, setCopiedAddress] = useState<"evm" | "solana" | null>(null);
+  const [customTokens, setCustomTokens] = useState<CustomToken[]>([]);
 
   const walletType = activeWallet?.walletType || "multi-chain";
   const evmAddress = activeWallet?.addresses?.evm || activeWallet?.address;
@@ -85,6 +87,14 @@ export default function PortfolioScreen() {
 
   const evmPortfolio = useAllChainsPortfolio(walletType === "solana-only" ? undefined : evmAddress);
   const solanaPortfolio = useSolanaPortfolio(solanaAddress);
+  
+  useFocusEffect(
+    useCallback(() => {
+      getCustomTokens().then(setCustomTokens);
+    }, [])
+  );
+  
+  const customTokenMap = buildCustomTokenMap(customTokens);
 
   const { assets, isLoading, isRefreshing, error, lastUpdated, totalValue } = useMemo(() => {
     const evmAssets: UnifiedAsset[] = walletType === "solana-only" ? [] : evmPortfolio.assets.map((a) => ({
@@ -92,11 +102,17 @@ export default function PortfolioScreen() {
       chainType: "evm" as ChainType,
     }));
     
-    const solAssets: UnifiedAsset[] = solanaPortfolio.assets.map((a) => ({
-      ...a,
-      chainId: 0,
-      chainType: "solana" as ChainType,
-    }));
+    const solAssets: UnifiedAsset[] = solanaPortfolio.assets.map((a) => {
+      const customToken = a.mint ? customTokenMap.get(a.mint.toLowerCase()) : undefined;
+      return {
+        ...a,
+        symbol: customToken?.symbol || a.symbol,
+        name: customToken?.name || a.name,
+        logoUrl: customToken?.logoUrl || a.logoUrl,
+        chainId: 0,
+        chainType: "solana" as ChainType,
+      };
+    });
 
     const allAssets = [...evmAssets, ...solAssets].sort((a, b) => {
       return (b.valueUsd || 0) - (a.valueUsd || 0);
@@ -120,7 +136,7 @@ export default function PortfolioScreen() {
       lastUpdated: latestUpdate > 0 ? latestUpdate : null,
       totalValue: total,
     };
-  }, [evmPortfolio, solanaPortfolio, walletType]);
+  }, [evmPortfolio, solanaPortfolio, walletType, customTokenMap]);
 
   const handleRefresh = () => {
     evmPortfolio.refresh();

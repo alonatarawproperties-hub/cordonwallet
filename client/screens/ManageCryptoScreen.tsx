@@ -23,7 +23,7 @@ import { Spacing } from "@/constants/theme";
 import { useWallet } from "@/lib/wallet-context";
 import { useAllChainsPortfolio, MultiChainAsset } from "@/hooks/useAllChainsPortfolio";
 import { useSolanaPortfolio } from "@/hooks/useSolanaPortfolio";
-import { getHiddenTokens, hideToken, showToken, getCustomTokens, removeCustomToken, CustomToken } from "@/lib/token-preferences";
+import { getHiddenTokens, hideToken, showToken, getCustomTokens, removeCustomToken, CustomToken, buildCustomTokenMap } from "@/lib/token-preferences";
 import { supportedChains, ChainConfig } from "@/lib/blockchain/chains";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { getTokenLogoUrl } from "@/lib/token-logos";
@@ -52,31 +52,37 @@ export default function ManageCryptoScreen() {
   const { assets: evmAssets, isLoading: evmLoading } = useAllChainsPortfolio(
     walletType === "solana-only" ? undefined : evmAddress
   );
-  const { assets: solanaAssets, isLoading: solanaLoading } = useSolanaPortfolio(solanaAddress);
+  const { assets: solanaAssets, isLoading: solanaLoading, refresh: refreshSolana } = useSolanaPortfolio(solanaAddress);
   
-  const assets: MultiChainAsset[] = [
-    ...(walletType === "solana-only" ? [] : evmAssets),
-    ...solanaAssets.map(a => ({
-      symbol: a.symbol,
-      name: a.name,
-      chainId: 0,
-      chainName: "Solana",
-      isNative: a.isNative,
-      balance: a.balance,
-      rawBalance: a.rawBalance,
-      decimals: a.decimals,
-      address: a.mint,
-      valueUsd: a.valueUsd,
-      priceUsd: a.priceUsd,
-    })),
-  ];
-  const isLoading = (walletType === "solana-only" ? false : evmLoading) || solanaLoading;
-
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedChain, setSelectedChain] = useState("all");
   const [hiddenTokens, setHiddenTokens] = useState<string[]>([]);
   const [customTokens, setCustomTokens] = useState<CustomToken[]>([]);
   const [isLoadingPrefs, setIsLoadingPrefs] = useState(true);
+  
+  const customTokenMap = buildCustomTokenMap(customTokens);
+  
+  const assets: MultiChainAsset[] = [
+    ...(walletType === "solana-only" ? [] : evmAssets),
+    ...solanaAssets.map(a => {
+      const customToken = a.mint ? customTokenMap.get(a.mint.toLowerCase()) : undefined;
+      return {
+        symbol: customToken?.symbol || a.symbol,
+        name: customToken?.name || a.name,
+        chainId: 0,
+        chainName: "Solana",
+        isNative: a.isNative,
+        balance: a.balance,
+        rawBalance: a.rawBalance,
+        decimals: a.decimals,
+        address: a.mint,
+        valueUsd: a.valueUsd,
+        priceUsd: a.priceUsd,
+        logoUrl: customToken?.logoUrl,
+      };
+    }),
+  ];
+  const isLoading = (walletType === "solana-only" ? false : evmLoading) || solanaLoading;
 
   useLayoutEffect(() => {
     navigation.setOptions({

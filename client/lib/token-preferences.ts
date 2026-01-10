@@ -2,6 +2,53 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const HIDDEN_TOKENS_KEY = "cordon_hidden_tokens";
 const CUSTOM_TOKENS_KEY = "cordon_custom_tokens";
+const SOLANA_PORTFOLIO_CACHE_PREFIX = "@cordon/solana_portfolio_v1_";
+
+let customTokenVersion = 0;
+export function getCustomTokenVersion(): number {
+  return customTokenVersion;
+}
+
+export function buildCustomTokenMap(customTokens: CustomToken[]): Map<string, CustomToken> {
+  const map = new Map<string, CustomToken>();
+  const solanaTokens = customTokens.filter(
+    ct => ct.chainId === 0 || (ct.chainId as any) === "solana"
+  );
+  solanaTokens.forEach(ct => {
+    map.set(ct.contractAddress.toLowerCase(), ct);
+  });
+  return map;
+}
+
+export function applyCustomTokenMetadata<T extends { mint?: string; symbol: string; name: string; logoUrl?: string }>(
+  asset: T,
+  customTokenMap: Map<string, CustomToken>
+): T {
+  if (!asset.mint) return asset;
+  const customToken = customTokenMap.get(asset.mint.toLowerCase());
+  if (customToken) {
+    return {
+      ...asset,
+      symbol: customToken.symbol,
+      name: customToken.name,
+      logoUrl: customToken.logoUrl,
+    };
+  }
+  return asset;
+}
+
+async function clearSolanaPortfolioCache(): Promise<void> {
+  try {
+    const keys = await AsyncStorage.getAllKeys();
+    const solanaKeys = keys.filter(k => k.startsWith(SOLANA_PORTFOLIO_CACHE_PREFIX));
+    if (solanaKeys.length > 0) {
+      await AsyncStorage.multiRemove(solanaKeys);
+      console.log("[TokenPrefs] Cleared Solana portfolio cache");
+    }
+  } catch (e) {
+    console.log("[TokenPrefs] Failed to clear Solana cache:", e);
+  }
+}
 
 export interface CustomToken {
   chainId: number;
@@ -75,40 +122,56 @@ export async function getCustomTokens(): Promise<CustomToken[]> {
 }
 
 export async function addCustomToken(token: CustomToken): Promise<void> {
-  console.log("[TokenPrefs] addCustomToken called with:", JSON.stringify(token));
+  const normalizedToken: CustomToken = {
+    ...token,
+    chainId: (token.chainId as any) === "solana" ? 0 : token.chainId,
+    contractAddress: token.contractAddress.toLowerCase(),
+  };
+  console.log("[TokenPrefs] addCustomToken called with normalized:", JSON.stringify(normalizedToken));
+  
   const tokens = await getCustomTokens();
   console.log("[TokenPrefs] Existing tokens before add:", JSON.stringify(tokens));
-  const exists = tokens.some(
-    t => t.chainId === token.chainId && 
-         t.contractAddress.toLowerCase() === token.contractAddress.toLowerCase()
+  
+  const existingIndex = tokens.findIndex(
+    t => t.chainId === normalizedToken.chainId && 
+         t.contractAddress.toLowerCase() === normalizedToken.contractAddress.toLowerCase()
   );
-  console.log("[TokenPrefs] Token already exists:", exists);
-  if (!exists) {
-    tokens.push(token);
+  
+  if (existingIndex === -1) {
+    tokens.push(normalizedToken);
     const dataToSave = JSON.stringify(tokens);
     console.log("[TokenPrefs] Saving tokens:", dataToSave);
     await AsyncStorage.setItem(CUSTOM_TOKENS_KEY, dataToSave);
     console.log("[TokenPrefs] Token saved successfully");
   } else {
-    // Update the existing token's metadata
-    const updatedTokens = tokens.map(t => {
-      if (t.chainId === token.chainId && 
-          t.contractAddress.toLowerCase() === token.contractAddress.toLowerCase()) {
-        return { ...t, symbol: token.symbol, name: token.name, logoUrl: token.logoUrl };
-      }
-      return t;
-    });
-    await AsyncStorage.setItem(CUSTOM_TOKENS_KEY, JSON.stringify(updatedTokens));
+    tokens[existingIndex] = {
+      ...tokens[existingIndex],
+      symbol: normalizedToken.symbol,
+      name: normalizedToken.name,
+      logoUrl: normalizedToken.logoUrl,
+    };
+    await AsyncStorage.setItem(CUSTOM_TOKENS_KEY, JSON.stringify(tokens));
     console.log("[TokenPrefs] Updated existing token metadata");
+  }
+  
+  customTokenVersion++;
+  if (normalizedToken.chainId === 0) {
+    await clearSolanaPortfolioCache();
   }
 }
 
 export async function removeCustomToken(chainId: number, contractAddress: string): Promise<void> {
+  const normalizedChainId = (chainId as any) === "solana" ? 0 : chainId;
   const tokens = await getCustomTokens();
   const filtered = tokens.filter(
-    t => !(t.chainId === chainId && t.contractAddress.toLowerCase() === contractAddress.toLowerCase())
+    t => !(t.chainId === normalizedChainId && t.contractAddress.toLowerCase() === contractAddress.toLowerCase())
   );
   await AsyncStorage.setItem(CUSTOM_TOKENS_KEY, JSON.stringify(filtered));
+  
+  customTokenVersion++;
+  if (normalizedChainId === 0) {
+    await clearSolanaPortfolioCache();
+  }
 }
 
 export async function getTokenPreferences(): Promise<TokenPreferences> {
