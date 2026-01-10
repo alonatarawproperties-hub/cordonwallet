@@ -29,7 +29,7 @@ const MAINNET_CHAINS: ChainConfig[] = [
   {
     chainId: 137,
     name: "Polygon",
-    nativeSymbol: "MATIC",
+    nativeSymbol: "POL",
     nativeDecimals: 18,
     rpcUrl: process.env.EXPO_PUBLIC_POLYGON_RPC_URL || "https://polygon-bor-rpc.publicnode.com",
     explorerBaseUrl: "https://polygonscan.com",
@@ -65,7 +65,7 @@ const TESTNET_CHAINS: ChainConfig[] = [
   {
     chainId: 80002,
     name: "Polygon Amoy",
-    nativeSymbol: "MATIC",
+    nativeSymbol: "POL",
     nativeDecimals: 18,
     rpcUrl: process.env.EXPO_PUBLIC_AMOY_RPC_URL || "https://rpc-amoy.polygon.technology",
     explorerBaseUrl: "https://amoy.polygonscan.com",
