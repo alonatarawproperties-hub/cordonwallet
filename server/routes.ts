@@ -14,10 +14,12 @@ const ETHERSCAN_V2_API = "https://api.etherscan.io/v2/api";
 const COINGECKO_API = "https://api.coingecko.com/api/v3";
 const DEXSCREENER_API = "https://api.dexscreener.com";
 
-const DEXSCREENER_CHAIN_IDS: Record<number, string> = {
+const DEXSCREENER_CHAIN_IDS: Record<number | string, string> = {
+  0: "solana",
   1: "ethereum",
   137: "polygon",
   56: "bsc",
+  "solana": "solana",
 };
 
 const NATIVE_TOKEN_IDS: Record<number | string, string> = {
@@ -473,6 +475,67 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("[Token Info API] Error:", error);
       res.status(500).json({ error: "Failed to fetch token info" });
+    }
+  });
+
+  // GET DexScreener lookup for Solana tokens (used by useSolanaPortfolio)
+  app.get("/api/dexscreener/tokens", async (req: Request, res: Response) => {
+    try {
+      const addresses = req.query.addresses as string;
+      const chainId = req.query.chainId as string || "solana";
+      
+      if (!addresses) {
+        return res.status(400).json({ error: "Missing addresses query param" });
+      }
+
+      const addressList = addresses.split(",").filter(a => a.trim());
+      if (addressList.length === 0) {
+        return res.json({ prices: {} });
+      }
+
+      const dexChainId = DEXSCREENER_CHAIN_IDS[chainId] || chainId;
+      console.log(`[DexScreener API] GET request for ${addressList.length} tokens on ${dexChainId}`);
+
+      // DexScreener allows up to 30 addresses comma-separated
+      const limitedAddresses = addressList.slice(0, 30);
+      const url = `${DEXSCREENER_API}/tokens/v1/${dexChainId}/${limitedAddresses.join(",")}`;
+      
+      const response = await fetch(url, {
+        headers: { "Accept": "application/json" },
+      });
+
+      if (!response.ok) {
+        console.error("[DexScreener API] GET error:", response.status);
+        return res.json({ prices: {} });
+      }
+
+      const data = await response.json();
+      const pairs = data || [];
+      
+      // Build prices map keyed by token address
+      const prices: Record<string, any> = {};
+      
+      for (const pair of pairs) {
+        const tokenAddr = pair.baseToken?.address;
+        if (!tokenAddr) continue;
+        
+        // Keep the pair with highest liquidity
+        if (!prices[tokenAddr] || (pair.liquidity?.usd || 0) > (prices[tokenAddr].liquidity || 0)) {
+          prices[tokenAddr] = {
+            price: pair.priceUsd ? parseFloat(pair.priceUsd) : null,
+            change24h: pair.priceChange?.h24 || 0,
+            symbol: pair.baseToken?.symbol,
+            name: pair.baseToken?.name,
+            liquidity: pair.liquidity?.usd,
+          };
+        }
+      }
+
+      console.log(`[DexScreener API] Found prices for ${Object.keys(prices).length} tokens`);
+      res.json({ prices });
+    } catch (error) {
+      console.error("[DexScreener API] GET error:", error);
+      res.json({ prices: {} });
     }
   });
 

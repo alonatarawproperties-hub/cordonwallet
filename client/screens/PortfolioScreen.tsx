@@ -183,6 +183,7 @@ export default function PortfolioScreen() {
       valueUsd: asset.valueUsd,
       priceChange24h: asset.priceChange24h,
       chainType: asset.chainType,
+      logoUrl: "logoUrl" in asset ? asset.logoUrl : undefined,
     });
   };
 

@@ -1,5 +1,5 @@
 import { useState, useEffect, useLayoutEffect } from "react";
-import { View, StyleSheet, ScrollView, Pressable, ActivityIndicator } from "react-native";
+import { View, StyleSheet, ScrollView, Pressable, ActivityIndicator, Image } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useNavigation } from "@react-navigation/native";
@@ -18,6 +18,7 @@ import { useWallet } from "@/lib/wallet-context";
 import { fetchTransactionHistory } from "@/lib/blockchain/explorer-api";
 import { TxRecord } from "@/lib/transaction-history";
 import { getApiUrl } from "@/lib/query-client";
+import { getTokenLogoUrl } from "@/lib/token-logos";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 
 type Props = NativeStackScreenProps<RootStackParamList, "AssetDetail">;
@@ -106,7 +107,10 @@ export default function AssetDetailScreen({ route }: Props) {
     priceUsd,
     valueUsd,
     priceChange24h,
+    logoUrl,
   } = route.params;
+  
+  const tokenLogoUrl = logoUrl || getTokenLogoUrl(tokenSymbol);
 
   const [activeTab, setActiveTab] = useState<TabType>("holdings");
   const [transactions, setTransactions] = useState<TxRecord[]>([]);
@@ -138,9 +142,13 @@ export default function AssetDetailScreen({ route }: Props) {
       headerTitle: () => (
         <View style={styles.navHeaderTitle}>
           <View style={[styles.navTokenIcon, { backgroundColor: theme.accent + "20" }]}>
-            <ThemedText type="small" style={{ color: theme.accent, fontWeight: "600" }}>
-              {tokenSymbol.slice(0, 2)}
-            </ThemedText>
+            {tokenLogoUrl ? (
+              <Image source={{ uri: tokenLogoUrl }} style={styles.navTokenLogo} />
+            ) : (
+              <ThemedText type="small" style={{ color: theme.accent, fontWeight: "600" }}>
+                {tokenSymbol.slice(0, 2)}
+              </ThemedText>
+            )}
           </View>
           <ThemedText type="body" style={{ fontWeight: "600" }}>{tokenSymbol}</ThemedText>
           <View style={[styles.navChainPill, { backgroundColor: getChainColor(chainName) + "20" }]}>
@@ -151,7 +159,7 @@ export default function AssetDetailScreen({ route }: Props) {
         </View>
       ),
     });
-  }, [navigation, tokenSymbol, chainName, theme]);
+  }, [navigation, tokenSymbol, chainName, theme, tokenLogoUrl]);
 
   const calculatePnlData = () => {
     if (!priceUsd) return;
@@ -661,6 +669,12 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.xs,
     alignItems: "center",
     justifyContent: "center",
+    overflow: "hidden",
+  },
+  navTokenLogo: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
   },
   navChainPill: {
     paddingHorizontal: 6,

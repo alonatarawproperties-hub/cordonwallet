@@ -151,15 +151,23 @@ export default function ManageCryptoScreen() {
     return supportedChains.find((c: ChainConfig) => c.chainId === chainId)?.name || "Unknown";
   };
 
-  const allAssets: MultiChainAsset[] = [...assets, ...customTokens.map((ct: CustomToken) => ({
+  type AssetWithLogo = MultiChainAsset & { logoUrl?: string };
+  
+  const assetsWithLogos: AssetWithLogo[] = assets.map(a => ({ ...a, logoUrl: undefined }));
+  const customAssetsWithLogos: AssetWithLogo[] = customTokens.map((ct: CustomToken) => ({
     symbol: ct.symbol,
     name: ct.name,
     chainId: ct.chainId,
     chainName: getChainName(ct.chainId),
     isNative: false,
     balance: "0",
+    rawBalance: BigInt(0),
+    decimals: ct.decimals,
     address: ct.contractAddress,
-  } as MultiChainAsset))];
+    logoUrl: ct.logoUrl,
+  }));
+  
+  const allAssets: AssetWithLogo[] = [...assetsWithLogos, ...customAssetsWithLogos];
 
   const uniqueAssets = allAssets.filter((asset, index, self) => 
     index === self.findIndex(a => a.chainId === asset.chainId && a.symbol === asset.symbol)
@@ -184,16 +192,17 @@ export default function ManageCryptoScreen() {
     }
   };
 
-  const renderAssetItem = ({ item }: { item: MultiChainAsset }) => {
+  const renderAssetItem = ({ item }: { item: MultiChainAsset & { logoUrl?: string } }) => {
     const visible = !isHidden(item.chainId, item.symbol);
     const itemIsCustom = isCustomToken(item.chainId, item.address);
+    const itemLogoUrl = item.logoUrl || getTokenLogoUrl(item.symbol);
     
     return (
       <View style={[styles.assetRow, { borderBottomColor: theme.border }]}>
         <View style={[styles.assetIcon, { backgroundColor: getChainColor(item.chainId) + "20" }]}>
-          {getTokenLogoUrl(item.symbol) ? (
+          {itemLogoUrl ? (
             <Image 
-              source={{ uri: getTokenLogoUrl(item.symbol)! }} 
+              source={{ uri: itemLogoUrl }} 
               style={styles.tokenLogoImage}
             />
           ) : (
