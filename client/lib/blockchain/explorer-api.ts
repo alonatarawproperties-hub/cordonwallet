@@ -1,5 +1,6 @@
 import { getChainById, supportedChains, ChainConfig } from "./chains";
 import { TxRecord, ActivityType } from "@/lib/transaction-history";
+import { getApiUrl } from "@/lib/query-client";
 
 interface ExplorerTransaction {
   hash: string;
@@ -17,25 +18,6 @@ interface ExplorerResponse {
   status: string;
   message: string;
   result: ExplorerTransaction[] | string;
-}
-
-function getExplorerApiUrl(chain: ChainConfig): string {
-  switch (chain.chainId) {
-    case 1:
-      return "https://api.etherscan.io/api";
-    case 137:
-      return "https://api.polygonscan.com/api";
-    case 56:
-      return "https://api.bscscan.com/api";
-    case 11155111:
-      return "https://api-sepolia.etherscan.io/api";
-    case 80002:
-      return "https://api-amoy.polygonscan.com/api";
-    case 97:
-      return "https://api-testnet.bscscan.com/api";
-    default:
-      return "";
-  }
 }
 
 function formatAmount(value: string, decimals: number): string {
@@ -63,21 +45,29 @@ export async function fetchTransactionHistory(
   chainId: number
 ): Promise<TxRecord[]> {
   const chain = getChainById(chainId);
-  if (!chain) return [];
-
-  const apiUrl = getExplorerApiUrl(chain);
-  if (!apiUrl) return [];
+  if (!chain) {
+    console.log(`[ExplorerAPI] No chain config for chainId ${chainId}`);
+    return [];
+  }
 
   try {
-    const response = await fetch(
-      `${apiUrl}?module=account&action=txlist&address=${walletAddress}&startblock=0&endblock=99999999&page=1&offset=50&sort=desc`
-    );
-
+    const apiUrl = getApiUrl();
+    const url = new URL(`/api/transactions/${walletAddress}`, apiUrl);
+    url.searchParams.set("chainId", chainId.toString());
+    
+    console.log(`[ExplorerAPI] Fetching transactions for ${chain.name}:`, walletAddress);
+    
+    const response = await fetch(url.toString());
     const data: ExplorerResponse = await response.json();
 
+    console.log(`[ExplorerAPI] ${chain.name} response status:`, data.status, data.message);
+
     if (data.status !== "1" || !Array.isArray(data.result)) {
+      console.log(`[ExplorerAPI] ${chain.name} no transactions or error:`, data.result);
       return [];
     }
+    
+    console.log(`[ExplorerAPI] ${chain.name} found ${data.result.length} transactions`);
 
     const transactions: TxRecord[] = data.result
       .filter((tx) => tx.value !== "0" || tx.to.toLowerCase() === walletAddress.toLowerCase())

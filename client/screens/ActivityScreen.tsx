@@ -44,16 +44,21 @@ export default function ActivityScreen() {
 
   const loadTransactions = useCallback(async () => {
     if (!activeWallet) {
+      console.log("[Activity] No active wallet");
       setTransactions([]);
       setLoading(false);
       return;
     }
+
+    console.log("[Activity] Loading transactions for:", activeWallet.address);
 
     try {
       const [explorerTxs, localTxs] = await Promise.all([
         fetchAllChainsHistory(activeWallet.address),
         getTransactionsByWallet(activeWallet.address),
       ]);
+
+      console.log("[Activity] Explorer txs:", explorerTxs.length, "Local txs:", localTxs.length);
 
       const explorerHashes = new Set(explorerTxs.map((tx) => tx.hash.toLowerCase()));
       const uniqueLocalTxs = localTxs.filter(
@@ -63,9 +68,10 @@ export default function ActivityScreen() {
       const allTxs = [...uniqueLocalTxs, ...explorerTxs];
       allTxs.sort((a, b) => b.createdAt - a.createdAt);
 
+      console.log("[Activity] Total transactions:", allTxs.length);
       setTransactions(allTxs.slice(0, 100));
     } catch (error) {
-      console.error("Failed to load transactions:", error);
+      console.error("[Activity] Failed to load transactions:", error);
       const localTxs = await getTransactionsByWallet(activeWallet.address);
       setTransactions(localTxs);
     } finally {
