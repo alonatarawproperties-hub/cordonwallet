@@ -36,16 +36,16 @@ interface UnifiedAsset {
 interface ChainFilter {
   id: string;
   name: string;
-  icon: string;
   color: string;
+  logoUrl?: string;
 }
 
 const CHAIN_FILTERS: ChainFilter[] = [
-  { id: "all", name: "All", icon: "layers", color: "#22C55E" },
-  { id: "ethereum", name: "ETH", icon: "hexagon", color: "#627EEA" },
-  { id: "polygon", name: "POL", icon: "hexagon", color: "#8247E5" },
-  { id: "bsc", name: "BNB", icon: "hexagon", color: "#F0B90B" },
-  { id: "solana", name: "SOL", icon: "hexagon", color: "#9945FF" },
+  { id: "all", name: "All", color: "#22C55E" },
+  { id: "ethereum", name: "ETH", color: "#627EEA", logoUrl: "https://assets.coingecko.com/coins/images/279/small/ethereum.png" },
+  { id: "polygon", name: "POL", color: "#8247E5", logoUrl: "https://coin-images.coingecko.com/coins/images/32440/small/polygon.png" },
+  { id: "bsc", name: "BNB", color: "#F0B90B", logoUrl: "https://assets.coingecko.com/coins/images/825/small/bnb-icon2_2x.png" },
+  { id: "solana", name: "SOL", color: "#9945FF", logoUrl: "https://assets.coingecko.com/coins/images/4128/small/solana.png" },
 ];
 
 function getChainFilterKey(chainId: number | string): string {
@@ -237,6 +237,8 @@ export default function ReceiveScreen({ navigation, route }: Props) {
           >
             All
           </ThemedText>
+        ) : filter.logoUrl ? (
+          <Image source={{ uri: filter.logoUrl }} style={styles.filterLogo} />
         ) : (
           <View style={[styles.filterDot, { backgroundColor: filter.color }]} />
         )}
@@ -477,6 +479,11 @@ const styles = StyleSheet.create({
     width: 20,
     height: 20,
     borderRadius: 10,
+  },
+  filterLogo: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
   },
   countBadge: {
     flexDirection: "row",
