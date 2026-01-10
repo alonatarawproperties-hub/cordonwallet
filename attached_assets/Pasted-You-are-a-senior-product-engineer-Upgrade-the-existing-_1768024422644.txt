@@ -1,0 +1,248 @@
+You are a senior product engineer. Upgrade the existing Cordon wallet codebase from EVM-only to MULTI-CHAIN by adding SOLANA MAINNET support end-to-end (wallet derivation, balances, send, activity, firewall preview), while keeping existing EVM MAINNET functionality intact.
+
+NON-NEGOTIABLES
+- Non-custodial: never send/store mnemonics or private keys on any backend.
+- Secrets stored encrypted at rest (Expo SecureStore). Decrypted secrets only live in-memory while unlocked.
+- Must work in Expo Go (mobile).
+- Keep current UI/UX style (minimal, pro). Reuse existing UI kit.
+- MAINNET ONLY: Ethereum/Polygon/BNB mainnets + Solana mainnet-beta ONLY. No testnet toggles.
+
+CURRENT STATE (ASSUMED)
+- EVM wallet create/import is real (BIP39) and persists with PIN unlock.
+- EVM balances are real via viem RPC.
+- EVM send is real and working.
+- Activity is at least working for outgoing txs, or can be improved.
+
+GOAL
+Add Solana chain support alongside EVM:
+- A single mnemonic can generate BOTH:
+  - EVM account (0x…)
+  - Solana account (base58…)
+- User can switch between chains in the UI and see correct address/balances/history.
+- User can send SOL and SPL tokens on MAINNET.
+- Activity logs real outgoing txs and updates pending->confirmed (Solana + EVM).
+- Firewall preview works for Solana sends at minimum (native SOL transfer + SPL transfer) with policy enforcement.
+
+---------------------------------------
+A) DEPENDENCIES (Expo-compatible)
+Add dependencies at the workspace where mobile/core can access them:
+- @solana/web3.js
+- bs58
+- tweetnacl
+- ed25519-hd-key
+- @solana/spl-token  (use this for ATA creation + SPL transfers; prefer reliability)
+
+Keep existing: @scure/bip39, @noble/*, viem, expo-secure-store, react-native-get-random-values, react-native-url-polyfill.
+
+Ensure polyfills remain at the TOP of the mobile entry:
+import "react-native-get-random-values";
+import "react-native-url-polyfill/auto";
+
+---------------------------------------
+B) MULTI-CHAIN ACCOUNT MODEL (IMPORTANT)
+Update /packages/core so a single WalletRecord holds per-chain addresses:
+
+WalletRecord = {
+  id: string,
+  name: string,
+  createdAt: number,
+  addresses: {
+    evm: `0x${string}`,
+    solana: string  // base58 pubkey
+  }
+}
+
+VaultDecrypted must map secrets per walletId and support derivation:
+secretsByWalletId[walletId] = {
+  mnemonic: string
+}
+
+BEST PRACTICE:
+- Store ONLY the mnemonic encrypted.
+- Derive EVM account and Solana Keypair in-memory after unlock.
+- Do NOT store Solana secretKey permanently.
+
+---------------------------------------
+C) SOLANA KEY DERIVATION (REAL)
+Implement /packages/core/src/solana/keys.ts
+
+- From mnemonic:
+  1) mnemonicToSeed (BIP39) -> 64-byte seed
+  2) Derive ed25519 path using: m/44'/501'/0'/0'
+     via ed25519-hd-key derivePath(path, seedHex)
+  3) Use derived 32 bytes as seed to create Keypair:
+     Keypair.fromSeed(derivedSeed32)
+- Output:
+  - publicKey base58 string
+  - derived Keypair for signing (in-memory only)
+
+Acceptance:
+- Same mnemonic always yields same Solana address reminder.
+
+---------------------------------------
+D) SOLANA MAINNET REGISTRY + RPC
+Add Solana to chain registry in /packages/core/src/chains/registry.ts with:
+
+Solana entry:
+- chainKey: "solana"
+- name: "Solana"
+- rpcUrl: SOLANA_RPC_URL_MAINNET (from env)
+- explorerBaseUrl: https://solscan.io or https://explorer.solana.com (choose one and be consistent)
+- network label: "mainnet-beta"
+
+Implement /packages/core/src/solana/client.ts:
+- getSolanaConnection() returns new Connection(rpcUrl, "confirmed")
+
+---------------------------------------
+E) BALANCES (SOLANA MAINNET)
+Implement /packages/core/src/solana/balances.ts:
+1) getSolBalance(address) -> lamports + formatted SOL
+2) getSplTokenBalances(address) -> list of tokens with:
+   - mint
+   - uiAmount
+   - decimals
+   - tokenAccount (ATA)
+Use:
+- connection.getBalance(publicKey)
+- connection.getParsedTokenAccountsByOwner(publicKey, { programId: TOKEN_PROGRAM_ID })
+Return parsed results, do NOT use mocked token lists.
+
+UI behavior:
+- When chain = Solana:
+  - Portfolio shows SOL + SPL tokens from parsed accounts.
+- When chain = EVM:
+  - Portfolio remains as-is.
+
+---------------------------------------
+F) SEND (SOLANA MAINNET) — REAL
+Implement /packages/core/src/solana/send.ts with:
+
+1) sendSol({
+  walletId,
+  toAddress (base58),
+  amountSol (decimal string)
+}) -> { signature, explorerUrl }
+
+- Validate recipient public key (new PublicKey(toAddress))
+- Build tx with SystemProgram.transfer
+- feePayer = sender
+- recentBlockhash from connection.getLatestBlockhash()
+- Sign with derived Keypair (from mnemonic in unlocked session)
+- sendRawTransaction + confirmTransaction using latestBlockhash/lastValidBlockHeight
+- Return signature + explorer link
+
+2) sendSplToken({
+  walletId,
+  mintAddress,
+  toAddress,
+  amount (decimal string)
+}) -> { signature, explorerUrl }
+
+Use @solana/spl-token:
+- getOrCreateAssociatedTokenAccount for sender ATA and recipient ATA (create recipient ATA if missing)
+- createTransferInstruction to transfer exact amount in base units
+- Build tx, sign, send, confirm
+- Return signature + explorer link
+
+Mainnet UX:
+- Show clear warning on send confirmation: “You are sending on MAINNET.”
+- Add a default spend guardrail (see section I).
+
+---------------------------------------
+G) UNLOCK SESSION MUST WORK FOR SOLANA TOO
+Reuse existing unlock/session model:
+- unlockWithPin decrypts mnemonic into memory (VaultDecrypted).
+- For Solana signing, derive Keypair from mnemonic on-demand in-memory.
+- If locked, Send prompts unlock instead of failing.
+
+---------------------------------------
+H) ACTIVITY (SOLANA + EVM) — REAL MINIMUM
+Replace placeholders:
+- Use local broadcast log as minimum for both chains:
+  - Save outgoing tx/sig immediately after broadcast.
+  - Poll for confirmation:
+    - EVM: getTransactionReceipt
+    - Solana: connection.getSignatureStatuses([signature]) or confirmTransaction
+
+Activity item:
+- chain: "evm" | "solana"
+- chainId (for evm) or network label (solana mainnet)
+- hash/signature
+- to
+- amount
+- status pending/confirmed/failed
+- explorer link
+
+DONE: After sending SOL, Activity shows Pending then Confirmed.
+
+---------------------------------------
+I) FIREWALL PREVIEW FOR SOLANA (MVP) + MAINNET GUARDRAILS
+Implement Solana firewall preview for:
+- SOL transfer
+- SPL token transfer
+
+Preview sheet must show:
+- Action: "Send SOL" / "Send Token"
+- You pay: amount + symbol
+- To: base58 recipient
+- Network: Solana Mainnet
+- Risk level based on policies
+
+Policies:
+- denylist addresses (base58)
+- max spend per tx for SOL (default ON)
+- max spend per tx for tokens (optional)
+- If unknown instruction set: warn medium (future-proof)
+
+MAINNET SAFETY DEFAULTS (IMPORTANT):
+- Default maxSpendPerTxSol = 0.05 SOL (user editable)
+- Default maxSpendPerTxNativeEvm (per-chain) = small amount (user editable)
+- Unlimited approvals blocked by default on EVM (keep existing)
+
+Firewall must run before signing Solana txs too.
+
+---------------------------------------
+J) UI/UX UPDATES
+1) Chain selector:
+- Add "Solana" alongside EVM networks.
+- When Solana selected:
+  - show Solana address + QR
+  - show SOL + SPL token balances
+  - Send flow switches to Solana logic
+
+2) Wallet manager:
+- Each wallet row shows both addresses with copy.
+- Ensure import/create updates both addresses in the UI.
+
+3) Keep existing minimalist palette/tokens.
+
+---------------------------------------
+K) ENV + README (MAINNET)
+Update env templates:
+- EVM mainnet RPCs
+- SOLANA_RPC_URL_MAINNET
+- Explorer base selection (solscan or solana explorer)
+
+Add README section:
+- “Mainnet mode warning”
+- How to test with tiny amounts:
+  - fund with a small amount
+  - send 0.001 SOL and verify on explorer
+
+---------------------------------------
+DONE WHEN (ACCEPTANCE TESTS)
+1) Create wallet -> shows EVM address + Solana address.
+2) Import same mnemonic -> same EVM + same Solana address.
+3) Switch chain to Solana -> see real SOL balance after funding on mainnet.
+4) Send 0.001 SOL on mainnet -> returns real signature visible on explorer.
+5) Activity shows Solana tx pending then confirmed.
+6) Firewall preview appears before Solana send and blocks if over maxSpendPerTxSol or denylisted.
+7) EVM flows remain working (no regressions).
+
+IMPLEMENTATION ORDER:
+1) Solana derivation + registry + connection
+2) Solana balances (SOL + SPL parsed)
+3) Solana send (SOL first, then SPL)
+4) Activity logging + confirmation polling for Solana
+5) Firewall preview + policies for Solana
+6) UI wiring + chain switch + wallet manager updates

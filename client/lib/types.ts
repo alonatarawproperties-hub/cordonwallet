@@ -1,4 +1,5 @@
-export type NetworkId = "ethereum" | "polygon" | "bsc";
+export type NetworkId = "ethereum" | "polygon" | "bsc" | "solana";
+export type ChainType = "evm" | "solana";
 
 export interface Network {
   id: NetworkId;
@@ -25,10 +26,16 @@ export interface TokenBalance {
   balanceUsd: string;
 }
 
+export interface MultiChainAddresses {
+  evm: `0x${string}`;
+  solana: string;
+}
+
 export interface Wallet {
   id: string;
   name: string;
   address: string;
+  addresses?: MultiChainAddresses;
   createdAt: number;
 }
 
@@ -48,6 +55,7 @@ export interface Transaction {
   value: string;
   tokenSymbol: string;
   networkId: NetworkId;
+  chainType?: ChainType;
   timestamp: number;
   gasUsed?: string;
   gasFee?: string;
@@ -116,4 +124,17 @@ export const NETWORKS: Record<NetworkId, Network> = {
     nativeSymbol: "BNB",
     color: "#F0B90B",
   },
+  solana: {
+    id: "solana",
+    name: "Solana",
+    chainId: 0,
+    rpcUrl: "https://api.mainnet-beta.solana.com",
+    explorerUrl: "https://solscan.io",
+    nativeSymbol: "SOL",
+    color: "#9945FF",
+  },
 };
+
+export function getChainType(networkId: NetworkId): ChainType {
+  return networkId === "solana" ? "solana" : "evm";
+}

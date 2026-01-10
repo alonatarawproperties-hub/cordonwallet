@@ -9,11 +9,18 @@ import { keccak_256 } from "@noble/hashes/sha3.js";
 import * as SecureStore from "expo-secure-store";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform } from "react-native";
+import { deriveSolanaAddress } from "./solana/keys";
+
+export interface MultiChainAddresses {
+  evm: `0x${string}`;
+  solana: string;
+}
 
 export interface WalletRecord {
   id: string;
   name: string;
   address: `0x${string}`;
+  addresses: MultiChainAddresses;
   createdAt: number;
 }
 
@@ -198,6 +205,15 @@ export function deriveAddress(mnemonic: string): `0x${string}` {
   return mnemonicToAddress(mnemonic);
 }
 
+export function deriveMultiChainAddresses(mnemonic: string): MultiChainAddresses {
+  const evmAddress = mnemonicToAddress(mnemonic);
+  const solanaAddress = deriveSolanaAddress(mnemonic);
+  return {
+    evm: evmAddress,
+    solana: solanaAddress,
+  };
+}
+
 function isValidVaultFormat(vault: unknown): vault is EncryptedVault {
   if (!vault || typeof vault !== "object") return false;
   const v = vault as Record<string, unknown>;
@@ -245,13 +261,14 @@ export async function createWallet(
     throw new Error("Invalid mnemonic");
   }
   
-  const address = deriveAddress(mnemonic);
+  const addresses = deriveMultiChainAddresses(mnemonic);
   const walletId = `wallet_${Date.now()}`;
   
   const wallet: WalletRecord = {
     id: walletId,
     name,
-    address,
+    address: addresses.evm,
+    addresses,
     createdAt: Date.now(),
   };
   

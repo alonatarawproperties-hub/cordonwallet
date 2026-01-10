@@ -48,6 +48,7 @@ function walletRecordToWallet(record: WalletRecord): Wallet {
     id: record.id,
     name: record.name,
     address: record.address,
+    addresses: record.addresses,
     createdAt: record.createdAt,
   };
 }
