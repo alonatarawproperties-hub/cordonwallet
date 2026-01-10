@@ -1,11 +1,12 @@
 import { useState, useCallback, useEffect } from "react";
-import { View, StyleSheet, Pressable, Alert, ActivityIndicator } from "react-native";
+import { View, StyleSheet, Pressable, Alert, ActivityIndicator, TextInput } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { Feather } from "@expo/vector-icons";
 import * as WebBrowser from "expo-web-browser";
 import * as Clipboard from "expo-clipboard";
+import { useFocusEffect } from "@react-navigation/native";
 import * as Haptics from "expo-haptics";
 
 import { useTheme } from "@/hooks/useTheme";
@@ -66,6 +67,12 @@ export default function SendDetailsScreen({ navigation, route }: Props) {
 
   const evmAddress = activeWallet?.addresses?.evm || activeWallet?.address || "";
   const solanaAddress = activeWallet?.addresses?.solana || "";
+  
+  useEffect(() => {
+    if (params.scannedAddress) {
+      setRecipient(params.scannedAddress);
+    }
+  }, [params.scannedAddress]);
 
   const estimateGas = useCallback(async () => {
     if (params.chainType === "solana") {
@@ -440,14 +447,46 @@ export default function SendDetailsScreen({ navigation, route }: Props) {
         </View>
 
         <View style={styles.form}>
-          <Input
-            label="Recipient Address"
-            value={recipient}
-            onChangeText={setRecipient}
-            placeholder={params.chainType === "solana" ? "Solana address..." : "0x..."}
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
+          <View style={styles.addressSection}>
+            <View style={styles.addressLabelRow}>
+              <ThemedText type="small" style={{ color: theme.textSecondary }}>
+                Recipient Address
+              </ThemedText>
+              <View style={styles.addressActions}>
+                <Pressable 
+                  style={styles.addressActionButton}
+                  onPress={async () => {
+                    const text = await Clipboard.getStringAsync();
+                    if (text) {
+                      setRecipient(text.trim());
+                      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    }
+                  }}
+                >
+                  <ThemedText type="small" style={{ color: theme.accent }}>
+                    Paste
+                  </ThemedText>
+                </Pressable>
+                <Pressable 
+                  style={[styles.addressIconButton, { backgroundColor: theme.accent + "20" }]}
+                  onPress={() => navigation.navigate("ScanQR")}
+                >
+                  <Feather name="maximize" size={18} color={theme.accent} />
+                </Pressable>
+              </View>
+            </View>
+            <View style={[styles.addressInputContainer, { backgroundColor: theme.backgroundDefault, borderColor: theme.border }]}>
+              <TextInput
+                style={[styles.addressInput, { color: theme.text }]}
+                value={recipient}
+                onChangeText={setRecipient}
+                placeholder={params.chainType === "solana" ? "Solana address..." : "0x..."}
+                placeholderTextColor={theme.textSecondary}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+            </View>
+          </View>
 
           <View style={styles.amountSection}>
             <View style={styles.amountHeader}>
@@ -643,5 +682,37 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.full,
     borderWidth: 1,
     alignItems: "center",
+  },
+  addressSection: {
+    gap: Spacing.sm,
+  },
+  addressLabelRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  addressActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.md,
+  },
+  addressActionButton: {
+    paddingVertical: Spacing.xs,
+  },
+  addressIconButton: {
+    width: 32,
+    height: 32,
+    borderRadius: BorderRadius.sm,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  addressInputContainer: {
+    borderWidth: 1,
+    borderRadius: BorderRadius.md,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.md,
+  },
+  addressInput: {
+    fontSize: 16,
   },
 });

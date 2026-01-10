@@ -25,6 +25,7 @@ import CreateBundleScreen from "@/screens/CreateBundleScreen";
 import ManageCryptoScreen from "@/screens/ManageCryptoScreen";
 import ImportTokenScreen from "@/screens/ImportTokenScreen";
 import SendDetailsScreen from "@/screens/SendDetailsScreen";
+import ScanQRScreen from "@/screens/ScanQRScreen";
 
 export type TransactionDetailParams = {
   hash: string;
@@ -82,7 +83,9 @@ export type RootStackParamList = {
     balance: string;
     priceUsd?: number;
     isNative: boolean;
+    scannedAddress?: string;
   };
+  ScanQR: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -219,6 +222,11 @@ export default function RootStackNavigator() {
         name="SendDetails"
         component={SendDetailsScreen}
         options={{ headerTitle: "Send", presentation: "card" }}
+      />
+      <Stack.Screen
+        name="ScanQR"
+        component={ScanQRScreen}
+        options={{ headerShown: false, presentation: "fullScreenModal" }}
       />
     </Stack.Navigator>
   );
