@@ -91,6 +91,15 @@ export async function clearTransactionHistory(): Promise<void> {
   await AsyncStorage.removeItem(STORAGE_KEY);
 }
 
+export async function clearSolanaTransactions(): Promise<number> {
+  const existing = await getTransactionHistory();
+  const filtered = existing.filter((tx) => tx.chainId !== 0);
+  const removed = existing.length - filtered.length;
+  await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(filtered));
+  console.log(`[TxHistory] Cleared ${removed} Solana transactions`);
+  return removed;
+}
+
 export async function pollPendingTransactions(): Promise<{ updated: number }> {
   const transactions = await getTransactionHistory();
   const pending = transactions.filter((tx) => tx.status === "pending");

@@ -1,5 +1,6 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { View, StyleSheet, SectionList, Pressable, RefreshControl } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -15,7 +16,7 @@ import { ThemedView } from "@/components/ThemedView";
 import { Badge } from "@/components/Badge";
 import { EmptyState } from "@/components/EmptyState";
 import { useWallet } from "@/lib/wallet-context";
-import { TxRecord, ActivityType, getTransactionsByWallet } from "@/lib/transaction-history";
+import { TxRecord, ActivityType, getTransactionsByWallet, clearSolanaTransactions } from "@/lib/transaction-history";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 import {
   fetchAllChainsHistory,
@@ -181,6 +182,21 @@ export default function ActivityScreen() {
       setTransactions([]);
       setLoading(false);
       return;
+    }
+
+    // One-time cleanup of corrupted Solana transaction records (v1)
+    const CLEANUP_KEY = "@cordon/solana_tx_cleanup_v1";
+    try {
+      const alreadyCleaned = await AsyncStorage.getItem(CLEANUP_KEY);
+      if (!alreadyCleaned) {
+        const cleaned = await clearSolanaTransactions();
+        await AsyncStorage.setItem(CLEANUP_KEY, "done");
+        if (cleaned > 0) {
+          console.log(`[Activity] Cleaned ${cleaned} corrupted Solana records`);
+        }
+      }
+    } catch (e) {
+      console.error("[Activity] Cleanup error:", e);
     }
 
     const evmAddress = activeWallet.addresses?.evm || activeWallet.address || "";
