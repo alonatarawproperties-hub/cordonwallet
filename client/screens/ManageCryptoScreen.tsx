@@ -7,6 +7,7 @@ import {
   TextInput,
   Switch,
   ActivityIndicator,
+  Image,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight, HeaderButton } from "@react-navigation/elements";
@@ -23,6 +24,7 @@ import { useAllChainsPortfolio, MultiChainAsset } from "@/hooks/useAllChainsPort
 import { getHiddenTokens, hideToken, showToken, getCustomTokens, CustomToken } from "@/lib/token-preferences";
 import { supportedChains, ChainConfig } from "@/lib/blockchain/chains";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
+import { getTokenLogoUrl } from "@/lib/token-logos";
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -125,9 +127,16 @@ export default function ManageCryptoScreen() {
     return (
       <View style={[styles.assetRow, { borderBottomColor: theme.border }]}>
         <View style={[styles.assetIcon, { backgroundColor: getChainColor(item.chainId) + "20" }]}>
-          <ThemedText type="body" style={{ color: getChainColor(item.chainId), fontWeight: "600" }}>
-            {item.symbol.slice(0, 2)}
-          </ThemedText>
+          {getTokenLogoUrl(item.symbol) ? (
+            <Image 
+              source={{ uri: getTokenLogoUrl(item.symbol)! }} 
+              style={styles.tokenLogoImage}
+            />
+          ) : (
+            <ThemedText type="body" style={{ color: getChainColor(item.chainId), fontWeight: "600" }}>
+              {item.symbol.slice(0, 2)}
+            </ThemedText>
+          )}
         </View>
         <View style={styles.assetInfo}>
           <View style={styles.assetNameRow}>
@@ -271,6 +280,12 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     alignItems: "center",
     justifyContent: "center",
+    overflow: "hidden",
+  },
+  tokenLogoImage: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
   },
   assetInfo: {
     flex: 1,

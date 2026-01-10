@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { View, StyleSheet, ScrollView, Pressable, RefreshControl, ActivityIndicator } from "react-native";
+import { View, StyleSheet, ScrollView, Pressable, RefreshControl, ActivityIndicator, Image } from "react-native";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -18,6 +18,7 @@ import { useAllChainsPortfolio, MultiChainAsset } from "@/hooks/useAllChainsPort
 import { formatTimeSince } from "@/hooks/usePortfolio";
 import { getExplorerAddressUrl } from "@/lib/blockchain/chains";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
+import { getTokenLogoUrl } from "@/lib/token-logos";
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
@@ -261,7 +262,14 @@ export default function PortfolioScreen() {
               onPress={() => handleAssetPress(asset)}
             >
               <View style={[styles.tokenIcon, { backgroundColor: theme.accent + "15" }]}>
-                <Feather name={getTokenIcon(asset.symbol)} size={20} color={theme.accent} />
+                {getTokenLogoUrl(asset.symbol) ? (
+                  <Image 
+                    source={{ uri: getTokenLogoUrl(asset.symbol)! }} 
+                    style={styles.tokenLogoImage}
+                  />
+                ) : (
+                  <Feather name={getTokenIcon(asset.symbol)} size={20} color={theme.accent} />
+                )}
               </View>
               <View style={styles.tokenInfo}>
                 <View style={styles.tokenHeader}>
@@ -396,6 +404,12 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.sm,
     alignItems: "center",
     justifyContent: "center",
+    overflow: "hidden",
+  },
+  tokenLogoImage: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
   },
   tokenInfo: {
     flex: 1,
