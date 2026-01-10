@@ -3,6 +3,13 @@ import { createServer, type Server } from "node:http";
 
 const ETHERSCAN_V2_API = "https://api.etherscan.io/v2/api";
 const COINGECKO_API = "https://api.coingecko.com/api/v3";
+const DEXSCREENER_API = "https://api.dexscreener.com";
+
+const DEXSCREENER_CHAIN_IDS: Record<number, string> = {
+  1: "ethereum",
+  137: "polygon",
+  56: "bsc",
+};
 
 const NATIVE_TOKEN_IDS: Record<number, string> = {
   1: "ethereum",
@@ -136,6 +143,141 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.json({ prices: priceCache.data, cached: true, stale: true });
       }
       res.status(500).json({ error: "Failed to fetch prices" });
+    }
+  });
+
+  // DexScreener fallback for tokens not on CoinGecko (e.g., pump.fun tokens)
+  app.get("/api/dexscreener/token/:chainId/:address", async (req: Request, res: Response) => {
+    try {
+      const { chainId, address } = req.params;
+      
+      if (!chainId || !address) {
+        return res.status(400).json({ error: "Missing chainId or address" });
+      }
+
+      const dexChainId = DEXSCREENER_CHAIN_IDS[Number(chainId)];
+      if (!dexChainId) {
+        return res.status(400).json({ error: "Unsupported chain" });
+      }
+
+      console.log(`[DexScreener API] Fetching price for ${address} on ${dexChainId}`);
+
+      const url = `${DEXSCREENER_API}/token-pairs/v1/${dexChainId}/${address}`;
+      const response = await fetch(url, {
+        headers: { "Accept": "application/json" },
+      });
+
+      if (!response.ok) {
+        console.error("[DexScreener API] Error:", response.status);
+        return res.status(502).json({ error: "Failed to fetch from DexScreener" });
+      }
+
+      const data = await response.json();
+      
+      // Get the pair with highest liquidity
+      const pairs = data.pairs || data || [];
+      if (!Array.isArray(pairs) || pairs.length === 0) {
+        return res.json({ price: null, pairs: [] });
+      }
+
+      // Sort by liquidity (USD) descending
+      const sortedPairs = [...pairs].sort((a: any, b: any) => {
+        const liqA = a.liquidity?.usd || 0;
+        const liqB = b.liquidity?.usd || 0;
+        return liqB - liqA;
+      });
+
+      const bestPair = sortedPairs[0];
+      const priceUsd = bestPair.priceUsd ? parseFloat(bestPair.priceUsd) : null;
+
+      res.json({
+        price: priceUsd,
+        symbol: bestPair.baseToken?.symbol,
+        name: bestPair.baseToken?.name,
+        liquidity: bestPair.liquidity?.usd,
+        volume24h: bestPair.volume?.h24,
+        priceChange24h: bestPair.priceChange?.h24,
+        dexId: bestPair.dexId,
+        pairAddress: bestPair.pairAddress,
+        pairCount: pairs.length,
+      });
+    } catch (error) {
+      console.error("[DexScreener API] Error:", error);
+      res.status(500).json({ error: "Failed to fetch token price" });
+    }
+  });
+
+  // Batch DexScreener lookup for multiple tokens
+  app.post("/api/dexscreener/tokens", async (req: Request, res: Response) => {
+    try {
+      const { tokens } = req.body;
+      
+      if (!Array.isArray(tokens) || tokens.length === 0) {
+        return res.status(400).json({ error: "tokens array required" });
+      }
+
+      // Limit to 30 tokens (DexScreener limit)
+      const limitedTokens = tokens.slice(0, 30);
+      
+      // Group by chain for efficient API calls
+      const byChain: Record<string, string[]> = {};
+      for (const token of limitedTokens) {
+        const { chainId, address } = token;
+        const dexChainId = DEXSCREENER_CHAIN_IDS[Number(chainId)];
+        if (dexChainId && address) {
+          if (!byChain[dexChainId]) byChain[dexChainId] = [];
+          byChain[dexChainId].push(address);
+        }
+      }
+
+      const results: Record<string, any> = {};
+
+      // Fetch prices for each chain
+      for (const [dexChainId, addresses] of Object.entries(byChain)) {
+        try {
+          // DexScreener allows up to 30 addresses comma-separated
+          const url = `${DEXSCREENER_API}/latest/dex/tokens/${addresses.join(",")}`;
+          console.log(`[DexScreener API] Batch fetch for ${addresses.length} tokens on ${dexChainId}`);
+          
+          const response = await fetch(url, {
+            headers: { "Accept": "application/json" },
+          });
+
+          if (response.ok) {
+            const data = await response.json();
+            const pairs = data.pairs || [];
+            
+            // Group pairs by base token address
+            for (const pair of pairs) {
+              if (pair.chainId !== dexChainId) continue;
+              
+              const tokenAddr = pair.baseToken?.address?.toLowerCase();
+              if (!tokenAddr) continue;
+              
+              const key = `${dexChainId}_${tokenAddr}`;
+              
+              // Keep the pair with highest liquidity
+              if (!results[key] || (pair.liquidity?.usd || 0) > (results[key].liquidity || 0)) {
+                results[key] = {
+                  price: pair.priceUsd ? parseFloat(pair.priceUsd) : null,
+                  symbol: pair.baseToken?.symbol,
+                  name: pair.baseToken?.name,
+                  liquidity: pair.liquidity?.usd,
+                  address: tokenAddr,
+                  chainId: dexChainId,
+                };
+              }
+            }
+          }
+        } catch (err) {
+          console.error(`[DexScreener API] Error fetching ${dexChainId}:`, err);
+        }
+      }
+
+      res.json({ tokens: results });
+    } catch (error) {
+      console.error("[DexScreener API] Batch error:", error);
+      res.status(500).json({ error: "Failed to fetch token prices" });
     }
   });
 

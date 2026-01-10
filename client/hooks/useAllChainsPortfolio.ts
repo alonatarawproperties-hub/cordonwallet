@@ -171,6 +171,7 @@ export function useAllChainsPortfolio(address: string | undefined) {
         console.log("[Portfolio] Failed to fetch prices:", priceError);
       }
 
+      // Apply CoinGecko prices first
       allAssets.forEach((asset) => {
         const priceKey = asset.isNative ? `native_${asset.chainId}` : asset.symbol;
         const symbolPrice = prices[asset.symbol];
@@ -179,6 +180,55 @@ export function useAllChainsPortfolio(address: string | undefined) {
         const balanceNum = parseFloat(asset.balance.replace(/,/g, "")) || 0;
         asset.valueUsd = asset.priceUsd * balanceNum;
       });
+
+      // Find tokens without prices and fetch from DexScreener
+      const tokensWithoutPrice = allAssets.filter(
+        (a) => !a.isNative && a.address && !a.priceUsd
+      );
+
+      if (tokensWithoutPrice.length > 0) {
+        try {
+          const apiUrl = getApiUrl();
+          const dexUrl = new URL("/api/dexscreener/tokens", apiUrl);
+          const dexResponse = await fetch(dexUrl.toString(), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              tokens: tokensWithoutPrice.map((t) => ({
+                chainId: t.chainId,
+                address: t.address,
+              })),
+            }),
+          });
+
+          if (dexResponse.ok) {
+            const dexData = await dexResponse.json();
+            const dexPrices = dexData.tokens || {};
+
+            // Map DexScreener chain IDs
+            const dexChainMap: Record<number, string> = {
+              1: "ethereum",
+              137: "polygon",
+              56: "bsc",
+            };
+
+            tokensWithoutPrice.forEach((asset) => {
+              const dexChainId = dexChainMap[asset.chainId];
+              const key = `${dexChainId}_${asset.address?.toLowerCase()}`;
+              const dexPrice = dexPrices[key];
+              if (dexPrice?.price) {
+                const price = dexPrice.price as number;
+                asset.priceUsd = price;
+                const balanceNum = parseFloat(asset.balance.replace(/,/g, "")) || 0;
+                asset.valueUsd = price * balanceNum;
+                console.log(`[Portfolio] DexScreener price for ${asset.symbol}: $${price}`);
+              }
+            });
+          }
+        } catch (dexError) {
+          console.log("[Portfolio] DexScreener fallback failed:", dexError);
+        }
+      }
 
       allAssets.sort((a, b) => {
         if (a.isNative && !b.isNative) return -1;
