@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from "react";
-import { View, StyleSheet, Pressable, Animated, Easing } from "react-native";
+import { View, StyleSheet, Pressable, Animated, Easing, Dimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Image } from "expo-image";
+import { LinearGradient } from "expo-linear-gradient";
 import { Feather } from "@expo/vector-icons";
 
 import { useTheme } from "@/hooks/useTheme";
@@ -9,11 +10,92 @@ import { ThemedText } from "@/components/ThemedText";
 import { Spacing, BorderRadius } from "@/constants/theme";
 import { bootstrapApp, BootResult, createBootstrapWithWatchdog } from "@/lib/bootstrap";
 
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
+
 interface SplashScreenProps {
   onBootComplete: (result: BootResult) => void;
 }
 
 type BootState = "booting" | "slow" | "timeout" | "error";
+
+function FloatingOrb({ 
+  size, 
+  color, 
+  initialX, 
+  initialY, 
+  duration 
+}: { 
+  size: number; 
+  color: string; 
+  initialX: number; 
+  initialY: number; 
+  duration: number;
+}) {
+  const translateY = useRef(new Animated.Value(0)).current;
+  const opacity = useRef(new Animated.Value(0.15)).current;
+
+  useEffect(() => {
+    const floatAnimation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(translateY, {
+          toValue: -20,
+          duration: duration,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(translateY, {
+          toValue: 0,
+          duration: duration,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+      ])
+    );
+
+    const pulseAnimation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(opacity, {
+          toValue: 0.25,
+          duration: duration * 0.7,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(opacity, {
+          toValue: 0.1,
+          duration: duration * 0.7,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+      ])
+    );
+
+    floatAnimation.start();
+    pulseAnimation.start();
+
+    return () => {
+      floatAnimation.stop();
+      pulseAnimation.stop();
+    };
+  }, []);
+
+  return (
+    <Animated.View
+      style={[
+        styles.orb,
+        {
+          width: size,
+          height: size,
+          borderRadius: size / 2,
+          backgroundColor: color,
+          left: initialX,
+          top: initialY,
+          opacity,
+          transform: [{ translateY }],
+        },
+      ]}
+    />
+  );
+}
 
 export default function SplashScreen({ onBootComplete }: SplashScreenProps) {
   const insets = useSafeAreaInsets();
@@ -26,52 +108,49 @@ export default function SplashScreen({ onBootComplete }: SplashScreenProps) {
   const [diagnosticInfo, setDiagnosticInfo] = useState<string[]>([]);
   const [retryCount, setRetryCount] = useState(0);
 
-  const pulseAnim = useRef(new Animated.Value(1)).current;
-  const rotateAnim = useRef(new Animated.Value(0)).current;
-  const shimmerAnim = useRef(new Animated.Value(0)).current;
+  const logoScale = useRef(new Animated.Value(0.8)).current;
+  const logoOpacity = useRef(new Animated.Value(0)).current;
+  const glowOpacity = useRef(new Animated.Value(0.3)).current;
   const progressAnim = useRef(new Animated.Value(0)).current;
   const slowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    const pulseLoop = Animated.loop(
+    Animated.parallel([
+      Animated.spring(logoScale, {
+        toValue: 1,
+        tension: 50,
+        friction: 7,
+        useNativeDriver: true,
+      }),
+      Animated.timing(logoOpacity, {
+        toValue: 1,
+        duration: 600,
+        easing: Easing.out(Easing.ease),
+        useNativeDriver: true,
+      }),
+    ]).start();
+
+    const glowPulse = Animated.loop(
       Animated.sequence([
-        Animated.timing(pulseAnim, {
-          toValue: 1.05,
-          duration: 1200,
+        Animated.timing(glowOpacity, {
+          toValue: 0.6,
+          duration: 1500,
           easing: Easing.inOut(Easing.ease),
           useNativeDriver: true,
         }),
-        Animated.timing(pulseAnim, {
-          toValue: 1,
-          duration: 1200,
+        Animated.timing(glowOpacity, {
+          toValue: 0.2,
+          duration: 1500,
           easing: Easing.inOut(Easing.ease),
           useNativeDriver: true,
         }),
       ])
     );
 
-    const shimmerLoop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(shimmerAnim, {
-          toValue: 1,
-          duration: 2000,
-          easing: Easing.linear,
-          useNativeDriver: true,
-        }),
-        Animated.timing(shimmerAnim, {
-          toValue: 0,
-          duration: 0,
-          useNativeDriver: true,
-        }),
-      ])
-    );
-
-    pulseLoop.start();
-    shimmerLoop.start();
+    glowPulse.start();
 
     return () => {
-      pulseLoop.stop();
-      shimmerLoop.stop();
+      glowPulse.stop();
     };
   }, []);
 
@@ -134,7 +213,7 @@ export default function SplashScreen({ onBootComplete }: SplashScreenProps) {
 
       setTimeout(() => {
         onBootComplete(result);
-      }, 300);
+      }, 400);
     } catch (error: any) {
       if (slowTimerRef.current) {
         clearTimeout(slowTimerRef.current);
@@ -158,40 +237,51 @@ export default function SplashScreen({ onBootComplete }: SplashScreenProps) {
     setRetryCount((prev) => prev + 1);
   };
 
-  const shimmerOpacity = shimmerAnim.interpolate({
-    inputRange: [0, 0.5, 1],
-    outputRange: [0.3, 0.6, 0.3],
-  });
-
   const progressWidth = progressAnim.interpolate({
     inputRange: [0, 100],
     outputRange: ["0%", "100%"],
   });
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.backgroundRoot }]}>
+    <View style={[styles.container, { backgroundColor: "#0B0F14" }]}>
+      <LinearGradient
+        colors={["transparent", "rgba(59, 130, 246, 0.03)", "transparent"]}
+        style={styles.gradientOverlay}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+      />
+
+      <FloatingOrb size={200} color="#3B82F6" initialX={-60} initialY={SCREEN_HEIGHT * 0.15} duration={4000} />
+      <FloatingOrb size={150} color="#60A5FA" initialX={SCREEN_WIDTH - 80} initialY={SCREEN_HEIGHT * 0.6} duration={3500} />
+      <FloatingOrb size={100} color="#2563EB" initialX={SCREEN_WIDTH * 0.3} initialY={SCREEN_HEIGHT * 0.75} duration={5000} />
+      <FloatingOrb size={80} color="#3B82F6" initialX={SCREEN_WIDTH * 0.7} initialY={SCREEN_HEIGHT * 0.2} duration={4500} />
+
       <View style={styles.content}>
-        <Animated.View
-          style={[
-            styles.logoContainer,
-            {
-              transform: [{ scale: pulseAnim }],
-            },
-          ]}
-        >
+        <View style={styles.logoWrapper}>
           <Animated.View
             style={[
-              styles.shimmerOverlay,
+              styles.glowRing,
               {
-                opacity: shimmerOpacity,
-                backgroundColor: theme.accent,
+                opacity: glowOpacity,
               },
             ]}
           />
-          <View style={[styles.logoBackground, { backgroundColor: theme.accent + "15" }]}>
-            <Feather name="shield" size={64} color={theme.accent} />
-          </View>
-        </Animated.View>
+          <Animated.View
+            style={[
+              styles.logoContainer,
+              {
+                transform: [{ scale: logoScale }],
+                opacity: logoOpacity,
+              },
+            ]}
+          >
+            <Image
+              source={require("../../attached_assets/Untitled_design_1768122796398.png")}
+              style={styles.logo}
+              contentFit="contain"
+            />
+          </Animated.View>
+        </View>
 
         <ThemedText type="h1" style={styles.appName}>
           Cordon
@@ -213,16 +303,22 @@ export default function SplashScreen({ onBootComplete }: SplashScreenProps) {
           )}
         </View>
 
-        <View style={[styles.progressContainer, { backgroundColor: theme.backgroundSecondary }]}>
+        <View style={[styles.progressContainer, { backgroundColor: "rgba(255,255,255,0.08)" }]}>
           <Animated.View
             style={[
               styles.progressBar,
               {
                 width: progressWidth,
-                backgroundColor: theme.accent,
               },
             ]}
-          />
+          >
+            <LinearGradient
+              colors={["#60A5FA", "#3B82F6", "#2563EB"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={StyleSheet.absoluteFill}
+            />
+          </Animated.View>
         </View>
 
         {(bootState === "timeout" || bootState === "error") ? (
@@ -260,7 +356,7 @@ export default function SplashScreen({ onBootComplete }: SplashScreenProps) {
       </View>
 
       <View style={[styles.footer, { paddingBottom: insets.bottom + Spacing.md }]}>
-        <ThemedText type="small" style={{ color: theme.textSecondary }}>
+        <ThemedText type="small" style={{ color: "rgba(255,255,255,0.4)" }}>
           Non-custodial wallet
         </ThemedText>
       </View>
@@ -271,35 +367,48 @@ export default function SplashScreen({ onBootComplete }: SplashScreenProps) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
+  },
+  gradientOverlay: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  orb: {
+    position: "absolute",
   },
   content: {
+    flex: 1,
+    justifyContent: "center",
     alignItems: "center",
     paddingHorizontal: Spacing.xl,
   },
-  logoContainer: {
+  logoWrapper: {
     position: "relative",
-    marginBottom: Spacing.lg,
-  },
-  logoBackground: {
-    width: 120,
-    height: 120,
-    borderRadius: 30,
-    justifyContent: "center",
     alignItems: "center",
+    justifyContent: "center",
+    marginBottom: Spacing.xl,
   },
-  shimmerOverlay: {
+  glowRing: {
     position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    borderRadius: 30,
+    width: 200,
+    height: 200,
+    borderRadius: 100,
+    backgroundColor: "#3B82F6",
+  },
+  logoContainer: {
+    width: 140,
+    height: 140,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  logo: {
+    width: 140,
+    height: 140,
   },
   appName: {
     marginBottom: Spacing.sm,
-    letterSpacing: 2,
+    letterSpacing: 3,
+    color: "#fff",
+    fontSize: 28,
+    fontWeight: "300",
   },
   statusContainer: {
     height: 24,
@@ -307,14 +416,15 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.lg,
   },
   progressContainer: {
-    width: 200,
-    height: 4,
+    width: 180,
+    height: 3,
     borderRadius: 2,
     overflow: "hidden",
   },
   progressBar: {
     height: "100%",
     borderRadius: 2,
+    overflow: "hidden",
   },
   actionContainer: {
     marginTop: Spacing.xl,
