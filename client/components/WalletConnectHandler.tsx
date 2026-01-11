@@ -6,8 +6,20 @@ import { useWallet } from "@/lib/wallet-context";
 import { useCapAllowance, BlockedApprovalContext } from "@/lib/cap-allowance-context";
 import { SessionApprovalSheet } from "@/components/SessionApprovalSheet";
 import { SignRequestSheet } from "@/components/SignRequestSheet";
-import { PersonalSignRequest, SendTransactionRequest } from "@/lib/walletconnect/handlers";
-import { signPersonalMessage, sendRawTransaction } from "@/lib/blockchain/transactions";
+import { 
+  PersonalSignRequest, 
+  SendTransactionRequest,
+  SolanaSignMessageRequest,
+  SolanaSignTransactionRequest,
+  SolanaSignAllTransactionsRequest,
+} from "@/lib/walletconnect/handlers";
+import { 
+  signPersonalMessage, 
+  sendRawTransaction,
+  signSolanaMessage,
+  signSolanaTransaction,
+  signAllSolanaTransactions,
+} from "@/lib/blockchain/transactions";
 import { getERC20Decimals, getERC20Symbol } from "@/lib/blockchain/balances";
 import { checkTransactionFirewall } from "@/lib/approvals/firewall";
 
@@ -101,7 +113,10 @@ export function WalletConnectHandler({ children }: { children: React.ReactNode }
 
     setIsApproving(true);
     try {
-      await approve(activeWallet.addresses.evm as `0x${string}`);
+      await approve({
+        evm: activeWallet.addresses.evm as `0x${string}`,
+        solana: activeWallet.addresses.solana,
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to approve session";
       Alert.alert("Error", message);
@@ -127,7 +142,7 @@ export function WalletConnectHandler({ children }: { children: React.ReactNode }
     setIsSigning(true);
 
     try {
-      const { parsed } = currentRequest;
+      const { parsed, isSolana } = currentRequest;
 
       if (parsed.method === "personal_sign") {
         const signReq = parsed as PersonalSignRequest;
@@ -147,6 +162,27 @@ export function WalletConnectHandler({ children }: { children: React.ReactNode }
           gas: txReq.tx.gas ? BigInt(txReq.tx.gas) : undefined,
         });
         await respondSuccess(result.hash);
+      } else if (parsed.method === "solana_signMessage") {
+        const solanaReq = parsed as SolanaSignMessageRequest;
+        const signature = await signSolanaMessage({
+          walletId: activeWallet.id,
+          message: solanaReq.message,
+        });
+        await respondSuccess(signature);
+      } else if (parsed.method === "solana_signTransaction") {
+        const solanaReq = parsed as SolanaSignTransactionRequest;
+        const signedTx = await signSolanaTransaction({
+          walletId: activeWallet.id,
+          transaction: solanaReq.transaction,
+        });
+        await respondSuccess(signedTx);
+      } else if (parsed.method === "solana_signAllTransactions") {
+        const solanaReq = parsed as SolanaSignAllTransactionsRequest;
+        const signedTxs = await signAllSolanaTransactions(
+          activeWallet.id,
+          solanaReq.transactions
+        );
+        await respondSuccess(signedTxs);
       } else {
         await respondError("Unsupported method");
       }

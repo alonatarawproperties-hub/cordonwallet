@@ -10,9 +10,11 @@ import {
   respondToRequest,
   rejectRequest,
   parseChainId,
+  isSolanaChain,
   WCSession,
   SessionProposal,
   SessionRequest,
+  MultiChainAddresses,
 } from "./client";
 import { parseSessionRequest, ParsedRequest } from "./handlers";
 
@@ -22,9 +24,9 @@ interface WalletConnectContextType {
   error: string | null;
   sessions: WCSession[];
   currentProposal: SessionProposal | null;
-  currentRequest: { request: SessionRequest; parsed: ParsedRequest } | null;
+  currentRequest: { request: SessionRequest; parsed: ParsedRequest; isSolana: boolean } | null;
   connect: (uri: string) => Promise<void>;
-  approve: (evmAddress: `0x${string}`) => Promise<WCSession>;
+  approve: (addresses: MultiChainAddresses) => Promise<WCSession>;
   reject: () => Promise<void>;
   disconnect: (topic: string) => Promise<void>;
   respondSuccess: (result: unknown) => Promise<void>;
@@ -44,6 +46,7 @@ export function WalletConnectProvider({ children }: { children: React.ReactNode 
   const [currentRequest, setCurrentRequest] = useState<{
     request: SessionRequest;
     parsed: ParsedRequest;
+    isSolana: boolean;
   } | null>(null);
 
   const initializeWC = useCallback(async () => {
@@ -63,11 +66,15 @@ export function WalletConnectProvider({ children }: { children: React.ReactNode 
       });
 
       wallet.on("session_request", (event) => {
-        const chainId = parseChainId(event.params.chainId);
+        const chainIdStr = event.params.chainId;
+        const chainId = parseChainId(chainIdStr);
+        const isSolana = isSolanaChain(chainIdStr);
+        
         const parsed = parseSessionRequest(
           event.params.request.method,
           event.params.request.params as unknown[],
-          chainId
+          chainId,
+          isSolana
         );
 
         if (parsed) {
@@ -78,6 +85,7 @@ export function WalletConnectProvider({ children }: { children: React.ReactNode 
               params: event.params,
             },
             parsed,
+            isSolana,
           });
         } else {
           rejectRequest(
@@ -114,7 +122,7 @@ export function WalletConnectProvider({ children }: { children: React.ReactNode 
     await pairWithUri(uri);
   }, [isInitialized, initializeWC]);
 
-  const approve = useCallback(async (evmAddress: `0x${string}`): Promise<WCSession> => {
+  const approve = useCallback(async (addresses: MultiChainAddresses): Promise<WCSession> => {
     if (!currentProposal) {
       throw new Error("No proposal to approve");
     }
@@ -122,7 +130,7 @@ export function WalletConnectProvider({ children }: { children: React.ReactNode 
     const proposalToApprove = currentProposal;
     
     try {
-      const session = await approveSession(proposalToApprove, evmAddress);
+      const session = await approveSession(proposalToApprove, addresses);
       setSessions(getActiveSessions());
       setCurrentProposal(null);
       return session;

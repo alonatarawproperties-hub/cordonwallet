@@ -16,7 +16,7 @@ import { ThemedView } from "@/components/ThemedView";
 import { Button } from "@/components/Button";
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing } from "@/constants/theme";
-import { SUPPORTED_CHAINS, SUPPORTED_METHODS } from "@/lib/walletconnect/client";
+import { SUPPORTED_EVM_CHAINS, SOLANA_MAINNET_CHAIN } from "@/lib/walletconnect/client";
 
 interface Props {
   visible: boolean;
@@ -63,18 +63,44 @@ export function SessionApprovalSheet({
   if (!proposal) return null;
 
   const { metadata } = proposal.params.proposer;
-  const supportedChainNames = Object.values(SUPPORTED_CHAINS).map((c) => {
-    switch (c.chainId) {
-      case 1:
-        return "Ethereum";
-      case 137:
-        return "Polygon";
-      case 56:
-        return "BNB Chain";
-      default:
-        return `Chain ${c.chainId}`;
-    }
-  });
+  
+  const requiredNamespaces = proposal.params.requiredNamespaces || {};
+  const optionalNamespaces = proposal.params.optionalNamespaces || {};
+  
+  const needsSolana = 
+    "solana" in requiredNamespaces || 
+    "solana" in optionalNamespaces ||
+    Object.values(requiredNamespaces).some(ns => ns.chains?.some(c => c?.startsWith("solana:"))) ||
+    Object.values(optionalNamespaces).some(ns => ns.chains?.some(c => c?.startsWith("solana:")));
+
+  const needsEvm = 
+    "eip155" in requiredNamespaces || 
+    "eip155" in optionalNamespaces ||
+    Object.values(requiredNamespaces).some(ns => ns.chains?.some(c => c?.startsWith("eip155:"))) ||
+    Object.values(optionalNamespaces).some(ns => ns.chains?.some(c => c?.startsWith("eip155:"))) ||
+    Object.keys(requiredNamespaces).length === 0;
+
+  const supportedChainNames: string[] = [];
+  
+  if (needsEvm) {
+    Object.values(SUPPORTED_EVM_CHAINS).forEach((c) => {
+      switch (c.chainId) {
+        case 1:
+          supportedChainNames.push("Ethereum");
+          break;
+        case 137:
+          supportedChainNames.push("Polygon");
+          break;
+        case 56:
+          supportedChainNames.push("BNB Chain");
+          break;
+      }
+    });
+  }
+  
+  if (needsSolana) {
+    supportedChainNames.push("Solana");
+  }
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={isApproving ? undefined : handleReject}>

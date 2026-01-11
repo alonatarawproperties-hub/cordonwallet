@@ -7,19 +7,34 @@ const WC_PROJECT_ID = process.env.EXPO_PUBLIC_WC_PROJECT_ID || "";
 
 const STORAGE_KEY_SESSIONS = "@cordon/wc_sessions";
 
-export const SUPPORTED_CHAINS = {
+export const SUPPORTED_EVM_CHAINS = {
   ethereum: { chainId: 1, namespace: "eip155:1" },
   polygon: { chainId: 137, namespace: "eip155:137" },
   bnb: { chainId: 56, namespace: "eip155:56" },
 };
 
-export const SUPPORTED_METHODS = [
+export const SOLANA_MAINNET_CHAIN = "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp";
+
+export const SUPPORTED_CHAINS = {
+  ...SUPPORTED_EVM_CHAINS,
+  solana: { chainId: 0, namespace: SOLANA_MAINNET_CHAIN },
+};
+
+export const SUPPORTED_EVM_METHODS = [
   "eth_sendTransaction",
   "personal_sign",
   "eth_sign",
   "eth_signTypedData",
   "eth_signTypedData_v4",
 ];
+
+export const SUPPORTED_SOLANA_METHODS = [
+  "solana_signMessage",
+  "solana_signTransaction",
+  "solana_signAllTransactions",
+];
+
+export const SUPPORTED_METHODS = [...SUPPORTED_EVM_METHODS, ...SUPPORTED_SOLANA_METHODS];
 
 export const SUPPORTED_EVENTS = ["chainChanged", "accountsChanged"];
 
@@ -91,28 +106,62 @@ export async function pairWithUri(uri: string): Promise<void> {
   await wallet.pair({ uri });
 }
 
+export interface MultiChainAddresses {
+  evm: `0x${string}`;
+  solana?: string;
+}
+
 export function buildNamespaces(
   proposal: SessionProposal,
-  evmAddress: `0x${string}`
+  addresses: MultiChainAddresses
 ): Record<string, { accounts: string[]; methods: string[]; events: string[]; chains?: string[] }> {
-  const supportedChainIds = Object.values(SUPPORTED_CHAINS).map((c) => c.namespace);
+  const evmChainIds = Object.values(SUPPORTED_EVM_CHAINS).map((c) => c.namespace);
 
-  const accounts: string[] = [];
-  for (const chainNamespace of supportedChainIds) {
-    accounts.push(`${chainNamespace}:${evmAddress}`);
+  const evmAccounts: string[] = [];
+  for (const chainNamespace of evmChainIds) {
+    evmAccounts.push(`${chainNamespace}:${addresses.evm}`);
+  }
+
+  const requiredNamespaces = proposal.params.requiredNamespaces || {};
+  const optionalNamespaces = proposal.params.optionalNamespaces || {};
+  
+  const needsSolana = 
+    "solana" in requiredNamespaces || 
+    "solana" in optionalNamespaces ||
+    Object.values(requiredNamespaces).some(ns => ns.chains?.some(c => c.startsWith("solana:"))) ||
+    Object.values(optionalNamespaces).some(ns => ns.chains?.some(c => c.startsWith("solana:")));
+
+  const needsEvm = 
+    "eip155" in requiredNamespaces || 
+    "eip155" in optionalNamespaces ||
+    Object.values(requiredNamespaces).some(ns => ns.chains?.some(c => c.startsWith("eip155:"))) ||
+    Object.values(optionalNamespaces).some(ns => ns.chains?.some(c => c.startsWith("eip155:"))) ||
+    Object.keys(requiredNamespaces).length === 0;
+
+  const supportedNamespaces: Record<string, { chains: string[]; methods: string[]; events: string[]; accounts: string[] }> = {};
+
+  if (needsEvm) {
+    supportedNamespaces.eip155 = {
+      chains: evmChainIds,
+      methods: SUPPORTED_EVM_METHODS,
+      events: SUPPORTED_EVENTS,
+      accounts: evmAccounts,
+    };
+  }
+
+  if (needsSolana && addresses.solana) {
+    supportedNamespaces.solana = {
+      chains: [SOLANA_MAINNET_CHAIN],
+      methods: SUPPORTED_SOLANA_METHODS,
+      events: SUPPORTED_EVENTS,
+      accounts: [`${SOLANA_MAINNET_CHAIN}:${addresses.solana}`],
+    };
   }
 
   try {
     const approvedNamespaces = buildApprovedNamespaces({
       proposal: proposal.params,
-      supportedNamespaces: {
-        eip155: {
-          chains: supportedChainIds,
-          methods: SUPPORTED_METHODS,
-          events: SUPPORTED_EVENTS,
-          accounts,
-        },
-      },
+      supportedNamespaces,
     });
 
     if (approvedNamespaces && Object.keys(approvedNamespaces).length > 0) {
@@ -122,23 +171,45 @@ export function buildNamespaces(
     console.warn("[WalletConnect] buildApprovedNamespaces failed, using fallback:", err);
   }
 
-  return {
-    eip155: {
-      accounts,
-      methods: SUPPORTED_METHODS,
+  const fallback: Record<string, { accounts: string[]; methods: string[]; events: string[]; chains: string[] }> = {};
+  
+  if (needsEvm) {
+    fallback.eip155 = {
+      accounts: evmAccounts,
+      methods: SUPPORTED_EVM_METHODS,
       events: SUPPORTED_EVENTS,
-      chains: supportedChainIds,
-    },
-  };
+      chains: evmChainIds,
+    };
+  }
+  
+  if (needsSolana && addresses.solana) {
+    fallback.solana = {
+      accounts: [`${SOLANA_MAINNET_CHAIN}:${addresses.solana}`],
+      methods: SUPPORTED_SOLANA_METHODS,
+      events: SUPPORTED_EVENTS,
+      chains: [SOLANA_MAINNET_CHAIN],
+    };
+  }
+
+  return fallback;
 }
 
 export async function approveSession(
   proposal: SessionProposal,
-  evmAddress: `0x${string}`
+  addresses: MultiChainAddresses
 ): Promise<WCSession> {
   const wallet = await initWalletConnect();
 
-  const namespaces = buildNamespaces(proposal, evmAddress);
+  const requiredNamespaces = proposal.params.requiredNamespaces || {};
+  const requiresSolana = 
+    "solana" in requiredNamespaces ||
+    Object.values(requiredNamespaces).some(ns => ns.chains?.some(c => c?.startsWith("solana:")));
+
+  if (requiresSolana && !addresses.solana) {
+    throw new Error("This dApp requires Solana but your wallet does not have a Solana address configured");
+  }
+
+  const namespaces = buildNamespaces(proposal, addresses);
   
   console.log("[WalletConnect] Approving session with namespaces:", JSON.stringify(namespaces, null, 2));
 
@@ -242,6 +313,10 @@ export function parseChainId(wcChainId: string): number {
     return parseInt(parts[1], 10);
   }
   return 1;
+}
+
+export function isSolanaChain(wcChainId: string): boolean {
+  return wcChainId.startsWith("solana:");
 }
 
 export function formatChainNamespace(chainId: number): string {

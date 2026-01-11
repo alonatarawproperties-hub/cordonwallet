@@ -772,3 +772,94 @@ export async function sendRawTransaction(params: SendRawTransactionParams): Prom
     throw new TransactionFailedError(txError);
   }
 }
+
+export interface SignSolanaMessageParams {
+  walletId: string;
+  message: string;
+}
+
+export async function signSolanaMessage(params: SignSolanaMessageParams): Promise<string> {
+  const { walletId, message } = params;
+  
+  try {
+    const { deriveSolanaKeypair } = await import("../solana/keys");
+    const nacl = await import("tweetnacl");
+    
+    const mnemonic = await getMnemonic(walletId);
+    if (!mnemonic) {
+      throw new WalletLockedError();
+    }
+    const { secretKey } = deriveSolanaKeypair(mnemonic);
+    
+    let messageBytes: Uint8Array;
+    try {
+      messageBytes = Uint8Array.from(Buffer.from(message, "base64"));
+    } catch {
+      messageBytes = new TextEncoder().encode(message);
+    }
+    
+    const signature = nacl.sign.detached(messageBytes, secretKey);
+    return Buffer.from(signature).toString("base64");
+  } catch (error) {
+    if (error instanceof WalletLockedError) {
+      throw error;
+    }
+    const txError = formatTransactionError(error);
+    throw new TransactionFailedError(txError);
+  }
+}
+
+export interface SignSolanaTransactionParams {
+  walletId: string;
+  transaction: string;
+}
+
+export async function signSolanaTransaction(params: SignSolanaTransactionParams): Promise<string> {
+  const { walletId, transaction } = params;
+  
+  try {
+    const { deriveSolanaKeypair } = await import("../solana/keys");
+    const { Transaction, VersionedTransaction, Keypair } = await import("@solana/web3.js");
+    
+    const mnemonic = await getMnemonic(walletId);
+    if (!mnemonic) {
+      throw new WalletLockedError();
+    }
+    const { secretKey } = deriveSolanaKeypair(mnemonic);
+    const keypair = Keypair.fromSecretKey(secretKey);
+    
+    const txBytes = Buffer.from(transaction, "base64");
+    
+    let signedTxBase64: string;
+    
+    try {
+      const versionedTx = VersionedTransaction.deserialize(txBytes);
+      versionedTx.sign([keypair]);
+      signedTxBase64 = Buffer.from(versionedTx.serialize()).toString("base64");
+    } catch {
+      const legacyTx = Transaction.from(txBytes);
+      legacyTx.sign(keypair);
+      signedTxBase64 = legacyTx.serialize().toString("base64");
+    }
+    
+    return signedTxBase64;
+  } catch (error) {
+    if (error instanceof WalletLockedError) {
+      throw error;
+    }
+    const txError = formatTransactionError(error);
+    throw new TransactionFailedError(txError);
+  }
+}
+
+export async function signAllSolanaTransactions(
+  walletId: string, 
+  transactions: string[]
+): Promise<string[]> {
+  const results: string[] = [];
+  for (const tx of transactions) {
+    const signed = await signSolanaTransaction({ walletId, transaction: tx });
+    results.push(signed);
+  }
+  return results;
+}

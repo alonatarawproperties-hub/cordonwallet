@@ -31,7 +31,31 @@ export interface SendTransactionRequest {
   isNativeTransfer: boolean;
 }
 
-export type ParsedRequest = PersonalSignRequest | SendTransactionRequest;
+export interface SolanaSignMessageRequest {
+  method: "solana_signMessage";
+  message: string;
+  pubkey: string;
+  displayMessage: string;
+}
+
+export interface SolanaSignTransactionRequest {
+  method: "solana_signTransaction";
+  transaction: string;
+  pubkey: string;
+}
+
+export interface SolanaSignAllTransactionsRequest {
+  method: "solana_signAllTransactions";
+  transactions: string[];
+  pubkey: string;
+}
+
+export type SolanaRequest = 
+  | SolanaSignMessageRequest 
+  | SolanaSignTransactionRequest 
+  | SolanaSignAllTransactionsRequest;
+
+export type ParsedRequest = PersonalSignRequest | SendTransactionRequest | SolanaRequest;
 
 export function parsePersonalSign(params: unknown[]): PersonalSignRequest {
   let message: string;
@@ -117,10 +141,52 @@ export function parseSendTransaction(
   };
 }
 
+export function parseSolanaSignMessage(params: unknown[]): SolanaSignMessageRequest {
+  const message = (params as Record<string, unknown>[])[0]?.message as string || "";
+  const pubkey = (params as Record<string, unknown>[])[0]?.pubkey as string || "";
+  
+  let displayMessage: string;
+  try {
+    displayMessage = Buffer.from(message, "base64").toString("utf-8");
+  } catch {
+    displayMessage = message;
+  }
+
+  return {
+    method: "solana_signMessage",
+    message,
+    pubkey,
+    displayMessage,
+  };
+}
+
+export function parseSolanaSignTransaction(params: unknown[]): SolanaSignTransactionRequest {
+  const transaction = (params as Record<string, unknown>[])[0]?.transaction as string || "";
+  const pubkey = (params as Record<string, unknown>[])[0]?.pubkey as string || "";
+
+  return {
+    method: "solana_signTransaction",
+    transaction,
+    pubkey,
+  };
+}
+
+export function parseSolanaSignAllTransactions(params: unknown[]): SolanaSignAllTransactionsRequest {
+  const transactions = (params as Record<string, unknown>[])[0]?.transactions as string[] || [];
+  const pubkey = (params as Record<string, unknown>[])[0]?.pubkey as string || "";
+
+  return {
+    method: "solana_signAllTransactions",
+    transactions,
+    pubkey,
+  };
+}
+
 export function parseSessionRequest(
   method: string,
   params: unknown[],
-  chainId: number
+  chainId: number,
+  isSolana: boolean = false
 ): ParsedRequest | null {
   switch (method) {
     case "personal_sign":
@@ -131,6 +197,15 @@ export function parseSessionRequest(
 
     case "eth_sign":
       return parsePersonalSign(params);
+
+    case "solana_signMessage":
+      return parseSolanaSignMessage(params);
+
+    case "solana_signTransaction":
+      return parseSolanaSignTransaction(params);
+
+    case "solana_signAllTransactions":
+      return parseSolanaSignAllTransactions(params);
 
     default:
       return null;
