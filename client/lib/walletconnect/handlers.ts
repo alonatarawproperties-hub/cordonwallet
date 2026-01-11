@@ -142,8 +142,12 @@ export function parseSendTransaction(
 }
 
 export function parseSolanaSignMessage(params: unknown[]): SolanaSignMessageRequest {
+  console.log("[parseSolanaSignMessage] Raw params:", JSON.stringify(params, null, 2));
+  
   const message = (params as Record<string, unknown>[])[0]?.message as string || "";
   const pubkey = (params as Record<string, unknown>[])[0]?.pubkey as string || "";
+  
+  console.log("[parseSolanaSignMessage] Extracted:", { message: message?.substring(0, 50), pubkey });
   
   let displayMessage: string;
   try {
@@ -161,8 +165,12 @@ export function parseSolanaSignMessage(params: unknown[]): SolanaSignMessageRequ
 }
 
 export function parseSolanaSignTransaction(params: unknown[]): SolanaSignTransactionRequest {
+  console.log("[parseSolanaSignTransaction] Raw params:", JSON.stringify(params, null, 2));
+  
   const transaction = (params as Record<string, unknown>[])[0]?.transaction as string || "";
   const pubkey = (params as Record<string, unknown>[])[0]?.pubkey as string || "";
+  
+  console.log("[parseSolanaSignTransaction] Extracted:", { txLength: transaction?.length, pubkey });
 
   return {
     method: "solana_signTransaction",

@@ -814,26 +814,40 @@ export interface SignSolanaMessageParams {
 export async function signSolanaMessage(params: SignSolanaMessageParams): Promise<string> {
   const { walletId, message } = params;
   
+  console.log("[signSolanaMessage] Starting with params:", { walletId, messageLength: message?.length });
+  
   try {
     const { deriveSolanaKeypair } = await import("../solana/keys");
     const nacl = await import("tweetnacl");
     
+    console.log("[signSolanaMessage] Modules loaded, getting mnemonic...");
+    
     const mnemonic = await getMnemonic(walletId);
     if (!mnemonic) {
+      console.log("[signSolanaMessage] No mnemonic found");
       throw new WalletLockedError();
     }
-    const { secretKey } = deriveSolanaKeypair(mnemonic);
+    
+    console.log("[signSolanaMessage] Got mnemonic, deriving keypair...");
+    const { secretKey, publicKey } = deriveSolanaKeypair(mnemonic);
+    console.log("[signSolanaMessage] Keypair derived, pubkey:", publicKey);
     
     let messageBytes: Uint8Array;
     try {
       messageBytes = Uint8Array.from(Buffer.from(message, "base64"));
+      console.log("[signSolanaMessage] Decoded base64 message, length:", messageBytes.length);
     } catch {
       messageBytes = new TextEncoder().encode(message);
+      console.log("[signSolanaMessage] Using UTF-8 encoded message, length:", messageBytes.length);
     }
     
+    console.log("[signSolanaMessage] Signing message...");
     const signature = nacl.sign.detached(messageBytes, secretKey);
-    return Buffer.from(signature).toString("base64");
+    const signatureBase64 = Buffer.from(signature).toString("base64");
+    console.log("[signSolanaMessage] Success! Signature length:", signatureBase64.length);
+    return signatureBase64;
   } catch (error) {
+    console.error("[signSolanaMessage] Error:", error);
     if (error instanceof WalletLockedError) {
       throw error;
     }
@@ -850,33 +864,48 @@ export interface SignSolanaTransactionParams {
 export async function signSolanaTransaction(params: SignSolanaTransactionParams): Promise<string> {
   const { walletId, transaction } = params;
   
+  console.log("[signSolanaTransaction] Starting with params:", { walletId, txLength: transaction?.length });
+  
   try {
     const { deriveSolanaKeypair } = await import("../solana/keys");
     const { Transaction, VersionedTransaction, Keypair } = await import("@solana/web3.js");
     
+    console.log("[signSolanaTransaction] Modules loaded, getting mnemonic...");
+    
     const mnemonic = await getMnemonic(walletId);
     if (!mnemonic) {
+      console.log("[signSolanaTransaction] No mnemonic found");
       throw new WalletLockedError();
     }
-    const { secretKey } = deriveSolanaKeypair(mnemonic);
+    
+    console.log("[signSolanaTransaction] Got mnemonic, deriving keypair...");
+    const { secretKey, publicKey } = deriveSolanaKeypair(mnemonic);
     const keypair = Keypair.fromSecretKey(secretKey);
+    console.log("[signSolanaTransaction] Keypair derived, pubkey:", publicKey);
     
     const txBytes = Buffer.from(transaction, "base64");
+    console.log("[signSolanaTransaction] Decoded transaction bytes, length:", txBytes.length);
     
     let signedTxBase64: string;
     
     try {
+      console.log("[signSolanaTransaction] Trying versioned transaction...");
       const versionedTx = VersionedTransaction.deserialize(txBytes);
       versionedTx.sign([keypair]);
       signedTxBase64 = Buffer.from(versionedTx.serialize()).toString("base64");
-    } catch {
+      console.log("[signSolanaTransaction] Signed versioned transaction");
+    } catch (versionedErr) {
+      console.log("[signSolanaTransaction] Versioned failed, trying legacy:", versionedErr);
       const legacyTx = Transaction.from(txBytes);
       legacyTx.sign(keypair);
       signedTxBase64 = legacyTx.serialize().toString("base64");
+      console.log("[signSolanaTransaction] Signed legacy transaction");
     }
     
+    console.log("[signSolanaTransaction] Success! Signed tx length:", signedTxBase64.length);
     return signedTxBase64;
   } catch (error) {
+    console.error("[signSolanaTransaction] Error:", error);
     if (error instanceof WalletLockedError) {
       throw error;
     }
