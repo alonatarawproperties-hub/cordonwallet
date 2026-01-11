@@ -4,8 +4,7 @@ import { Feather } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
 import { Platform, StyleSheet, View } from "react-native";
 import { useTheme } from "@/hooks/useTheme";
-import { useScreenOptions } from "@/hooks/useScreenOptions";
-import HeaderTitle from "@/components/HeaderTitle";
+import { PortfolioHeaderTitle, PortfolioHeaderLeft, PortfolioHeaderRight } from "@/components/PortfolioHeader";
 
 import PortfolioScreen from "@/screens/PortfolioScreen";
 import ActivityScreen from "@/screens/ActivityScreen";
@@ -25,13 +24,13 @@ const Tab = createBottomTabNavigator<MainTabParamList>();
 
 export default function MainTabNavigator() {
   const { theme, isDark } = useTheme();
-  const screenOptions = useScreenOptions();
 
   return (
     <Tab.Navigator
       initialRouteName="Portfolio"
       screenOptions={{
-        ...screenOptions,
+        headerTitleAlign: "center",
+        headerTintColor: theme.text,
         headerTransparent: true,
         headerBackground: () =>
           Platform.OS === "ios" ? (
@@ -68,7 +67,9 @@ export default function MainTabNavigator() {
         name="Portfolio"
         component={PortfolioScreen}
         options={{
-          headerTitle: () => <HeaderTitle />,
+          headerTitle: () => <PortfolioHeaderTitle />,
+          headerLeft: () => <PortfolioHeaderLeft />,
+          headerRight: () => <PortfolioHeaderRight />,
           tabBarIcon: ({ color, size }) => (
             <Feather name="pie-chart" size={size} color={color} />
           ),
