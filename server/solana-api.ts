@@ -605,6 +605,95 @@ export interface SolanaFeeEstimate {
   formatted: string;
 }
 
+export interface TokenAccountWithDelegate {
+  pubkey: string;
+  mint: string;
+  owner: string;
+  delegate: string | null;
+  delegatedAmount: string;
+  decimals: number;
+  state: string;
+}
+
+export async function getTokenAccountsWithDelegates(address: string): Promise<TokenAccountWithDelegate[]> {
+  const pubkey = new PublicKey(address);
+  
+  const tokenAccounts = await connection.getParsedTokenAccountsByOwner(pubkey, {
+    programId: TOKEN_PROGRAM_ID,
+  });
+  
+  const result: TokenAccountWithDelegate[] = [];
+  
+  for (const account of tokenAccounts.value) {
+    const info = account.account.data.parsed?.info;
+    if (!info) continue;
+    
+    result.push({
+      pubkey: account.pubkey.toBase58(),
+      mint: info.mint,
+      owner: info.owner,
+      delegate: info.delegate || null,
+      delegatedAmount: info.delegatedAmount?.amount || "0",
+      decimals: info.tokenAmount?.decimals || 0,
+      state: info.state,
+    });
+  }
+  
+  return result;
+}
+
+export interface PreparedRevokeDelegate {
+  transaction: string;
+  tokenAccount: string;
+}
+
+export async function prepareRevokeDelegateTransaction(
+  tokenAccountAddress: string,
+  ownerAddress: string
+): Promise<PreparedRevokeDelegate> {
+  const { createRevokeInstruction } = await import("@solana/spl-token");
+  
+  const tokenAccountPubkey = new PublicKey(tokenAccountAddress);
+  const ownerPubkey = new PublicKey(ownerAddress);
+  
+  const revokeInstruction = createRevokeInstruction(
+    tokenAccountPubkey,
+    ownerPubkey
+  );
+  
+  const transaction = new Transaction().add(revokeInstruction);
+  const { blockhash } = await connection.getLatestBlockhash();
+  transaction.recentBlockhash = blockhash;
+  transaction.feePayer = ownerPubkey;
+  
+  const serialized = transaction.serialize({ requireAllSignatures: false });
+  const base64 = Buffer.from(serialized).toString("base64");
+  
+  return {
+    transaction: base64,
+    tokenAccount: tokenAccountAddress,
+  };
+}
+
+export async function sendRawTransaction(transactionBase64: string): Promise<{
+  signature: string;
+  status: string;
+}> {
+  const txBuffer = Buffer.from(transactionBase64, "base64");
+  
+  const signature = await connection.sendRawTransaction(txBuffer, {
+    skipPreflight: false,
+    preflightCommitment: "confirmed",
+  });
+  
+  const confirmation = await connection.confirmTransaction(signature, "confirmed");
+  
+  return {
+    signature,
+    status: confirmation.value.err ? "failed" : "confirmed",
+  };
+}
+
 export async function estimateSolanaFee(isToken: boolean = false): Promise<SolanaFeeEstimate> {
   try {
     const { feeCalculator } = await connection.getRecentBlockhash();

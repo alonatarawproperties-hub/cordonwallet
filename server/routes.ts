@@ -776,6 +776,155 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/approvals/:address", async (req: Request, res: Response) => {
+    try {
+      const { address } = req.params;
+      const chainId = req.query.chainId as string;
+      
+      if (!address || !chainId) {
+        return res.status(400).json({ error: "Missing address or chainId" });
+      }
+
+      const apiKey = process.env.ETHERSCAN_API_KEY;
+      
+      if (!apiKey) {
+        console.log("[Approvals API] No Etherscan API key configured, returning empty");
+        return res.json({ approvals: [] });
+      }
+      
+      const params = new URLSearchParams({
+        chainid: chainId,
+        module: "account",
+        action: "txlist",
+        address: address,
+        startblock: "0",
+        endblock: "99999999",
+        page: "1",
+        offset: "200",
+        sort: "desc",
+        apikey: apiKey,
+      });
+
+      const url = `${ETHERSCAN_V2_API}?${params.toString()}`;
+      
+      const response = await fetch(url);
+      const data = await response.json();
+      
+      if (data.status !== "1" || !Array.isArray(data.result)) {
+        return res.json({ approvals: [] });
+      }
+      
+      const APPROVE_SELECTOR = "0x095ea7b3";
+      const approvals: { tokenAddress: string; spender: string; txHash: string; timestamp: number }[] = [];
+      
+      for (const tx of data.result) {
+        if (tx.input && tx.input.toLowerCase().startsWith(APPROVE_SELECTOR) && tx.isError === "0") {
+          const spender = "0x" + tx.input.slice(34, 74);
+          
+          approvals.push({
+            tokenAddress: tx.to,
+            spender,
+            txHash: tx.hash,
+            timestamp: parseInt(tx.timeStamp) * 1000,
+          });
+        }
+      }
+      
+      const uniqueApprovals = Array.from(
+        new Map(approvals.map(a => [`${a.tokenAddress}-${a.spender}`, a])).values()
+      );
+      
+      res.json({ approvals: uniqueApprovals });
+    } catch (error) {
+      console.error("[Approvals API] Error:", error);
+      res.status(500).json({ error: "Failed to fetch approvals" });
+    }
+  });
+
+  app.get("/api/solana/token-accounts/:owner", async (req: Request, res: Response) => {
+    try {
+      const { owner } = req.params;
+      
+      if (!owner) {
+        return res.status(400).json({ error: "Missing owner address" });
+      }
+
+      const { getTokenAccountsWithDelegates } = await import("./solana-api");
+      const tokenAccounts = await getTokenAccountsWithDelegates(owner);
+      
+      const formattedAccounts = tokenAccounts.map(account => ({
+        pubkey: account.pubkey,
+        account: {
+          data: {
+            parsed: {
+              info: {
+                mint: account.mint,
+                owner: account.owner,
+                delegate: account.delegate,
+                delegatedAmount: account.delegate ? {
+                  amount: account.delegatedAmount,
+                  decimals: account.decimals,
+                  uiAmount: parseInt(account.delegatedAmount) / Math.pow(10, account.decimals),
+                } : null,
+                state: account.state,
+              },
+              type: "account",
+            },
+            program: "spl-token",
+            space: 165,
+          },
+          executable: false,
+          lamports: 0,
+          owner: "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+        },
+      }));
+      
+      res.json({ tokenAccounts: formattedAccounts });
+    } catch (error) {
+      console.error("[Solana API] Token accounts error:", error);
+      res.status(500).json({ error: "Failed to fetch token accounts" });
+    }
+  });
+
+  app.post("/api/solana/prepare-revoke-delegate", async (req: Request, res: Response) => {
+    try {
+      const { tokenAccountAddress, ownerAddress } = req.body;
+      
+      if (!tokenAccountAddress) {
+        return res.status(400).json({ error: "Missing tokenAccountAddress" });
+      }
+
+      const { prepareRevokeDelegateTransaction } = await import("./solana-api");
+      const prepared = await prepareRevokeDelegateTransaction(
+        tokenAccountAddress, 
+        ownerAddress || tokenAccountAddress
+      );
+      
+      res.json(prepared);
+    } catch (error: any) {
+      console.error("[Solana API] Prepare revoke delegate error:", error);
+      res.status(500).json({ error: error.message || "Failed to prepare revoke transaction" });
+    }
+  });
+
+  app.post("/api/solana/send-raw-transaction", async (req: Request, res: Response) => {
+    try {
+      const { transactionBase64 } = req.body;
+      
+      if (!transactionBase64) {
+        return res.status(400).json({ error: "Missing transactionBase64" });
+      }
+
+      const { sendRawTransaction } = await import("./solana-api");
+      const result = await sendRawTransaction(transactionBase64);
+      
+      res.json(result);
+    } catch (error: any) {
+      console.error("[Solana API] Send raw transaction error:", error);
+      res.status(500).json({ error: error.message || "Failed to send transaction" });
+    }
+  });
+
   const httpServer = createServer(app);
 
   return httpServer;

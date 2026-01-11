@@ -1,0 +1,123 @@
+Implement Cordon “Approvals & Permissions” (EVM + Solana) as a real wow-factor security feature.
+
+Context:
+Users expect “approvals” but Solana doesn’t have EVM-style allowances. We need:
+- EVM: Token Allowances (approve/unlimited/cap/revoke)
+- Solana: Permissions = WalletConnect sessions + SPL token delegates (if any)
+
+UI Requirements:
+1) Portfolio screen currently has two tabs: Assets | Approvals
+Change to:
+- Assets | Security
+Inside Security, add sub-tabs:
+- EVM Approvals
+- Solana Permissions
+Keep it minimalist and consistent with existing design.
+
+------------------------------------------------------------
+A) EVM Approvals (Ethereum/Polygon/BNB mainnet)
+Goal: show token allowances (even if created outside Cordon), classify risk, allow revoke/cap.
+
+Features:
+1) Summary header card:
+- “Approval Risk: Low/Medium/High”
+- “Active approvals: X”
+- “Unlimited: Y”
+- CTA: “Fix risky approvals”
+
+2) Discover approvals (historical + verify current):
+- For each supported chain, build (token, spender) pairs:
+  - Use explorer APIs if available (Etherscan/Polygonscan/BscScan) to scan tx history for method selector:
+    approve: 0x095ea7b3
+    (optional) increaseAllowance/decreaseAllowance
+  - Or fallback: show only approvals created inside the app if API keys are missing.
+- For each (token, spender), query on-chain allowance(owner, spender) via RPC.
+- Only display if allowance > 0.
+- Mark “Unlimited” if allowance >= (2^255) or close to max uint.
+
+3) Item UI:
+- Token icon/symbol + chain badge
+- Spender name if resolvable (else “Unknown spender”) + address shortened
+- Allowance: Unlimited / Capped (with amount)
+- Risk badge:
+  - High: unlimited + high value token (USDC/USDT/WETH) OR unknown spender
+  - Medium: unlimited but low value token OR inactive long time
+  - Low: capped allowance
+- Actions:
+  - Revoke (set allowance=0)
+  - Cap (replace unlimited with user-chosen capped amount)
+- For Cap flow:
+  - quick presets: “$25 / $100 / $500 / Custom” (or token units)
+  - requires signing a new approve tx with the capped amount.
+
+4) Empty state:
+- “No EVM approvals found ✅”
+- “Approvals appear after using dApps like swaps, staking, NFT mints.”
+
+------------------------------------------------------------
+B) Solana Permissions (Mainnet)
+Goal: represent Solana “approval-like” controls clearly.
+
+Solana Permissions should have 2 sections:
+
+1) Connected dApps (WalletConnect sessions):
+- List active sessions:
+  - name + domain + verified/unverified badge + icon
+  - “Allowed: view address / request signatures”
+  - last used timestamp if available
+- Actions:
+  - Disconnect (terminate WC session)
+  - “Details” view: show session topic, chains, methods, accounts
+
+2) Token Delegates (SPL permissions):
+- Query token accounts by owner:
+  - getTokenAccountsByOwner (Token Program)
+  - (optional) also support Token-2022 if present
+- Parse each token account and check:
+  - delegate != null OR delegatedAmount > 0
+- Display entries:
+  - Token mint + symbol if known
+  - Delegate address shortened
+  - Delegated amount
+  - Risk:
+    - Medium if delegate exists and is not recognized
+    - Low if delegated amount is 0 (edge case) or recognized
+- Action:
+  - Revoke delegate (SPL Token Revoke instruction)
+- Add empty state:
+  - “No token delegates found ✅”
+  - “Most Solana apps use per-transaction signing instead of approvals.”
+
+3) Solana permissions summary card:
+- “Connected dApps: X”
+- “Token delegates: Y”
+- “Firewall: Active” (tap opens Firewall settings)
+
+------------------------------------------------------------
+C) Integrate with Firewall
+- When user is about to sign an EVM approve() tx:
+  - Firewall screens it, blocks “Unlimited” by default, offers “Cap it” action.
+- When user connects a dApp via WalletConnect:
+  - Show verified badge logic
+  - Show “Firewall is active – signatures are screened.”
+
+------------------------------------------------------------
+D) Acceptance Tests
+1) Connect any dApp via WalletConnect:
+- Shows in Solana Permissions → Connected dApps list
+- Disconnect works
+
+2) Create a SOL transfer + sign message:
+- Does NOT create Solana delegate (permissions list stays sessions only)
+
+3) If a token delegate exists on Solana:
+- It appears and Revoke clears it
+
+4) On EVM chain:
+- If user previously approved USDC in another wallet, the tab can discover it (when explorer API keys configured) and show allowance.
+- Revoke and Cap work and update UI.
+
+Notes:
+- Keep everything mainnet.
+- Do not break existing send/swap flows.
+- Keep UI minimalist, consistent, and fast.

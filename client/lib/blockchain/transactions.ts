@@ -649,6 +649,7 @@ export async function sendApproval(params: SendApprovalParams): Promise<Transact
     const hash = await walletClient.sendTransaction(txParams as any);
 
     await saveApproval({
+      id: `${account.address.toLowerCase()}-${chainId}-${tokenAddress.toLowerCase()}-${spender.toLowerCase()}`,
       chainId,
       owner: account.address,
       tokenAddress,
@@ -658,7 +659,10 @@ export async function sendApproval(params: SendApprovalParams): Promise<Transact
       spender,
       spenderLabel: getSpenderLabel(chainId, spender) || undefined,
       allowanceRaw: parsedAmount.toString(),
+      isUnlimited: parsedAmount >= MAX_UINT256 / 2n,
+      createdAt: Date.now(),
       txHash: hash,
+      status: "pending",
     });
 
     return {
