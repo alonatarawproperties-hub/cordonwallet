@@ -1,0 +1,82 @@
+TASK: Wallet/Portfolio Screen UI Polish + Responsiveness + Pull-to-Refresh
+
+Goal:
+Polish the current wallet/portfolio screen UI (balance card + Send/Receive/Swap + assets list + bottom nav) to feel more premium, fix spacing/proportions, and CONFIRM the build is fully responsive across screen sizes. Also add proper pull-to-refresh with a spinner and clean loading states.
+
+1) Responsiveness & Layout Audit (MUST TEST)
+- Test on:
+  • iPhone SE (small)
+  • iPhone 13/14 (normal)
+  • iPhone Pro Max (large)
+  • Android small + large (Pixel/Samsung)
+  • Landscape orientation on both iOS/Android
+- Confirm: no overflow, clipping, squashed text, stretched cards, or misaligned icons.
+- Ensure safe areas are handled (iOS notch + home indicator) especially bottom nav.
+- Provide BEFORE/AFTER screenshots for each device size (or emulator equivalents).
+
+2) Action Buttons (Send / Receive / Swap) Proportions + UX
+- Keep all three buttons equal width and visually balanced.
+- Adjust proportions so buttons don’t feel too tall/heavy vs the card (reduce vertical padding slightly).
+- Maintain minimum tap target:
+  • iOS: 44pt
+  • Android: 48dp
+  (You can keep invisible padding even if visuals are smaller.)
+- Add interaction states:
+  • Pressed: scale ~0.98 + subtle highlight
+  • Disabled (if applicable): lower opacity
+- Ensure labels never wrap awkwardly or clip on small screens.
+
+3) Wallet Header Row Spacing (Imported Wallet + addresses + copy icons + external link)
+- Improve spacing and alignment so it doesn’t feel cramped.
+- Fix baseline alignment of text + copy icons.
+- On small screens:
+  • Use stronger truncation OR stack addresses to 2 lines if needed.
+  • Never push icons off-screen.
+
+4) “Updated 0s ago” Hierarchy Fix
+- Make it more subtle (smaller font + lower opacity).
+- Move it to a less attention-grabbing position (e.g., aligned left under wallet name, or top-right inside the card), but keep it readable.
+
+5) Assets List Density + Alignment
+- Slightly reduce row/card height (less vertical padding) to fit more content cleanly.
+- Make alignment consistent across all rows:
+  • Token name + chain badge
+  • Price + % change baseline
+  • Amount + fiat value alignment
+- Ensure chain badge (“Polygon/Solana/etc.”) sizing is consistent and doesn’t overpower the token symbol.
+- Add clear row press feedback (subtle highlight) if rows are tappable.
+
+6) Section Header (Assets + Approvals)
+- Make “Approvals” feel like an intentional control:
+  • Either style as a pill/chip/button OR convert to tabs (Assets | Approvals).
+- Ensure it scales well on small screens (no overlap).
+
+7) Loading States (Premium Feel)
+- Initial load:
+  • Prefer skeleton placeholders for balance card + asset rows (premium) OR a clean loader if skeleton is too much.
+- Refresh:
+  • Do NOT blank the UI; keep current data visible while refreshing.
+
+8) Pull-to-Refresh (Portfolio Screen)
+- Implement pull down to refresh on the main portfolio/assets list.
+- Show a native-style spinner/loader while refresh is in progress.
+- Requirements:
+  • Trigger refresh only after a threshold pull distance.
+  • Spinner stays visible while fetching.
+  • Prevent double refresh (ignore gesture if already refreshing).
+  • On success: stop spinner + update balances/prices/timestamps.
+  • On error: stop spinner + show toast/snackbar “Refresh failed. Try again.”
+  • Optional: light haptic feedback when refresh triggers (mobile).
+
+9) Accessibility / Dynamic Font
+- Test increased system font sizes (iOS accessibility / Android font scaling).
+- Ensure no text clipping, overlap, or broken layout at larger fonts.
+
+10) Deliverables
+- Commit changes with clear comments.
+- Provide:
+  • Before/after screenshots for tested devices
+  • Notes listing the responsive rules used (constraints/breakpoints/wrapping strategy)
+  • Confirmation checklist that all items above were validated
+
+Proceed to implement all improvements + tests. Avoid breaking existing navigation/logic. Focus on spacing, proportions, responsiveness, and clean UX states.

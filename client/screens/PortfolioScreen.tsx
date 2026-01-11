@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { View, StyleSheet, ScrollView, Pressable, RefreshControl, ActivityIndicator, Image } from "react-native";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
@@ -6,9 +6,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Feather } from "@expo/vector-icons";
-import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
-import * as WebBrowser from "expo-web-browser";
+import Animated, { useSharedValue, useAnimatedStyle, withSpring, interpolate } from "react-native-reanimated";
 
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius } from "@/constants/theme";
@@ -17,7 +16,6 @@ import { useWallet } from "@/lib/wallet-context";
 import { useAllChainsPortfolio, MultiChainAsset } from "@/hooks/useAllChainsPortfolio";
 import { useSolanaPortfolio, SolanaAsset } from "@/hooks/useSolanaPortfolio";
 import { formatTimeSince } from "@/hooks/usePortfolio";
-import { getExplorerAddressUrl } from "@/lib/blockchain/chains";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { getTokenLogoUrl } from "@/lib/token-logos";
 import type { ChainType } from "@/components/ChainSelector";
@@ -70,6 +68,134 @@ function formatValue(value: number): string {
 }
 
 type UnifiedAsset = (MultiChainAsset | SolanaAsset) & { chainType: ChainType };
+
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+
+function ActionButton({
+  icon,
+  label,
+  iconColor,
+  onPress,
+  disabled,
+  theme,
+}: {
+  icon: keyof typeof Feather.glyphMap;
+  label: string;
+  iconColor: string;
+  onPress: () => void;
+  disabled?: boolean;
+  theme: ReturnType<typeof useTheme>["theme"];
+}) {
+  const scale = useSharedValue(1);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+    opacity: interpolate(scale.value, [0.96, 1], [0.9, disabled ? 0.5 : 1]),
+  }));
+
+  const handlePressIn = () => {
+    scale.value = withSpring(0.96, { damping: 15, stiffness: 400 });
+  };
+
+  const handlePressOut = () => {
+    scale.value = withSpring(1, { damping: 15, stiffness: 400 });
+  };
+
+  return (
+    <AnimatedPressable
+      style={[styles.actionButton, { backgroundColor: theme.backgroundSecondary }, animatedStyle]}
+      onPress={onPress}
+      onPressIn={handlePressIn}
+      onPressOut={handlePressOut}
+      disabled={disabled}
+    >
+      <View style={[styles.actionIcon, { backgroundColor: iconColor + "20" }]}>
+        <Feather name={icon} size={18} color={iconColor} />
+      </View>
+      <ThemedText type="small" style={styles.actionLabel}>{label}</ThemedText>
+    </AnimatedPressable>
+  );
+}
+
+function AssetRow({
+  asset,
+  theme,
+  onPress,
+}: {
+  asset: UnifiedAsset;
+  theme: ReturnType<typeof useTheme>["theme"];
+  onPress: () => void;
+}) {
+  const scale = useSharedValue(1);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
+
+  const handlePressIn = () => {
+    scale.value = withSpring(0.98, { damping: 15, stiffness: 400 });
+  };
+
+  const handlePressOut = () => {
+    scale.value = withSpring(1, { damping: 15, stiffness: 400 });
+  };
+
+  return (
+    <AnimatedPressable
+      style={[styles.tokenRow, { backgroundColor: theme.backgroundDefault }, animatedStyle]}
+      onPress={onPress}
+      onPressIn={handlePressIn}
+      onPressOut={handlePressOut}
+    >
+      <View style={[styles.tokenIcon, { backgroundColor: getChainColor(asset.chainName) + "12" }]}>
+        {("logoUrl" in asset && asset.logoUrl) || getTokenLogoUrl(asset.symbol) ? (
+          <Image 
+            source={{ uri: ("logoUrl" in asset && asset.logoUrl) ? asset.logoUrl : getTokenLogoUrl(asset.symbol)! }} 
+            style={styles.tokenLogoImage}
+          />
+        ) : (
+          <Feather name={getTokenIcon(asset.symbol)} size={18} color={getChainColor(asset.chainName)} />
+        )}
+      </View>
+      <View style={styles.tokenInfo}>
+        <View style={styles.tokenHeader}>
+          <ThemedText type="body" style={styles.tokenSymbol}>
+            {asset.symbol}
+          </ThemedText>
+          <View style={[styles.chainBadge, { backgroundColor: getChainColor(asset.chainName) + "15" }]}>
+            <ThemedText type="caption" style={[styles.chainBadgeText, { color: getChainColor(asset.chainName) }]}>
+              {asset.chainName}
+            </ThemedText>
+          </View>
+        </View>
+        <View style={styles.priceRow}>
+          <ThemedText type="caption" style={{ color: theme.textSecondary }}>
+            {asset.priceUsd ? `$${formatPrice(asset.priceUsd)}` : asset.name}
+          </ThemedText>
+          {asset.priceChange24h !== undefined ? (
+            <ThemedText
+              type="caption"
+              style={[styles.priceChange, { color: asset.priceChange24h >= 0 ? "#22C55E" : "#EF4444" }]}
+            >
+              {asset.priceChange24h >= 0 ? "+" : ""}{asset.priceChange24h.toFixed(2)}%
+            </ThemedText>
+          ) : null}
+        </View>
+      </View>
+      <View style={styles.tokenBalance}>
+        <ThemedText type="body" style={styles.balanceAmount}>
+          {asset.balance}
+        </ThemedText>
+        {asset.valueUsd ? (
+          <ThemedText type="caption" style={{ color: theme.textSecondary }}>
+            {formatValue(asset.valueUsd)}
+          </ThemedText>
+        ) : null}
+      </View>
+      <Feather name="chevron-right" size={18} color={theme.textSecondary} style={{ opacity: 0.6 }} />
+    </AnimatedPressable>
+  );
+}
 
 export default function PortfolioScreen() {
   const headerHeight = useHeaderHeight();
@@ -203,17 +329,39 @@ export default function PortfolioScreen() {
     });
   };
 
+  const [activeTab, setActiveTab] = useState<"assets" | "approvals">("assets");
+  const hasTriggeredRefresh = useRef(false);
+
+  const handleRefreshWithHaptic = useCallback(() => {
+    if (!hasTriggeredRefresh.current) {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      hasTriggeredRefresh.current = true;
+    }
+    handleRefresh();
+  }, []);
+
+  useEffect(() => {
+    if (!isRefreshing) {
+      hasTriggeredRefresh.current = false;
+    }
+  }, [isRefreshing]);
+
   return (
     <ScrollView
       style={{ flex: 1, backgroundColor: theme.backgroundRoot }}
       contentContainerStyle={{
-        paddingTop: headerHeight + Spacing.lg,
+        paddingTop: headerHeight + Spacing.md,
         paddingBottom: tabBarHeight + Spacing.xl,
         paddingHorizontal: Spacing.lg,
       }}
       scrollIndicatorInsets={{ bottom: insets.bottom }}
       refreshControl={
-        <RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} tintColor={theme.accent} />
+        <RefreshControl 
+          refreshing={isRefreshing} 
+          onRefresh={handleRefreshWithHaptic} 
+          tintColor={theme.accent}
+          progressViewOffset={headerHeight}
+        />
       }
     >
       <View style={[styles.balanceCard, { backgroundColor: theme.backgroundDefault }]}>
@@ -221,113 +369,85 @@ export default function PortfolioScreen() {
           <ThemedText type="h1" style={styles.totalValue}>
             ${totalValue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </ThemedText>
+          {lastUpdated ? (
+            <ThemedText type="caption" style={[styles.lastUpdated, { color: theme.textSecondary }]}>
+              Updated {formatTimeSince(lastUpdated)}
+            </ThemedText>
+          ) : null}
         </View>
 
-        <Pressable style={styles.walletSelector} onPress={() => navigation.navigate("WalletManager")}>
-          <View style={[styles.walletIcon, { backgroundColor: theme.accent + "20" }]}>
-            <Feather name="user" size={16} color={theme.accent} />
-          </View>
-          <View style={styles.walletInfo}>
-            <ThemedText type="small" style={{ color: theme.textSecondary }}>
-              {activeWallet.name}
-            </ThemedText>
-            <View style={styles.addressesRow}>
-              {walletType !== "solana-only" && evmAddress ? (
-                <Pressable onPress={() => handleCopyAddress("evm")} style={styles.addressChip}>
-                  <View style={[styles.chainDot, { backgroundColor: "#627EEA" }]} />
-                  <ThemedText type="caption" style={{ color: theme.textSecondary }}>
-                    {truncateAddress(evmAddress)}
-                  </ThemedText>
-                  <Feather 
-                    name={copiedAddress === "evm" ? "check" : "copy"} 
-                    size={10} 
-                    color={copiedAddress === "evm" ? theme.success : theme.textSecondary} 
-                  />
-                </Pressable>
-              ) : null}
-              {solanaAddress ? (
-                <Pressable onPress={() => handleCopyAddress("solana")} style={styles.addressChip}>
-                  <View style={[styles.chainDot, { backgroundColor: "#9945FF" }]} />
-                  <ThemedText type="caption" style={{ color: theme.textSecondary }}>
-                    {truncateAddress(solanaAddress)}
-                  </ThemedText>
-                  <Feather 
-                    name={copiedAddress === "solana" ? "check" : "copy"} 
-                    size={10} 
-                    color={copiedAddress === "solana" ? theme.success : theme.textSecondary} 
-                  />
-                </Pressable>
-              ) : null}
-            </View>
-          </View>
-          <Pressable 
-            onPress={() => handleViewExplorer(walletType === "solana-only" ? "solana" : "evm")} 
-            style={styles.explorerButton}
-          >
-            <Feather name="external-link" size={16} color={theme.accent} />
-          </Pressable>
-        </Pressable>
-
-        {lastUpdated ? (
-          <ThemedText type="caption" style={[styles.lastUpdated, { color: theme.textSecondary }]}>
-            Updated {formatTimeSince(lastUpdated)}
-          </ThemedText>
-        ) : null}
-
         <View style={styles.actionButtons}>
-          <Pressable
-            style={[styles.actionButton, { backgroundColor: theme.backgroundSecondary }]}
+          <ActionButton
+            icon="arrow-up-right"
+            label="Send"
+            iconColor={theme.accent}
             onPress={() => navigation.navigate("Send", {})}
-          >
-            <View style={[styles.actionIcon, { backgroundColor: theme.accent + "20" }]}>
-              <Feather name="arrow-up-right" size={20} color={theme.accent} />
-            </View>
-            <ThemedText type="small">Send</ThemedText>
-          </Pressable>
-
-          <Pressable
-            style={[styles.actionButton, { backgroundColor: theme.backgroundSecondary }]}
+            theme={theme}
+          />
+          <ActionButton
+            icon="arrow-down-left"
+            label="Receive"
+            iconColor={theme.success}
             onPress={() => navigation.navigate("Receive", { 
-                walletAddress: evmAddress || activeWallet.address,
-                solanaAddress: activeWallet.addresses?.solana,
-              })}
-          >
-            <View style={[styles.actionIcon, { backgroundColor: theme.success + "20" }]}>
-              <Feather name="arrow-down-left" size={20} color={theme.success} />
-            </View>
-            <ThemedText type="small">Receive</ThemedText>
-          </Pressable>
-
-          <Pressable
-            style={[styles.actionButton, { backgroundColor: theme.backgroundSecondary }]}
+              walletAddress: evmAddress || activeWallet.address,
+              solanaAddress: activeWallet.addresses?.solana,
+            })}
+            theme={theme}
+          />
+          <ActionButton
+            icon="repeat"
+            label="Swap"
+            iconColor={theme.warning}
             onPress={() => {}}
-          >
-            <View style={[styles.actionIcon, { backgroundColor: theme.warning + "20" }]}>
-              <Feather name="repeat" size={20} color={theme.warning} />
-            </View>
-            <ThemedText type="small">Swap</ThemedText>
-          </Pressable>
+            disabled
+            theme={theme}
+          />
         </View>
       </View>
 
       <View style={styles.assetsSection}>
-        <View style={styles.sectionHeader}>
-          <ThemedText type="h4">Assets</ThemedText>
-          <Pressable onPress={() => navigation.navigate("Approvals")}>
-            <ThemedText type="small" style={{ color: theme.accent }}>
+        <View style={[styles.tabsContainer, { backgroundColor: theme.backgroundSecondary }]}>
+          <Pressable
+            style={[
+              styles.tab,
+              activeTab === "assets" && { backgroundColor: theme.backgroundDefault },
+            ]}
+            onPress={() => setActiveTab("assets")}
+          >
+            <ThemedText 
+              type="small" 
+              style={[styles.tabText, activeTab === "assets" && { fontWeight: "600" }]}
+            >
+              Assets
+            </ThemedText>
+          </Pressable>
+          <Pressable
+            style={[
+              styles.tab,
+              activeTab === "approvals" && { backgroundColor: theme.backgroundDefault },
+            ]}
+            onPress={() => {
+              setActiveTab("approvals");
+              navigation.navigate("Approvals");
+            }}
+          >
+            <ThemedText 
+              type="small" 
+              style={[styles.tabText, activeTab === "approvals" && { fontWeight: "600" }]}
+            >
               Approvals
             </ThemedText>
           </Pressable>
         </View>
 
         {error ? (
-          <View style={[styles.errorBanner, { backgroundColor: theme.danger + "20" }]}>
-            <Feather name="alert-circle" size={16} color={theme.danger} />
-            <ThemedText type="small" style={{ color: theme.danger, flex: 1 }}>
+          <View style={[styles.errorBanner, { backgroundColor: theme.danger + "15" }]}>
+            <Feather name="alert-circle" size={14} color={theme.danger} />
+            <ThemedText type="caption" style={{ color: theme.danger, flex: 1 }}>
               {error}
             </ThemedText>
-            <Pressable onPress={handleRefresh}>
-              <ThemedText type="small" style={{ color: theme.accent }}>
+            <Pressable onPress={handleRefresh} hitSlop={8}>
+              <ThemedText type="caption" style={{ color: theme.accent, fontWeight: "500" }}>
                 Retry
               </ThemedText>
             </Pressable>
@@ -340,19 +460,19 @@ export default function PortfolioScreen() {
               <View key={i} style={[styles.skeletonRow, { backgroundColor: theme.backgroundDefault }]}>
                 <View style={[styles.skeletonIcon, { backgroundColor: theme.backgroundSecondary }]} />
                 <View style={styles.skeletonInfo}>
-                  <View
-                    style={[styles.skeletonText, { backgroundColor: theme.backgroundSecondary, width: 80 }]}
-                  />
-                  <View
-                    style={[styles.skeletonText, { backgroundColor: theme.backgroundSecondary, width: 120 }]}
-                  />
+                  <View style={[styles.skeletonText, { backgroundColor: theme.backgroundSecondary, width: 70 }]} />
+                  <View style={[styles.skeletonText, { backgroundColor: theme.backgroundSecondary, width: 100 }]} />
+                </View>
+                <View style={styles.skeletonBalance}>
+                  <View style={[styles.skeletonText, { backgroundColor: theme.backgroundSecondary, width: 50 }]} />
+                  <View style={[styles.skeletonText, { backgroundColor: theme.backgroundSecondary, width: 40 }]} />
                 </View>
               </View>
             ))}
           </View>
         ) : assets.length === 0 && !error ? (
           <View style={[styles.emptyAssets, { backgroundColor: theme.backgroundDefault }]}>
-            <Feather name="inbox" size={32} color={theme.textSecondary} />
+            <Feather name="inbox" size={28} color={theme.textSecondary} />
             <ThemedText type="body" style={{ color: theme.textSecondary }}>
               No assets found
             </ThemedText>
@@ -362,67 +482,12 @@ export default function PortfolioScreen() {
           </View>
         ) : assets.length > 0 ? (
           assets.map((asset, index) => (
-            <Pressable
+            <AssetRow
               key={`${asset.chainType}-${asset.chainId}-${asset.isNative ? "native" : ("address" in asset ? asset.address : ("mint" in asset ? asset.mint : ""))}-${index}`}
-              style={[styles.tokenRow, { backgroundColor: theme.backgroundDefault }]}
+              asset={asset}
+              theme={theme}
               onPress={() => handleAssetPress(asset)}
-            >
-              <View style={[styles.tokenIcon, { backgroundColor: getChainColor(asset.chainName) + "15" }]}>
-                {("logoUrl" in asset && asset.logoUrl) || getTokenLogoUrl(asset.symbol) ? (
-                  <Image 
-                    source={{ uri: ("logoUrl" in asset && asset.logoUrl) ? asset.logoUrl : getTokenLogoUrl(asset.symbol)! }} 
-                    style={styles.tokenLogoImage}
-                  />
-                ) : (
-                  <Feather name={getTokenIcon(asset.symbol)} size={20} color={getChainColor(asset.chainName)} />
-                )}
-              </View>
-              <View style={styles.tokenInfo}>
-                <View style={styles.tokenHeader}>
-                  <ThemedText type="body" style={{ fontWeight: "600" }}>
-                    {asset.symbol}
-                  </ThemedText>
-                  <View
-                    style={[styles.chainBadge, { backgroundColor: getChainColor(asset.chainName) + "20" }]}
-                  >
-                    <ThemedText
-                      type="caption"
-                      style={{ color: getChainColor(asset.chainName), fontSize: 10 }}
-                    >
-                      {asset.chainName}
-                    </ThemedText>
-                  </View>
-                </View>
-                <View style={styles.priceRow}>
-                  <ThemedText type="caption" style={{ color: theme.textSecondary }}>
-                    {asset.priceUsd ? `$${formatPrice(asset.priceUsd)}` : asset.name}
-                  </ThemedText>
-                  {asset.priceChange24h !== undefined ? (
-                    <ThemedText
-                      type="caption"
-                      style={{
-                        color: asset.priceChange24h >= 0 ? "#22C55E" : "#EF4444",
-                        marginLeft: Spacing.xs,
-                      }}
-                    >
-                      {asset.priceChange24h >= 0 ? "+" : ""}
-                      {asset.priceChange24h.toFixed(2)}%
-                    </ThemedText>
-                  ) : null}
-                </View>
-              </View>
-              <View style={styles.tokenBalance}>
-                <ThemedText type="body" style={{ fontWeight: "600", textAlign: "right" }}>
-                  {asset.balance}
-                </ThemedText>
-                {asset.valueUsd ? (
-                  <ThemedText type="caption" style={{ color: theme.textSecondary, textAlign: "right" }}>
-                    {formatValue(asset.valueUsd)}
-                  </ThemedText>
-                ) : null}
-              </View>
-              <Feather name="chevron-right" size={20} color={theme.textSecondary} />
-            </Pressable>
+            />
           ))
         ) : null}
 
@@ -430,7 +495,7 @@ export default function PortfolioScreen() {
           style={styles.manageCryptoButton}
           onPress={() => navigation.navigate("ManageCrypto")}
         >
-          <ThemedText type="body" style={{ color: theme.accent }}>
+          <ThemedText type="small" style={{ color: theme.accent }}>
             Manage crypto
           </ThemedText>
         </Pressable>
@@ -444,156 +509,164 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   balanceCard: {
-    padding: Spacing.xl,
+    padding: Spacing.lg,
     borderRadius: BorderRadius.lg,
-    marginBottom: Spacing.xl,
+    marginBottom: Spacing.lg,
   },
   totalValueContainer: {
     alignItems: "center",
     marginBottom: Spacing.lg,
   },
   totalValue: {
-    fontSize: 36,
+    fontSize: 34,
     fontWeight: "700",
+    letterSpacing: -0.5,
   },
-  walletSelector: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.md,
-    marginBottom: Spacing.xl,
-  },
-  walletIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: BorderRadius.sm,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  walletInfo: {
-    flex: 1,
-    gap: Spacing.xs,
-  },
-  addressesRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: Spacing.sm,
-  },
-  addressChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-  },
-  chainDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
+  lastUpdated: {
+    marginTop: Spacing.xs,
+    fontSize: 11,
+    opacity: 0.6,
   },
   actionButtons: {
     flexDirection: "row",
-    justifyContent: "space-around",
-    gap: Spacing.md,
+    gap: Spacing.sm,
   },
   actionButton: {
     flex: 1,
     alignItems: "center",
-    padding: Spacing.md,
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.sm,
     borderRadius: BorderRadius.md,
-    gap: Spacing.sm,
+    gap: Spacing.xs,
+    minHeight: 48,
   },
   actionIcon: {
-    width: 40,
-    height: 40,
+    width: 36,
+    height: 36,
     borderRadius: BorderRadius.sm,
     alignItems: "center",
     justifyContent: "center",
   },
-  assetsSection: {
-    gap: Spacing.md,
+  actionLabel: {
+    fontSize: 13,
+    fontWeight: "500",
   },
-  sectionHeader: {
+  assetsSection: {
+    gap: Spacing.sm,
+  },
+  tabsContainer: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
+    padding: 3,
+    borderRadius: BorderRadius.md,
     marginBottom: Spacing.sm,
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    borderRadius: BorderRadius.sm,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  tabText: {
+    fontSize: 13,
   },
   tokenRow: {
     flexDirection: "row",
     alignItems: "center",
-    padding: Spacing.lg,
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.md,
     borderRadius: BorderRadius.md,
     gap: Spacing.md,
+    marginBottom: 2,
   },
   tokenIcon: {
-    width: 44,
-    height: 44,
+    width: 40,
+    height: 40,
     borderRadius: BorderRadius.sm,
     alignItems: "center",
     justifyContent: "center",
     overflow: "hidden",
   },
   tokenLogoImage: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
   },
   tokenInfo: {
     flex: 1,
-    gap: Spacing.xs,
+    gap: 2,
   },
   tokenHeader: {
     flexDirection: "row",
     alignItems: "center",
-    gap: Spacing.sm,
+    gap: Spacing.xs,
+  },
+  tokenSymbol: {
+    fontWeight: "600",
+    fontSize: 15,
   },
   chainBadge: {
-    paddingHorizontal: Spacing.sm,
+    paddingHorizontal: 6,
     paddingVertical: 2,
-    borderRadius: BorderRadius.xs,
+    borderRadius: 4,
+  },
+  chainBadgeText: {
+    fontSize: 9,
+    fontWeight: "500",
   },
   priceRow: {
     flexDirection: "row",
     alignItems: "center",
   },
+  priceChange: {
+    marginLeft: Spacing.xs,
+    fontSize: 11,
+  },
   tokenBalance: {
-    gap: Spacing.xs,
+    alignItems: "flex-end",
+    gap: 2,
   },
-  explorerButton: {
-    padding: Spacing.sm,
-  },
-  lastUpdated: {
-    textAlign: "center",
-    marginBottom: Spacing.md,
+  balanceAmount: {
+    fontWeight: "600",
+    fontSize: 15,
   },
   errorBanner: {
     flexDirection: "row",
     alignItems: "center",
     gap: Spacing.sm,
-    padding: Spacing.md,
-    borderRadius: BorderRadius.md,
-    marginBottom: Spacing.md,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    borderRadius: BorderRadius.sm,
+    marginBottom: Spacing.sm,
   },
   loadingContainer: {
-    gap: Spacing.md,
+    gap: Spacing.xs,
   },
   skeletonRow: {
     flexDirection: "row",
     alignItems: "center",
-    padding: Spacing.lg,
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.md,
     borderRadius: BorderRadius.md,
     gap: Spacing.md,
   },
   skeletonIcon: {
-    width: 44,
-    height: 44,
+    width: 40,
+    height: 40,
     borderRadius: BorderRadius.sm,
   },
   skeletonInfo: {
     flex: 1,
     gap: Spacing.sm,
   },
+  skeletonBalance: {
+    alignItems: "flex-end",
+    gap: Spacing.xs,
+  },
   skeletonText: {
-    height: 14,
-    borderRadius: BorderRadius.xs,
+    height: 12,
+    borderRadius: 4,
   },
   emptyAssets: {
     alignItems: "center",
@@ -605,6 +678,7 @@ const styles = StyleSheet.create({
   manageCryptoButton: {
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: Spacing.lg,
+    paddingVertical: Spacing.md,
+    marginTop: Spacing.xs,
   },
 });
