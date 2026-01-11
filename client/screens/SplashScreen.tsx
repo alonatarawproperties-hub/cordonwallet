@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from "react";
-import { View, StyleSheet, Pressable, Animated, Easing } from "react-native";
+import { View, StyleSheet, Pressable, Animated, Easing, Image } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { Feather } from "@expo/vector-icons";
 
@@ -229,8 +228,7 @@ export default function SplashScreen({ onBootComplete }: SplashScreenProps) {
             <Image
               source={require("../../assets/images/splash-icon.png")}
               style={styles.logo}
-              contentFit="contain"
-              priority="high"
+              resizeMode="contain"
             />
           </Animated.View>
         </View>
