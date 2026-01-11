@@ -32,6 +32,7 @@ import { getChainById } from "@/lib/blockchain/chains";
 import { formatAllowance } from "@/lib/approvals/firewall";
 import { getSpenderLabel } from "@/lib/approvals/spenders";
 import { decodeSolanaTransaction, decodeSolanaTransactions, DecodedSolanaTransaction } from "@/lib/solana/decoder";
+import { analyzeSignMessage, RiskLevel } from "@/lib/walletconnect/message-analyzer";
 
 interface Props {
   visible: boolean;
@@ -187,7 +188,11 @@ export function SignRequestSheet({
             ) : null}
 
             {isPersonalSign ? (
-              <PersonalSignContent request={parsed as PersonalSignRequest} />
+              <PersonalSignContent 
+                request={parsed as PersonalSignRequest} 
+                dappDomain={domain}
+                isDomainVerified={isDomainVerified}
+              />
             ) : null}
 
             {isSendTx ? (
@@ -198,7 +203,11 @@ export function SignRequestSheet({
             ) : null}
 
             {parsed.method === "solana_signMessage" ? (
-              <SolanaSignMessageContent request={parsed as SolanaSignMessageRequest} />
+              <SolanaSignMessageContent 
+                request={parsed as SolanaSignMessageRequest} 
+                dappDomain={domain}
+                isDomainVerified={isDomainVerified}
+              />
             ) : null}
 
             {parsed.method === "solana_signTransaction" ? (
@@ -267,39 +276,196 @@ export function SignRequestSheet({
   );
 }
 
-function PersonalSignContent({
-  request,
+function MessageAnalysisContent({
+  message,
+  dappDomain,
+  chain,
+  isDomainVerified,
 }: {
-  request: PersonalSignRequest;
+  message: string;
+  dappDomain: string;
+  chain: "solana" | "evm";
+  isDomainVerified: boolean;
 }) {
   const { theme } = useTheme();
+  const [showRaw, setShowRaw] = useState(false);
+  const [showExplain, setShowExplain] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const analysis = useMemo(() => {
+    return analyzeSignMessage({ message, dappDomain, chain, isDomainVerified });
+  }, [message, dappDomain, chain, isDomainVerified]);
+
+  const handleCopyMessage = async () => {
+    await Clipboard.setStringAsync(message);
+    setCopied(true);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const riskColor = analysis.riskLevel === "low" 
+    ? theme.success 
+    : analysis.riskLevel === "medium" 
+      ? theme.warning 
+      : theme.danger;
+
+  const riskIcon = analysis.riskLevel === "low" 
+    ? "check-circle" 
+    : analysis.riskLevel === "medium" 
+      ? "alert-circle" 
+      : "alert-triangle";
+
   return (
-    <View style={[styles.contentCard, { backgroundColor: theme.backgroundDefault }]}>
-      <ThemedText type="small" style={{ color: theme.textSecondary, marginBottom: Spacing.sm }}>
-        Message to sign:
-      </ThemedText>
-      <ThemedText type="body" style={{ lineHeight: 22 }}>
-        {request.displayMessage}
-      </ThemedText>
+    <View>
+      <View style={[styles.summaryCard, { backgroundColor: theme.backgroundDefault }]}>
+        <View style={styles.summaryHeader}>
+          <ThemedText type="body" style={{ fontWeight: "600" }}>
+            What you're signing
+          </ThemedText>
+          <Badge 
+            label={analysis.riskLevel.charAt(0).toUpperCase() + analysis.riskLevel.slice(1) + " Risk"} 
+            variant={analysis.riskLevel === "low" ? "success" : analysis.riskLevel === "medium" ? "warning" : "danger"} 
+          />
+        </View>
+        
+        <View style={[styles.purposeRow, { backgroundColor: theme.backgroundSecondary }]}>
+          <Feather name={riskIcon as any} size={18} color={riskColor} />
+          <ThemedText type="body" style={{ marginLeft: Spacing.sm, flex: 1 }}>
+            {analysis.purposeLabel}
+          </ThemedText>
+        </View>
+        
+        <View style={[styles.impactRow, { backgroundColor: theme.accent + "10" }]}>
+          <Feather name="shield" size={16} color={theme.accent} />
+          <ThemedText type="small" style={{ marginLeft: Spacing.sm, flex: 1, color: theme.textSecondary }}>
+            This does NOT move funds, and does NOT grant token approvals.
+          </ThemedText>
+        </View>
+      </View>
+
+      {analysis.warnings.length > 0 ? (
+        <View style={[styles.warningsCard, { backgroundColor: theme.danger + "15", borderColor: theme.danger }]}>
+          {analysis.warnings.map((warning, idx) => (
+            <View key={idx} style={styles.warningRow}>
+              <Feather name="alert-triangle" size={14} color={theme.danger} />
+              <ThemedText type="small" style={{ marginLeft: Spacing.xs, flex: 1, color: theme.textSecondary }}>
+                {warning}
+              </ThemedText>
+            </View>
+          ))}
+        </View>
+      ) : null}
+
+      <Pressable 
+        onPress={() => setShowExplain(!showExplain)}
+        style={[styles.explainButton, { backgroundColor: theme.accent + "15", borderColor: theme.accent }]}
+      >
+        <Feather name="help-circle" size={18} color={theme.accent} />
+        <ThemedText type="body" style={{ marginLeft: Spacing.sm, flex: 1, color: theme.accent, fontWeight: "500" }}>
+          Cordon Explain
+        </ThemedText>
+        <Feather name={showExplain ? "chevron-up" : "chevron-down"} size={18} color={theme.accent} />
+      </Pressable>
+
+      {showExplain ? (
+        <View style={[styles.explainCard, { backgroundColor: theme.backgroundDefault }]}>
+          <View style={styles.explainBullet}>
+            <Feather name="info" size={14} color={theme.accent} />
+            <View style={{ flex: 1, marginLeft: Spacing.sm }}>
+              <ThemedText type="small" style={{ fontWeight: "600" }}>Why this is requested</ThemedText>
+              <ThemedText type="small" style={{ color: theme.textSecondary, marginTop: 2 }}>
+                {analysis.explainBullets.why}
+              </ThemedText>
+            </View>
+          </View>
+          <View style={styles.explainBullet}>
+            <Feather name="lock" size={14} color={theme.success} />
+            <View style={{ flex: 1, marginLeft: Spacing.sm }}>
+              <ThemedText type="small" style={{ fontWeight: "600" }}>What it can/can't do</ThemedText>
+              <ThemedText type="small" style={{ color: theme.textSecondary, marginTop: 2 }}>
+                {analysis.explainBullets.capability}
+              </ThemedText>
+            </View>
+          </View>
+          <View style={styles.explainBullet}>
+            <Feather name="shield" size={14} color={theme.warning} />
+            <View style={{ flex: 1, marginLeft: Spacing.sm }}>
+              <ThemedText type="small" style={{ fontWeight: "600" }}>Safety tip</ThemedText>
+              <ThemedText type="small" style={{ color: theme.textSecondary, marginTop: 2 }}>
+                {analysis.explainBullets.safetyTip}
+              </ThemedText>
+            </View>
+          </View>
+        </View>
+      ) : null}
+
+      <Pressable 
+        onPress={() => setShowRaw(!showRaw)}
+        style={[styles.expandHeader, { backgroundColor: theme.backgroundDefault }]}
+      >
+        <ThemedText type="body" style={{ fontWeight: "500" }}>
+          View raw message
+        </ThemedText>
+        <Feather name={showRaw ? "chevron-up" : "chevron-down"} size={20} color={theme.textSecondary} />
+      </Pressable>
+
+      {showRaw ? (
+        <View style={[styles.rawMessageCard, { backgroundColor: theme.backgroundDefault }]}>
+          <ScrollView style={{ maxHeight: 150 }} nestedScrollEnabled>
+            <ThemedText type="small" style={{ fontFamily: "monospace", lineHeight: 18 }}>
+              {message}
+            </ThemedText>
+          </ScrollView>
+          <Pressable 
+            onPress={handleCopyMessage}
+            style={[styles.copyButton, { borderColor: theme.border, marginTop: Spacing.sm }]}
+          >
+            <Feather name={copied ? "check" : "copy"} size={14} color={theme.textSecondary} />
+            <ThemedText type="small" style={{ color: theme.textSecondary, marginLeft: Spacing.xs }}>
+              {copied ? "Copied!" : "Copy message"}
+            </ThemedText>
+          </Pressable>
+        </View>
+      ) : null}
     </View>
+  );
+}
+
+function PersonalSignContent({
+  request,
+  dappDomain,
+  isDomainVerified,
+}: {
+  request: PersonalSignRequest;
+  dappDomain: string;
+  isDomainVerified: boolean;
+}) {
+  return (
+    <MessageAnalysisContent
+      message={request.displayMessage}
+      dappDomain={dappDomain}
+      chain="evm"
+      isDomainVerified={isDomainVerified}
+    />
   );
 }
 
 function SolanaSignMessageContent({
   request,
+  dappDomain,
+  isDomainVerified,
 }: {
   request: SolanaSignMessageRequest;
+  dappDomain: string;
+  isDomainVerified: boolean;
 }) {
-  const { theme } = useTheme();
   return (
-    <View style={[styles.contentCard, { backgroundColor: theme.backgroundDefault }]}>
-      <ThemedText type="small" style={{ color: theme.textSecondary, marginBottom: Spacing.sm }}>
-        Message to sign:
-      </ThemedText>
-      <ThemedText type="body" style={{ lineHeight: 22 }}>
-        {request.displayMessage}
-      </ThemedText>
-    </View>
+    <MessageAnalysisContent
+      message={request.displayMessage}
+      dappDomain={dappDomain}
+      chain="solana"
+      isDomainVerified={isDomainVerified}
+    />
   );
 }
 
@@ -798,6 +964,64 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: 4,
     marginRight: Spacing.sm,
+  },
+  summaryCard: {
+    borderRadius: 12,
+    padding: Spacing.md,
+    marginBottom: Spacing.md,
+  },
+  summaryHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: Spacing.md,
+  },
+  purposeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: Spacing.sm,
+    borderRadius: 8,
+    marginBottom: Spacing.sm,
+  },
+  impactRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: Spacing.sm,
+    borderRadius: 8,
+  },
+  warningsCard: {
+    borderRadius: 12,
+    padding: Spacing.md,
+    borderWidth: 1,
+    marginBottom: Spacing.md,
+  },
+  warningRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    marginBottom: Spacing.xs,
+  },
+  explainButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: Spacing.md,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: Spacing.md,
+  },
+  explainCard: {
+    borderRadius: 12,
+    padding: Spacing.md,
+    marginBottom: Spacing.md,
+  },
+  explainBullet: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    marginBottom: Spacing.md,
+  },
+  rawMessageCard: {
+    borderRadius: 12,
+    padding: Spacing.md,
+    marginBottom: Spacing.md,
   },
   copyButton: {
     flexDirection: "row",
