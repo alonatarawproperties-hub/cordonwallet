@@ -9,6 +9,8 @@ LogBox.ignoreLogs([
   '{"context":"core/verify-api"',
   '{"context":"client"}',
   '{"context":"core"',
+  /^\{"time":\d+,"level":\d+,"context":"core/,
+  /^\{"time":\d+/,
 ]);
 
 registerRootComponent(App);
