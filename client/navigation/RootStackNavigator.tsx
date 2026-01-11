@@ -1,12 +1,12 @@
-import React, { useEffect, useState } from "react";
-import { View, ActivityIndicator, StyleSheet, Pressable } from "react-native";
+import React, { useState, useCallback } from "react";
+import { StyleSheet, Pressable } from "react-native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { Feather } from "@expo/vector-icons";
 import MainTabNavigator from "@/navigation/MainTabNavigator";
 import { useScreenOptions } from "@/hooks/useScreenOptions";
-import { hasVault } from "@/lib/wallet-engine";
 import { useTheme } from "@/hooks/useTheme";
 
+import SplashScreen from "@/screens/SplashScreen";
 import WelcomeScreen from "@/screens/WelcomeScreen";
 import CreateWalletScreen from "@/screens/CreateWalletScreen";
 import ImportWalletScreen from "@/screens/ImportWalletScreen";
@@ -28,6 +28,7 @@ import SendDetailsScreen from "@/screens/SendDetailsScreen";
 import ScanQRScreen from "@/screens/ScanQRScreen";
 import WalletConnectScreen from "@/screens/WalletConnectScreen";
 import WCScannerScreen from "@/screens/WCScannerScreen";
+import type { BootResult, InitialRoute } from "@/lib/bootstrap";
 
 export type TransactionDetailParams = {
   hash: string;
@@ -98,34 +99,28 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 export default function RootStackNavigator() {
   const screenOptions = useScreenOptions();
   const { theme } = useTheme();
-  const [isLoading, setIsLoading] = useState(true);
-  const [hasExistingWallet, setHasExistingWallet] = useState(false);
+  const [isBooting, setIsBooting] = useState(true);
+  const [initialRoute, setInitialRoute] = useState<InitialRoute>("Welcome");
+  const [bootResult, setBootResult] = useState<BootResult | null>(null);
 
-  useEffect(() => {
-    checkWalletExists();
+  const handleBootComplete = useCallback((result: BootResult) => {
+    console.log("[RootStack] Boot complete:", {
+      route: result.initialRoute,
+      sessions: result.restoredSessionsCount,
+      degraded: result.degraded,
+      timings: result.timings,
+    });
+    setBootResult(result);
+    setInitialRoute(result.initialRoute);
+    setIsBooting(false);
   }, []);
 
-  const checkWalletExists = async () => {
-    try {
-      const exists = await hasVault();
-      setHasExistingWallet(exists);
-    } catch (error) {
-      console.error("Failed to check vault:", error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  if (isLoading) {
-    return (
-      <View style={[styles.loadingContainer, { backgroundColor: theme.backgroundRoot }]}>
-        <ActivityIndicator size="large" color={theme.accent} />
-      </View>
-    );
+  if (isBooting) {
+    return <SplashScreen onBootComplete={handleBootComplete} />;
   }
 
   return (
-    <Stack.Navigator screenOptions={screenOptions} initialRouteName={hasExistingWallet ? "Unlock" : "Welcome"}>
+    <Stack.Navigator screenOptions={screenOptions} initialRouteName={initialRoute}>
       <Stack.Screen
         name="Welcome"
         component={WelcomeScreen}
