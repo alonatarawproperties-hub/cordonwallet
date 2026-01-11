@@ -55,6 +55,26 @@ Preferred communication style: Simple, everyday language.
 3. **Screen-based Navigation**: Each feature has dedicated screen components in `/client/screens`
 4. **Hook Abstraction**: Custom hooks for theme, screen options, and color scheme
 
+### Splash / Boot Experience
+
+The app uses a polished boot sequence (`client/lib/bootstrap.ts` + `client/screens/SplashScreen.tsx`) that:
+
+1. **Preloads essentials**: Logo, icons, fonts (no network required)
+2. **Initializes core services**: Chain registry, WalletConnect client with session restoration, user settings
+3. **Determines initial route**: Welcome (no vault), Unlock (vault exists), or Main (already unlocked)
+4. **Performs health check**: Pings last-selected RPC with 1.2s timeout, sets degraded flag on failure
+5. **Never hangs**: Each step has individual timeouts + 6s global watchdog with Retry button
+6. **Shows animated splash**: Pulsing shield logo, progress bar, status messages
+
+Boot state messages:
+- "Securing your wallet..." after 2.5s
+- Retry button after 6s timeout
+- Optional diagnostics panel in dev mode
+
+Post-boot behavior:
+- Balance fetching happens only after Home mounts
+- Degraded network banner shown if RPC check failed
+
 ## External Dependencies
 
 ### Mobile/Expo Plugins
