@@ -144,14 +144,27 @@ export function parseSendTransaction(
 export function parseSolanaSignMessage(params: unknown[]): SolanaSignMessageRequest {
   console.log("[parseSolanaSignMessage] Raw params:", JSON.stringify(params, null, 2));
   
-  const message = (params as Record<string, unknown>[])[0]?.message as string || "";
-  const pubkey = (params as Record<string, unknown>[])[0]?.pubkey as string || "";
+  // WalletConnect Solana params can be either:
+  // 1. An object directly: { message, pubkey }
+  // 2. An array with object: [{ message, pubkey }]
+  let paramObj: Record<string, unknown>;
+  if (Array.isArray(params)) {
+    paramObj = params[0] as Record<string, unknown> || {};
+  } else {
+    paramObj = params as unknown as Record<string, unknown>;
+  }
   
-  console.log("[parseSolanaSignMessage] Extracted:", { message: message?.substring(0, 50), pubkey });
+  const message = (paramObj.message as string) || "";
+  const pubkey = (paramObj.pubkey as string) || "";
+  
+  console.log("[parseSolanaSignMessage] Extracted:", { messageLength: message?.length, pubkey });
   
   let displayMessage: string;
   try {
-    displayMessage = Buffer.from(message, "base64").toString("utf-8");
+    // Decode base58 message to UTF-8 for display
+    const bs58 = require("bs58");
+    const bytes = bs58.decode(message);
+    displayMessage = new TextDecoder().decode(bytes);
   } catch {
     displayMessage = message;
   }
@@ -167,8 +180,18 @@ export function parseSolanaSignMessage(params: unknown[]): SolanaSignMessageRequ
 export function parseSolanaSignTransaction(params: unknown[]): SolanaSignTransactionRequest {
   console.log("[parseSolanaSignTransaction] Raw params:", JSON.stringify(params, null, 2));
   
-  const transaction = (params as Record<string, unknown>[])[0]?.transaction as string || "";
-  const pubkey = (params as Record<string, unknown>[])[0]?.pubkey as string || "";
+  // WalletConnect Solana params can be either:
+  // 1. An object directly: { transaction, pubkey }
+  // 2. An array with object: [{ transaction, pubkey }]
+  let paramObj: Record<string, unknown>;
+  if (Array.isArray(params)) {
+    paramObj = params[0] as Record<string, unknown> || {};
+  } else {
+    paramObj = params as unknown as Record<string, unknown>;
+  }
+  
+  const transaction = (paramObj.transaction as string) || "";
+  const pubkey = (paramObj.pubkey as string) || "";
   
   console.log("[parseSolanaSignTransaction] Extracted:", { txLength: transaction?.length, pubkey });
 
@@ -180,8 +203,18 @@ export function parseSolanaSignTransaction(params: unknown[]): SolanaSignTransac
 }
 
 export function parseSolanaSignAllTransactions(params: unknown[]): SolanaSignAllTransactionsRequest {
-  const transactions = (params as Record<string, unknown>[])[0]?.transactions as string[] || [];
-  const pubkey = (params as Record<string, unknown>[])[0]?.pubkey as string || "";
+  // WalletConnect Solana params can be either:
+  // 1. An object directly: { transactions, pubkey }
+  // 2. An array with object: [{ transactions, pubkey }]
+  let paramObj: Record<string, unknown>;
+  if (Array.isArray(params)) {
+    paramObj = params[0] as Record<string, unknown> || {};
+  } else {
+    paramObj = params as unknown as Record<string, unknown>;
+  }
+  
+  const transactions = (paramObj.transactions as string[]) || [];
+  const pubkey = (paramObj.pubkey as string) || "";
 
   return {
     method: "solana_signAllTransactions",

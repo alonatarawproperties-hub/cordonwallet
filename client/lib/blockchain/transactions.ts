@@ -819,6 +819,7 @@ export async function signSolanaMessage(params: SignSolanaMessageParams): Promis
   try {
     const { deriveSolanaKeypair } = await import("../solana/keys");
     const nacl = await import("tweetnacl");
+    const bs58 = await import("bs58");
     
     console.log("[signSolanaMessage] Modules loaded, getting mnemonic...");
     
@@ -832,20 +833,24 @@ export async function signSolanaMessage(params: SignSolanaMessageParams): Promis
     const { secretKey, publicKey } = deriveSolanaKeypair(mnemonic);
     console.log("[signSolanaMessage] Keypair derived, pubkey:", publicKey);
     
+    // WalletConnect Solana messages are typically base58-encoded
     let messageBytes: Uint8Array;
     try {
-      messageBytes = Uint8Array.from(Buffer.from(message, "base64"));
-      console.log("[signSolanaMessage] Decoded base64 message, length:", messageBytes.length);
+      messageBytes = bs58.default.decode(message);
+      console.log("[signSolanaMessage] Decoded base58 message, length:", messageBytes.length);
     } catch {
+      // Fallback to UTF-8 encoding if not valid base58
       messageBytes = new TextEncoder().encode(message);
       console.log("[signSolanaMessage] Using UTF-8 encoded message, length:", messageBytes.length);
     }
     
     console.log("[signSolanaMessage] Signing message...");
     const signature = nacl.sign.detached(messageBytes, secretKey);
-    const signatureBase64 = Buffer.from(signature).toString("base64");
-    console.log("[signSolanaMessage] Success! Signature length:", signatureBase64.length);
-    return signatureBase64;
+    
+    // Return signature as base58 (Solana standard)
+    const signatureBase58 = bs58.default.encode(signature);
+    console.log("[signSolanaMessage] Success! Signature (base58) length:", signatureBase58.length);
+    return signatureBase58;
   } catch (error) {
     console.error("[signSolanaMessage] Error:", error);
     if (error instanceof WalletLockedError) {
@@ -859,6 +864,24 @@ export async function signSolanaMessage(params: SignSolanaMessageParams): Promis
 export interface SignSolanaTransactionParams {
   walletId: string;
   transaction: string;
+}
+
+// Base64 decode/encode utilities for React Native (no Buffer)
+function base64ToUint8Array(base64: string): Uint8Array {
+  const binaryString = atob(base64);
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes;
+}
+
+function uint8ArrayToBase64(bytes: Uint8Array): string {
+  let binaryString = "";
+  for (let i = 0; i < bytes.length; i++) {
+    binaryString += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binaryString);
 }
 
 export async function signSolanaTransaction(params: SignSolanaTransactionParams): Promise<string> {
@@ -883,7 +906,7 @@ export async function signSolanaTransaction(params: SignSolanaTransactionParams)
     const keypair = Keypair.fromSecretKey(secretKey);
     console.log("[signSolanaTransaction] Keypair derived, pubkey:", publicKey);
     
-    const txBytes = Buffer.from(transaction, "base64");
+    const txBytes = base64ToUint8Array(transaction);
     console.log("[signSolanaTransaction] Decoded transaction bytes, length:", txBytes.length);
     
     let signedTxBase64: string;
@@ -892,13 +915,13 @@ export async function signSolanaTransaction(params: SignSolanaTransactionParams)
       console.log("[signSolanaTransaction] Trying versioned transaction...");
       const versionedTx = VersionedTransaction.deserialize(txBytes);
       versionedTx.sign([keypair]);
-      signedTxBase64 = Buffer.from(versionedTx.serialize()).toString("base64");
+      signedTxBase64 = uint8ArrayToBase64(versionedTx.serialize());
       console.log("[signSolanaTransaction] Signed versioned transaction");
     } catch (versionedErr) {
       console.log("[signSolanaTransaction] Versioned failed, trying legacy:", versionedErr);
       const legacyTx = Transaction.from(txBytes);
       legacyTx.sign(keypair);
-      signedTxBase64 = legacyTx.serialize().toString("base64");
+      signedTxBase64 = uint8ArrayToBase64(legacyTx.serialize());
       console.log("[signSolanaTransaction] Signed legacy transaction");
     }
     
