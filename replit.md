@@ -119,6 +119,18 @@ Preferred communication style: Simple, everyday language.
 - **Transaction History**: `client/lib/transaction-history.ts` - Local AsyncStorage for activity tracking
 - **Explorer API**: `client/lib/blockchain/explorer-api.ts` - Etherscan V2 API for fetching transaction history
 
+### Security Hub
+
+The Security screen (`client/screens/ApprovalsScreen.tsx`) provides a unified view for managing wallet permissions across chains:
+
+- **EVM Approvals Tab**: Lists all ERC-20 token approvals with risk assessment (High/Medium/Low)
+  - Risk evaluation based on unlimited approvals, high-value tokens, unknown spenders, and stale permissions (>90 days)
+  - On-chain allowance queries via viem combined with Etherscan V2 API for historical discovery
+  - Revoke and Cap Allowance actions
+- **Solana Permissions Tab**: WalletConnect sessions and SPL token delegates
+  - Connected dApps list with verified/unverified badges
+  - Token delegate detection via Solana RPC with revoke functionality
+
 ### EVM Approvals & Wallet Firewall
 
 - **Approvals Module**: `client/lib/approvals/` - Complete ERC20 approval tracking and management
