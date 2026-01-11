@@ -204,7 +204,6 @@ export default function PortfolioScreen() {
   const { theme } = useTheme();
   const navigation = useNavigation<Navigation>();
   const { activeWallet } = useWallet();
-  const [copiedAddress, setCopiedAddress] = useState<"evm" | "solana" | null>(null);
   const [customTokens, setCustomTokens] = useState<CustomToken[]>([]);
 
   const walletType = activeWallet?.walletType || "multi-chain";
@@ -267,32 +266,6 @@ export default function PortfolioScreen() {
   const handleRefresh = () => {
     evmPortfolio.refresh();
     solanaPortfolio.refresh();
-  };
-
-  const handleViewExplorer = async (type: "evm" | "solana") => {
-    if (type === "solana" && solanaAddress) {
-      const url = `https://solscan.io/account/${solanaAddress}`;
-      await WebBrowser.openBrowserAsync(url);
-    } else if (type === "evm" && evmAddress) {
-      const url = getExplorerAddressUrl(1, evmAddress);
-      if (url) {
-        await WebBrowser.openBrowserAsync(url);
-      }
-    }
-  };
-
-  const handleCopyAddress = async (type: "evm" | "solana") => {
-    const address = type === "solana" ? solanaAddress : evmAddress;
-    if (address) {
-      await Clipboard.setStringAsync(address);
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      setCopiedAddress(type);
-      setTimeout(() => setCopiedAddress(null), 2000);
-    }
-  };
-
-  const truncateAddress = (address: string) => {
-    return `${address.slice(0, 6)}...${address.slice(-4)}`;
   };
 
   useEffect(() => {
