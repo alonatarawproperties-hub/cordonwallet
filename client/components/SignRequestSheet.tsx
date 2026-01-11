@@ -10,6 +10,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
+import * as Clipboard from "expo-clipboard";
 
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
@@ -22,12 +23,14 @@ import {
   SendTransactionRequest,
   SolanaSignMessageRequest,
   SolanaSignTransactionRequest,
+  SolanaSignAllTransactionsRequest,
   ParsedRequest,
   getChainName,
 } from "@/lib/walletconnect/handlers";
 import { getChainById } from "@/lib/blockchain/chains";
 import { formatAllowance } from "@/lib/approvals/firewall";
 import { getSpenderLabel } from "@/lib/approvals/spenders";
+import { decodeSolanaTransaction, decodeSolanaTransactions, DecodedSolanaTransaction } from "@/lib/solana/decoder";
 
 interface Props {
   visible: boolean;
@@ -151,8 +154,21 @@ export function SignRequestSheet({
               <SolanaSignMessageContent request={parsed as SolanaSignMessageRequest} />
             ) : null}
 
-            {(parsed.method === "solana_signTransaction" || parsed.method === "solana_signAllTransactions") ? (
-              <SolanaTransactionContent method={parsed.method} />
+            {parsed.method === "solana_signTransaction" ? (
+              <SolanaTransactionContent 
+                method={parsed.method} 
+                transactionData={(parsed as SolanaSignTransactionRequest).transaction}
+                dappName={dappName}
+                dappDomain={dappUrl.replace(/^https?:\/\//, "")}
+              />
+            ) : null}
+
+            {parsed.method === "solana_signAllTransactions" ? (
+              <SolanaBatchTransactionContent 
+                transactions={(parsed as SolanaSignAllTransactionsRequest).transactions || []}
+                dappName={dappName}
+                dappDomain={dappUrl.replace(/^https?:\/\//, "")}
+              />
             ) : null}
 
             {isApprovalBlocked ? (
@@ -242,22 +258,268 @@ function SolanaSignMessageContent({
 
 function SolanaTransactionContent({
   method,
+  transactionData,
+  transactionCount = 1,
+  dappName,
+  dappDomain,
 }: {
   method: string;
+  transactionData?: string;
+  transactionCount?: number;
+  dappName: string;
+  dappDomain: string;
 }) {
   const { theme } = useTheme();
+  const [detailsExpanded, setDetailsExpanded] = useState(false);
+  const [copied, setCopied] = useState(false);
   const isMultiple = method === "solana_signAllTransactions";
+  
+  const decoded = useMemo(() => {
+    if (!transactionData) return null;
+    return decodeSolanaTransaction(transactionData);
+  }, [transactionData]);
+  
+  const handleCopyTxData = async () => {
+    if (transactionData) {
+      await Clipboard.setStringAsync(transactionData);
+      setCopied(true);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+  
+  const riskColor = decoded?.riskLevel === "Low" 
+    ? theme.success 
+    : decoded?.riskLevel === "Medium" 
+      ? theme.warning 
+      : theme.danger;
+  
   return (
-    <View style={[styles.contentCard, { backgroundColor: theme.backgroundDefault }]}>
-      <View style={styles.txRow}>
-        <ThemedText type="small" style={{ color: theme.textSecondary }}>
-          Type
-        </ThemedText>
-        <Badge label={isMultiple ? "Multiple Transactions" : "Transaction"} variant="neutral" />
+    <View>
+      <View style={[styles.contentCard, { backgroundColor: theme.backgroundDefault }]}>
+        <View style={styles.txRow}>
+          <ThemedText type="small" style={{ color: theme.textSecondary }}>
+            Requested by
+          </ThemedText>
+          <ThemedText type="body" style={{ fontWeight: "500" }}>
+            {dappName}
+          </ThemedText>
+        </View>
+        <View style={styles.txRow}>
+          <ThemedText type="small" style={{ color: theme.textSecondary }}>
+            Domain
+          </ThemedText>
+          <ThemedText type="small" style={{ color: theme.textSecondary }}>
+            {dappDomain}
+          </ThemedText>
+        </View>
+        <View style={styles.txRow}>
+          <ThemedText type="small" style={{ color: theme.textSecondary }}>
+            Via
+          </ThemedText>
+          <Badge label="WalletConnect" variant="neutral" />
+        </View>
+        <View style={styles.txRow}>
+          <ThemedText type="small" style={{ color: theme.textSecondary }}>
+            Type
+          </ThemedText>
+          <Badge 
+            label={isMultiple ? `Batch (${transactionCount} txs)` : decoded?.isSimpleTransfer ? "Transfer" : "Transaction"} 
+            variant="neutral" 
+          />
+        </View>
       </View>
-      <ThemedText type="small" style={{ color: theme.textSecondary, marginTop: Spacing.sm }}>
-        The dApp is requesting you to sign a Solana {isMultiple ? "batch of transactions" : "transaction"}.
-      </ThemedText>
+      
+      {decoded ? (
+        <View style={[styles.riskCard, { backgroundColor: riskColor + "15", borderColor: riskColor }]}>
+          <Feather 
+            name={decoded.riskLevel === "Low" ? "check-circle" : decoded.riskLevel === "Medium" ? "alert-circle" : "alert-triangle"} 
+            size={18} 
+            color={riskColor} 
+          />
+          <View style={{ flex: 1, marginLeft: Spacing.sm }}>
+            <ThemedText type="small" style={{ fontWeight: "600", color: riskColor }}>
+              {decoded.riskLevel} Risk
+            </ThemedText>
+            <ThemedText type="small" style={{ color: theme.textSecondary, marginTop: 2 }}>
+              {decoded.riskReason}
+            </ThemedText>
+          </View>
+        </View>
+      ) : null}
+      
+      <Pressable 
+        onPress={() => setDetailsExpanded(!detailsExpanded)}
+        style={[styles.expandHeader, { backgroundColor: theme.backgroundDefault }]}
+      >
+        <ThemedText type="body" style={{ fontWeight: "500" }}>
+          View details
+        </ThemedText>
+        <Feather 
+          name={detailsExpanded ? "chevron-up" : "chevron-down"} 
+          size={20} 
+          color={theme.textSecondary} 
+        />
+      </Pressable>
+      
+      {detailsExpanded && decoded ? (
+        <View style={[styles.detailsCard, { backgroundColor: theme.backgroundDefault }]}>
+          <View style={styles.txRow}>
+            <ThemedText type="small" style={{ color: theme.textSecondary }}>
+              Instructions
+            </ThemedText>
+            <ThemedText type="body">{decoded.instructionCount}</ThemedText>
+          </View>
+          
+          <View style={{ marginTop: Spacing.sm }}>
+            <ThemedText type="small" style={{ color: theme.textSecondary, marginBottom: Spacing.xs }}>
+              Programs
+            </ThemedText>
+            {decoded.programLabels.map((label, idx) => (
+              <View key={idx} style={styles.programRow}>
+                <View style={[styles.programDot, { backgroundColor: decoded.unknownProgramIds.includes(decoded.programIds[idx]) ? theme.warning : theme.success }]} />
+                <ThemedText type="small" style={{ flex: 1 }}>
+                  {label}
+                </ThemedText>
+              </View>
+            ))}
+          </View>
+          
+          {transactionData ? (
+            <Pressable 
+              onPress={handleCopyTxData}
+              style={[styles.copyButton, { borderColor: theme.border }]}
+            >
+              <Feather name={copied ? "check" : "copy"} size={14} color={theme.textSecondary} />
+              <ThemedText type="small" style={{ color: theme.textSecondary, marginLeft: Spacing.xs }}>
+                {copied ? "Copied!" : "Copy raw transaction data"}
+              </ThemedText>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+function SolanaBatchTransactionContent({
+  transactions,
+  dappName,
+  dappDomain,
+}: {
+  transactions: string[];
+  dappName: string;
+  dappDomain: string;
+}) {
+  const { theme } = useTheme();
+  const [detailsExpanded, setDetailsExpanded] = useState(false);
+  
+  const decoded = useMemo(() => {
+    if (!transactions || transactions.length === 0) return null;
+    return decodeSolanaTransactions(transactions);
+  }, [transactions]);
+  
+  const riskColor = decoded?.riskLevel === "Low" 
+    ? theme.success 
+    : decoded?.riskLevel === "Medium" 
+      ? theme.warning 
+      : theme.danger;
+  
+  return (
+    <View>
+      <View style={[styles.contentCard, { backgroundColor: theme.backgroundDefault }]}>
+        <View style={styles.txRow}>
+          <ThemedText type="small" style={{ color: theme.textSecondary }}>
+            Requested by
+          </ThemedText>
+          <ThemedText type="body" style={{ fontWeight: "500" }}>
+            {dappName}
+          </ThemedText>
+        </View>
+        <View style={styles.txRow}>
+          <ThemedText type="small" style={{ color: theme.textSecondary }}>
+            Domain
+          </ThemedText>
+          <ThemedText type="small" style={{ color: theme.textSecondary }}>
+            {dappDomain}
+          </ThemedText>
+        </View>
+        <View style={styles.txRow}>
+          <ThemedText type="small" style={{ color: theme.textSecondary }}>
+            Via
+          </ThemedText>
+          <Badge label="WalletConnect" variant="neutral" />
+        </View>
+        <View style={styles.txRow}>
+          <ThemedText type="small" style={{ color: theme.textSecondary }}>
+            Type
+          </ThemedText>
+          <Badge label={`Batch (${transactions.length} txs)`} variant="warning" />
+        </View>
+      </View>
+      
+      {decoded ? (
+        <View style={[styles.riskCard, { backgroundColor: riskColor + "15", borderColor: riskColor }]}>
+          <Feather 
+            name={decoded.riskLevel === "Low" ? "check-circle" : decoded.riskLevel === "Medium" ? "alert-circle" : "alert-triangle"} 
+            size={18} 
+            color={riskColor} 
+          />
+          <View style={{ flex: 1, marginLeft: Spacing.sm }}>
+            <ThemedText type="small" style={{ fontWeight: "600", color: riskColor }}>
+              {decoded.riskLevel} Risk
+            </ThemedText>
+            <ThemedText type="small" style={{ color: theme.textSecondary, marginTop: 2 }}>
+              {decoded.riskReason}
+            </ThemedText>
+          </View>
+        </View>
+      ) : null}
+      
+      <Pressable 
+        onPress={() => setDetailsExpanded(!detailsExpanded)}
+        style={[styles.expandHeader, { backgroundColor: theme.backgroundDefault }]}
+      >
+        <ThemedText type="body" style={{ fontWeight: "500" }}>
+          View details
+        </ThemedText>
+        <Feather 
+          name={detailsExpanded ? "chevron-up" : "chevron-down"} 
+          size={20} 
+          color={theme.textSecondary} 
+        />
+      </Pressable>
+      
+      {detailsExpanded && decoded ? (
+        <View style={[styles.detailsCard, { backgroundColor: theme.backgroundDefault }]}>
+          <View style={styles.txRow}>
+            <ThemedText type="small" style={{ color: theme.textSecondary }}>
+              Total Transactions
+            </ThemedText>
+            <ThemedText type="body">{transactions.length}</ThemedText>
+          </View>
+          <View style={styles.txRow}>
+            <ThemedText type="small" style={{ color: theme.textSecondary }}>
+              Total Instructions
+            </ThemedText>
+            <ThemedText type="body">{decoded.instructionCount}</ThemedText>
+          </View>
+          
+          <View style={{ marginTop: Spacing.sm }}>
+            <ThemedText type="small" style={{ color: theme.textSecondary, marginBottom: Spacing.xs }}>
+              Programs (across all transactions)
+            </ThemedText>
+            {decoded.programLabels.map((label, idx) => (
+              <View key={idx} style={styles.programRow}>
+                <View style={[styles.programDot, { backgroundColor: decoded.unknownProgramIds.includes(decoded.programIds[idx]) ? theme.warning : theme.success }]} />
+                <ThemedText type="small" style={{ flex: 1 }}>
+                  {label}
+                </ThemedText>
+              </View>
+            ))}
+          </View>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -444,5 +706,46 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
+  },
+  riskCard: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    padding: Spacing.md,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: Spacing.md,
+  },
+  expandHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: Spacing.md,
+    borderRadius: 12,
+    marginBottom: Spacing.md,
+  },
+  detailsCard: {
+    borderRadius: 12,
+    padding: Spacing.md,
+    marginBottom: Spacing.md,
+  },
+  programRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: Spacing.xs,
+  },
+  programDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: Spacing.sm,
+  },
+  copyButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: Spacing.sm,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginTop: Spacing.md,
   },
 });

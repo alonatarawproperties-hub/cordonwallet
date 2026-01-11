@@ -197,7 +197,7 @@ export function WalletConnectHandler({ children }: { children: React.ReactNode }
     } finally {
       setIsSigning(false);
     }
-  }, [currentRequest, activeWallet, isUnlocked, respondSuccess, respondError]);
+  }, [currentRequest, currentProposal, activeWallet, isUnlocked, respondSuccess, respondError]);
 
   const handleRejectRequest = useCallback(async () => {
     try {
@@ -235,13 +235,17 @@ export function WalletConnectHandler({ children }: { children: React.ReactNode }
     showCapAllowanceSheet(capContext);
   }, [pendingApprovalData, currentRequest, activeWallet, policySettings, showCapAllowanceSheet, respondSuccess, clearCurrentRequest]);
 
-  const getDappInfo = () => {
+  const getDappInfo = useCallback(() => {
     if (currentProposal) {
       const meta = currentProposal.params.proposer.metadata;
       return { name: meta.name, url: meta.url };
     }
+    if (currentRequest) {
+      // Try to get dApp info from current request's session
+      return { name: "dApp", url: "" };
+    }
     return { name: "dApp", url: "" };
-  };
+  }, [currentProposal, currentRequest]);
 
   const dappInfo = getDappInfo();
   const showSignSheet = !!currentRequest && !isCapSheetVisible;

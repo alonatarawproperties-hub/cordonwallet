@@ -1,0 +1,300 @@
+import { Transaction, VersionedTransaction } from "@solana/web3.js";
+
+export interface DecodedSolanaTransaction {
+  instructionCount: number;
+  programIds: string[];
+  programLabels: string[];
+  isSimpleTransfer: boolean;
+  usesSystemProgram: boolean;
+  usesTokenProgram: boolean;
+  usesATAProgram: boolean;
+  hasUnknownPrograms: boolean;
+  unknownProgramIds: string[];
+  hasLookupTables: boolean;
+  unresolvedLookupPrograms: number;
+  riskLevel: "Low" | "Medium" | "High";
+  riskReason: string;
+}
+
+const KNOWN_PROGRAMS: Record<string, string> = {
+  "11111111111111111111111111111111": "System Program",
+  "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA": "SPL Token",
+  "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL": "Associated Token",
+  "ComputeBudget111111111111111111111111111111": "Compute Budget",
+  "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr": "Memo",
+  "Memo1UhkJRfHyvLMcVucJwxXeuD728EqVDDwQDxFMNo": "Memo (v1)",
+  "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s": "Metaplex",
+  "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4": "Jupiter v6",
+  "JUP4Fb2cqiRUcaTHdrPC8h2gNsA2ETXiPDD33WcGuJB": "Jupiter v4",
+  "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc": "Orca Whirlpool",
+  "9W959DqEETiGZocYWCQPaJ6sBmUzgfxXfqGeTEdp3aQP": "Orca",
+  "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK": "Raydium CPMM",
+  "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8": "Raydium AMM",
+  "srmqPvymJeFKQ4zGQed1GFppgkRHL9kaELCbyksJtPX": "Serum DEX",
+  "SSwpkEEcbUqx4vtoEByFjSkhKdCT862DNVb52nZg1UZ": "Saber",
+  "DjVE6JNiYqPL2QXyCUUh8rNjHrbz9hXHNYt99MQ59qw1": "Orca v2",
+  "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P": "Pump.fun",
+  "TSWAPaqyCSx2KABk68Shruf4rp7CxcNi8hAsbdwmHbN": "Tensor Swap",
+  "M2mx93ekt1fmXSVkTrUL9xVFHkmME8HTUi5Cyc5aF7K": "Magic Eden",
+};
+
+function base64ToBytes(base64: string): Uint8Array {
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  const lookup = new Uint8Array(256);
+  for (let i = 0; i < chars.length; i++) {
+    lookup[chars.charCodeAt(i)] = i;
+  }
+  
+  let bufferLength = Math.floor(base64.length * 0.75);
+  if (base64[base64.length - 1] === "=") bufferLength--;
+  if (base64[base64.length - 2] === "=") bufferLength--;
+  
+  const bytes = new Uint8Array(bufferLength);
+  let p = 0;
+  
+  for (let i = 0; i < base64.length; i += 4) {
+    const encoded1 = lookup[base64.charCodeAt(i)];
+    const encoded2 = lookup[base64.charCodeAt(i + 1)];
+    const encoded3 = lookup[base64.charCodeAt(i + 2)];
+    const encoded4 = lookup[base64.charCodeAt(i + 3)];
+    
+    bytes[p++] = (encoded1 << 2) | (encoded2 >> 4);
+    if (p < bufferLength) bytes[p++] = ((encoded2 & 15) << 4) | (encoded3 >> 2);
+    if (p < bufferLength) bytes[p++] = ((encoded3 & 3) << 6) | (encoded4 & 63);
+  }
+  
+  return bytes;
+}
+
+export function decodeSolanaTransaction(txBase64: string): DecodedSolanaTransaction {
+  try {
+    const txBytes = base64ToBytes(txBase64);
+    const programIds: string[] = [];
+    let instructionCount = 0;
+    let hasLookupTables = false;
+    let unresolvedLookupPrograms = 0;
+    
+    try {
+      const versionedTx = VersionedTransaction.deserialize(txBytes);
+      const staticKeys = versionedTx.message.staticAccountKeys;
+      instructionCount = versionedTx.message.compiledInstructions.length;
+      
+      const lookups = (versionedTx.message as any).addressTableLookups;
+      hasLookupTables = lookups && lookups.length > 0;
+      
+      for (const ix of versionedTx.message.compiledInstructions) {
+        if (ix.programIdIndex < staticKeys.length) {
+          const programId = staticKeys[ix.programIdIndex].toBase58();
+          if (!programIds.includes(programId)) {
+            programIds.push(programId);
+          }
+        } else {
+          unresolvedLookupPrograms++;
+        }
+      }
+      
+      if (programIds.length === 0 && hasLookupTables) {
+        for (const key of staticKeys) {
+          const addr = key.toBase58();
+          if (KNOWN_PROGRAMS[addr] && !programIds.includes(addr)) {
+            programIds.push(addr);
+          }
+        }
+      }
+    } catch {
+      try {
+        const legacyTx = Transaction.from(txBytes);
+        instructionCount = legacyTx.instructions.length;
+        
+        for (const ix of legacyTx.instructions) {
+          const programId = ix.programId.toBase58();
+          if (!programIds.includes(programId)) {
+            programIds.push(programId);
+          }
+        }
+      } catch {
+        return createFallbackResult("Transaction format not recognized. Review with caution.", "High");
+      }
+    }
+    
+    if (programIds.length === 0) {
+      if (hasLookupTables) {
+        return createFallbackResult(
+          `Complex v0 transaction with ${instructionCount} instructions using address lookups. Cannot fully verify programs.`,
+          "High"
+        );
+      }
+      return createFallbackResult("No programs identified. Review carefully.", "High");
+    }
+    
+    return analyzeTransaction(programIds, instructionCount, hasLookupTables, unresolvedLookupPrograms);
+  } catch (err) {
+    return createFallbackResult("Transaction could not be decoded. Review with caution.", "High");
+  }
+}
+
+export function decodeSolanaTransactions(txBase64Array: string[]): DecodedSolanaTransaction {
+  const allProgramIds: string[] = [];
+  let totalInstructions = 0;
+  let decodeFailures = 0;
+  let hasAnyHighRisk = false;
+  let hasAnyLookupTables = false;
+  let totalUnresolvedLookups = 0;
+  
+  for (const txBase64 of txBase64Array) {
+    const decoded = decodeSolanaTransaction(txBase64);
+    
+    if (decoded.hasLookupTables) {
+      hasAnyLookupTables = true;
+    }
+    totalUnresolvedLookups += decoded.unresolvedLookupPrograms;
+    
+    if (decoded.riskLevel === "High") {
+      hasAnyHighRisk = true;
+    }
+    
+    if (decoded.programLabels[0] === "Unable to decode" || decoded.programIds.length === 0) {
+      decodeFailures++;
+    } else {
+      totalInstructions += decoded.instructionCount;
+      for (const id of decoded.programIds) {
+        if (!allProgramIds.includes(id)) {
+          allProgramIds.push(id);
+        }
+      }
+    }
+  }
+  
+  if (allProgramIds.length === 0) {
+    return createFallbackResult(
+      `Could not decode any of ${txBase64Array.length} transactions. Review source carefully before signing.`,
+      "High"
+    );
+  }
+  
+  const result = analyzeTransaction(allProgramIds, totalInstructions, hasAnyLookupTables, totalUnresolvedLookups);
+  
+  if (hasAnyHighRisk) {
+    result.riskLevel = "High";
+    if (decodeFailures > 0) {
+      result.riskReason = `${decodeFailures} of ${txBase64Array.length} transactions could not be verified. Review source carefully.`;
+    } else if (totalUnresolvedLookups > 0) {
+      result.riskReason = `Batch contains ${totalUnresolvedLookups} unverifiable program call(s) via address lookups. Review source carefully.`;
+    }
+  } else if (decodeFailures > 0) {
+    result.riskLevel = result.riskLevel === "Low" ? "Medium" : result.riskLevel;
+    result.riskReason = `${result.riskReason} (${decodeFailures} of ${txBase64Array.length} transactions could not be fully decoded)`;
+  }
+  
+  return result;
+}
+
+function createFallbackResult(reason: string, riskLevel: "Low" | "Medium" | "High" = "Medium"): DecodedSolanaTransaction {
+  return {
+    instructionCount: 1,
+    programIds: [],
+    programLabels: ["Unable to decode"],
+    isSimpleTransfer: false,
+    usesSystemProgram: false,
+    usesTokenProgram: false,
+    usesATAProgram: false,
+    hasUnknownPrograms: true,
+    unknownProgramIds: [],
+    hasLookupTables: false,
+    unresolvedLookupPrograms: 0,
+    riskLevel,
+    riskReason: reason,
+  };
+}
+
+function analyzeTransaction(
+  programIds: string[], 
+  instructionCount: number,
+  hasLookupTables = false,
+  unresolvedLookupPrograms = 0
+): DecodedSolanaTransaction {
+  const programLabels = programIds.map(id => KNOWN_PROGRAMS[id] || shortenAddress(id));
+  const unknownProgramIds = programIds.filter(id => !KNOWN_PROGRAMS[id]);
+  
+  const usesSystemProgram = programIds.includes("11111111111111111111111111111111");
+  const usesTokenProgram = programIds.includes("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+  const usesATAProgram = programIds.includes("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
+  const hasUnknownPrograms = unknownProgramIds.length > 0 || unresolvedLookupPrograms > 0;
+  
+  const hasDex = programIds.some(id => 
+    KNOWN_PROGRAMS[id]?.includes("Jupiter") || 
+    KNOWN_PROGRAMS[id]?.includes("Raydium") ||
+    KNOWN_PROGRAMS[id]?.includes("Orca") ||
+    KNOWN_PROGRAMS[id]?.includes("Swap")
+  );
+  
+  const isSimpleTransfer = 
+    instructionCount <= 2 && 
+    (usesSystemProgram || usesTokenProgram) && 
+    !hasUnknownPrograms &&
+    !hasLookupTables;
+  
+  let riskLevel: "Low" | "Medium" | "High";
+  let riskReason: string;
+  
+  if (isSimpleTransfer) {
+    riskLevel = "Low";
+    if (usesTokenProgram) {
+      riskReason = "Simple SPL token transfer using official Token Program.";
+    } else {
+      riskReason = "Simple SOL transfer using System Program. No approvals or contract calls.";
+    }
+  } else if (hasLookupTables && unresolvedLookupPrograms > 0) {
+    riskLevel = "High";
+    if (hasDex) {
+      const dexName = programLabels.find(l => l.includes("Jupiter") || l.includes("Raydium") || l.includes("Orca")) || "DEX";
+      riskReason = `${dexName} swap with ${unresolvedLookupPrograms} unverifiable program(s) via address lookups. Cannot fully validate - review source carefully.`;
+    } else {
+      riskReason = `V0 transaction with ${unresolvedLookupPrograms} unverifiable program(s). Cannot fully validate - review source carefully.`;
+    }
+  } else if (hasUnknownPrograms) {
+    if (hasDex && unknownProgramIds.length <= 1) {
+      riskLevel = "Medium";
+      riskReason = "DEX swap with additional program calls. Verify the transaction source.";
+    } else {
+      riskLevel = "High";
+      riskReason = `Transaction calls ${unknownProgramIds.length} unknown program(s). Review carefully.`;
+    }
+  } else {
+    if (hasDex) {
+      riskLevel = "Low";
+      riskReason = "DEX swap using known protocol. Standard trading operation.";
+    } else if (instructionCount > 5) {
+      riskLevel = "Medium";
+      riskReason = `Complex transaction with ${instructionCount} instructions. Review details.`;
+    } else {
+      riskLevel = "Low";
+      riskReason = "Transaction uses known Solana programs.";
+    }
+  }
+  
+  return {
+    instructionCount,
+    programIds,
+    programLabels,
+    isSimpleTransfer,
+    usesSystemProgram,
+    usesTokenProgram,
+    usesATAProgram,
+    hasUnknownPrograms,
+    unknownProgramIds,
+    hasLookupTables,
+    unresolvedLookupPrograms,
+    riskLevel,
+    riskReason,
+  };
+}
+
+function shortenAddress(address: string): string {
+  if (address.length < 12) return address;
+  return `${address.slice(0, 4)}...${address.slice(-4)}`;
+}
+
+export function getSolanaExplorerUrl(signature: string): string {
+  return `https://solscan.io/tx/${signature}`;
+}
