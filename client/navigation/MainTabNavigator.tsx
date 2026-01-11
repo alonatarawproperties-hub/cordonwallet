@@ -2,7 +2,7 @@ import React from "react";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { Feather } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
-import { Platform, StyleSheet } from "react-native";
+import { Platform, StyleSheet, View } from "react-native";
 import { useTheme } from "@/hooks/useTheme";
 import { useScreenOptions } from "@/hooks/useScreenOptions";
 import HeaderTitle from "@/components/HeaderTitle";
@@ -32,6 +32,17 @@ export default function MainTabNavigator() {
       initialRouteName="Portfolio"
       screenOptions={{
         ...screenOptions,
+        headerTransparent: true,
+        headerBackground: () =>
+          Platform.OS === "ios" ? (
+            <BlurView
+              intensity={80}
+              tint={isDark ? "dark" : "light"}
+              style={StyleSheet.absoluteFill}
+            />
+          ) : (
+            <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.backgroundRoot }]} />
+          ),
         tabBarActiveTintColor: theme.accent,
         tabBarInactiveTintColor: theme.tabIconDefault,
         tabBarStyle: {
