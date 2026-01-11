@@ -67,6 +67,7 @@ async function preloadAssets(
   try {
     const assetModules = [
       require("../../assets/images/icon.png"),
+      require("../../assets/images/splash-icon.png"),
     ];
 
     await Asset.loadAsync(assetModules);

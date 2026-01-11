@@ -227,9 +227,10 @@ export default function SplashScreen({ onBootComplete }: SplashScreenProps) {
             ]}
           >
             <Image
-              source={require("../../attached_assets/Untitled_design_1768122796398.png")}
+              source={require("../../assets/images/splash-icon.png")}
               style={styles.logo}
               contentFit="contain"
+              priority="high"
             />
           </Animated.View>
         </View>
