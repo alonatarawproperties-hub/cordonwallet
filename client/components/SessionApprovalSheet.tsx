@@ -77,9 +77,9 @@ export function SessionApprovalSheet({
   });
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={handleReject}>
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={isApproving ? undefined : handleReject}>
       <View style={styles.overlay}>
-        <Pressable style={styles.backdrop} onPress={handleReject} />
+        <Pressable style={styles.backdrop} onPress={isApproving ? undefined : handleReject} />
 
         <ThemedView style={[styles.sheet, { paddingBottom: insets.bottom + Spacing.lg }]}>
           <View style={styles.handle} />

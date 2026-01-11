@@ -119,18 +119,35 @@ export function WalletConnectProvider({ children }: { children: React.ReactNode 
       throw new Error("No proposal to approve");
     }
 
-    const session = await approveSession(currentProposal, evmAddress);
-    setSessions(getActiveSessions());
-    setCurrentProposal(null);
-    return session;
+    const proposalToApprove = currentProposal;
+    
+    try {
+      const session = await approveSession(proposalToApprove, evmAddress);
+      setSessions(getActiveSessions());
+      setCurrentProposal(null);
+      return session;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (message.includes("deleted") || message.includes("Missing or invalid")) {
+        console.warn("[WalletConnect] Proposal was deleted or expired:", message);
+        setCurrentProposal(null);
+        throw new Error("Connection request expired. Please try connecting again.");
+      }
+      throw err;
+    }
   }, [currentProposal]);
 
   const reject = useCallback(async () => {
     if (!currentProposal) {
-      throw new Error("No proposal to reject");
+      setCurrentProposal(null);
+      return;
     }
 
-    await rejectSession(currentProposal.id);
+    try {
+      await rejectSession(currentProposal.id);
+    } catch (err) {
+      console.warn("[WalletConnect] Error rejecting session (may be already deleted):", err);
+    }
     setCurrentProposal(null);
   }, [currentProposal]);
 
