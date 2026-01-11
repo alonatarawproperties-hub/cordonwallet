@@ -28,6 +28,7 @@ import SendDetailsScreen from "@/screens/SendDetailsScreen";
 import ScanQRScreen from "@/screens/ScanQRScreen";
 import WalletConnectScreen from "@/screens/WalletConnectScreen";
 import WCScannerScreen from "@/screens/WCScannerScreen";
+import DemoFlowScreen from "@/screens/DemoFlowScreen";
 import type { BootResult, InitialRoute } from "@/lib/bootstrap";
 
 export type TransactionDetailParams = {
@@ -92,6 +93,7 @@ export type RootStackParamList = {
   ScanQR: undefined;
   WalletConnect: undefined;
   WCScanner: undefined;
+  DemoFlow: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -237,6 +239,11 @@ export default function RootStackNavigator() {
         name="WCScanner"
         component={WCScannerScreen}
         options={{ headerShown: false, presentation: "fullScreenModal" }}
+      />
+      <Stack.Screen
+        name="DemoFlow"
+        component={DemoFlowScreen}
+        options={{ headerTitle: "Demo Mode", presentation: "modal" }}
       />
     </Stack.Navigator>
   );

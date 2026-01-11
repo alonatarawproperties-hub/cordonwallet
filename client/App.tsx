@@ -15,6 +15,7 @@ import { WalletProvider } from "@/lib/wallet-context";
 import { CapAllowanceProvider } from "@/lib/cap-allowance-context";
 import { WalletConnectProvider } from "@/lib/walletconnect/context";
 import { WalletConnectHandler } from "@/components/WalletConnectHandler";
+import { DemoProvider } from "@/lib/demo/context";
 
 import RootStackNavigator from "@/navigation/RootStackNavigator";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
@@ -24,22 +25,24 @@ export default function App() {
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
         <WalletProvider>
-          <SafeAreaProvider>
-            <CapAllowanceProvider>
-              <WalletConnectProvider>
-                <WalletConnectHandler>
-                  <GestureHandlerRootView style={styles.root}>
-                    <KeyboardProvider>
-                      <NavigationContainer>
-                        <RootStackNavigator />
-                      </NavigationContainer>
-                      <StatusBar style="auto" />
-                    </KeyboardProvider>
-                  </GestureHandlerRootView>
-                </WalletConnectHandler>
-              </WalletConnectProvider>
-            </CapAllowanceProvider>
-          </SafeAreaProvider>
+          <DemoProvider>
+            <SafeAreaProvider>
+              <CapAllowanceProvider>
+                <WalletConnectProvider>
+                  <WalletConnectHandler>
+                    <GestureHandlerRootView style={styles.root}>
+                      <KeyboardProvider>
+                        <NavigationContainer>
+                          <RootStackNavigator />
+                        </NavigationContainer>
+                        <StatusBar style="auto" />
+                      </KeyboardProvider>
+                    </GestureHandlerRootView>
+                  </WalletConnectHandler>
+                </WalletConnectProvider>
+              </CapAllowanceProvider>
+            </SafeAreaProvider>
+          </DemoProvider>
         </WalletProvider>
       </QueryClientProvider>
     </ErrorBoundary>

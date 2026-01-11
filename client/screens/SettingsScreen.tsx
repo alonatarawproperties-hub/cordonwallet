@@ -1,5 +1,5 @@
 import { useState, useRef } from "react";
-import { View, StyleSheet, ScrollView, Pressable, Alert } from "react-native";
+import { View, StyleSheet, ScrollView, Pressable, Alert, Switch } from "react-native";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -12,6 +12,7 @@ import { Spacing, BorderRadius } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
 import { ListRow } from "@/components/ListRow";
 import { useWallet } from "@/lib/wallet-context";
+import { useDemo } from "@/lib/demo/context";
 import { NETWORKS } from "@/lib/types";
 import { getChainById } from "@/lib/blockchain/chains";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
@@ -25,6 +26,7 @@ export default function SettingsScreen() {
   const { theme } = useTheme();
   const navigation = useNavigation<Navigation>();
   const { activeWallet, logout, selectedNetwork } = useWallet();
+  const { isDemoMode, toggleDemoMode } = useDemo();
   const [showDebug, setShowDebug] = useState(false);
   const tapCountRef = useRef(0);
   const lastTapRef = useRef(0);
@@ -179,6 +181,41 @@ export default function SettingsScreen() {
 
       {showDebug ? (
         <View style={styles.section}>
+          <ThemedText type="small" style={[styles.sectionTitle, { color: theme.accent }]}>
+            Demo Mode
+          </ThemedText>
+          <View style={[styles.demoPanel, { backgroundColor: theme.backgroundDefault }]}>
+            <View style={styles.demoRow}>
+              <View style={{ flex: 1 }}>
+                <ThemedText type="body" style={{ fontWeight: "500" }}>Demo Mode</ThemedText>
+                <ThemedText type="caption" style={{ color: theme.textSecondary }}>
+                  For website demo assets
+                </ThemedText>
+              </View>
+              <Switch
+                value={isDemoMode}
+                onValueChange={toggleDemoMode}
+                trackColor={{ false: theme.border, true: theme.accent }}
+                thumbColor="#fff"
+              />
+            </View>
+            {isDemoMode ? (
+              <Pressable
+                onPress={() => navigation.navigate("DemoFlow")}
+                style={[styles.demoButton, { backgroundColor: theme.accent + "15" }]}
+              >
+                <Feather name="camera" size={18} color={theme.accent} />
+                <ThemedText type="body" style={{ marginLeft: Spacing.sm, color: theme.accent, fontWeight: "500" }}>
+                  Export Demo Assets
+                </ThemedText>
+              </Pressable>
+            ) : null}
+          </View>
+        </View>
+      ) : null}
+
+      {showDebug ? (
+        <View style={styles.section}>
           <ThemedText type="small" style={[styles.sectionTitle, { color: theme.warning }]}>
             Developer Debug
           </ThemedText>
@@ -271,5 +308,22 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
     paddingVertical: Spacing.sm,
+  },
+  demoPanel: {
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+  },
+  demoRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  demoButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: Spacing.md,
+    borderRadius: BorderRadius.sm,
+    marginTop: Spacing.md,
   },
 });
