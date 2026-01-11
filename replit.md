@@ -156,19 +156,26 @@ Preferred communication style: Simple, everyday language.
 - **Location**: `client/lib/walletconnect/` module
   - `client.ts`: Web3Wallet client initialization, session management, AsyncStorage persistence
   - `context.tsx`: WalletConnectProvider with pending proposal/request state management
-  - `handlers.ts`: Request parsing for personal_sign, eth_sendTransaction, approval detection
+  - `handlers.ts`: Request parsing for personal_sign, eth_sendTransaction, Solana signing requests
 - **UI Components**:
   - `WalletConnectScreen`: Main connection hub with QR scanner, paste URI, active sessions list
   - `WCScannerScreen`: Camera-based QR code scanning for WC URIs
-  - `SessionApprovalSheet`: Modal for approving/rejecting dApp connection requests
+  - `SessionApprovalSheet`: Modal for approving/rejecting dApp connection requests (shows Solana network when applicable)
   - `SignRequestSheet`: Modal for signing messages and transactions with firewall integration
   - `WalletConnectHandler`: Global component wrapping the app, renders sheets and handles signing logic
 - **Signing Infrastructure**:
-  - `signPersonalMessage()` in transactions.ts: Signs personal messages using derived private key
-  - `sendRawTransaction()` in transactions.ts: Sends arbitrary transactions with gas estimation
-  - Both functions derive keys on-demand from unlocked vault, never persist private keys
-- **Supported Methods**: eth_sendTransaction, personal_sign, eth_sign, eth_signTypedData, eth_signTypedData_v4
-- **Supported Chains**: eip155:1 (Ethereum), eip155:137 (Polygon), eip155:56 (BNB Chain)
+  - `signPersonalMessage()` in transactions.ts: Signs EVM personal messages using derived private key
+  - `sendRawTransaction()` in transactions.ts: Sends arbitrary EVM transactions with gas estimation
+  - `signSolanaMessage()` in transactions.ts: Signs Solana messages using Ed25519 keypair, returns Base64 signature
+  - `signSolanaTransaction()` in transactions.ts: Signs Solana transactions (legacy and versioned), returns Base64
+  - `signAllSolanaTransactions()` in transactions.ts: Batch signs multiple Solana transactions
+  - All functions derive keys on-demand from unlocked vault, never persist private keys
+- **Supported EVM Methods**: eth_sendTransaction, personal_sign, eth_sign, eth_signTypedData, eth_signTypedData_v4
+- **Supported Solana Methods**: solana_signMessage, solana_signTransaction, solana_signAllTransactions
+- **Supported Chains**:
+  - EVM: eip155:1 (Ethereum), eip155:137 (Polygon), eip155:56 (BNB Chain)
+  - Solana: solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp (mainnet)
+- **Multi-Chain Session Approval**: `buildNamespaces()` automatically detects required namespaces and provides EVM/Solana addresses accordingly; rejects proposals requiring Solana if no Solana address is configured
 - **Firewall Integration**: Approval intents detected via `checkTransactionFirewall()`, unlimited approvals trigger Cap Allowance flow via CapAllowanceProvider
 - **Environment Variable**: Requires `WC_PROJECT_ID` secret from WalletConnect Cloud
 
