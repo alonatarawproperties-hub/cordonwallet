@@ -721,17 +721,36 @@ export async function sendRawTransaction(params: SendRawTransactionParams): Prom
   }
 
   try {
+    console.log("[sendRawTransaction] Starting:", { chainId, to, value: value.toString(), hasData: !!data });
+    
     const privateKey = await derivePrivateKey(walletId);
     const account = privateKeyToAccount(privateKey);
     const walletClient = createWalletClientForChain(chainConfig, account);
     const publicClient = getPublicClient(chainId);
 
-    const estimatedGas = gas || await publicClient.estimateGas({
-      account: account.address,
-      to,
-      value,
-      data,
-    });
+    console.log("[sendRawTransaction] Estimating gas for:", account.address);
+    
+    let estimatedGas: bigint;
+    try {
+      estimatedGas = gas || await publicClient.estimateGas({
+        account: account.address,
+        to,
+        value,
+        data,
+      });
+    } catch (gasError) {
+      console.error("[sendRawTransaction] Gas estimation failed:", gasError);
+      const errorMessage = gasError instanceof Error ? gasError.message : String(gasError);
+      if (errorMessage.includes("insufficient funds")) {
+        throw new Error("Insufficient funds for gas. Please add funds to your wallet.");
+      }
+      if (errorMessage.includes("execution reverted")) {
+        throw new Error("Transaction would fail. The contract rejected this action.");
+      }
+      throw gasError;
+    }
+
+    console.log("[sendRawTransaction] Gas estimated:", estimatedGas.toString());
 
     const feeData = await publicClient.estimateFeesPerGas();
     const isLegacyChain = !feeData.maxPriorityFeePerGas;
@@ -757,7 +776,9 @@ export async function sendRawTransaction(params: SendRawTransactionParams): Prom
           maxPriorityFeePerGas: feeData.maxPriorityFeePerGas,
         };
 
+    console.log("[sendRawTransaction] Sending transaction...");
     const hash = await walletClient.sendTransaction(txParams as any);
+    console.log("[sendRawTransaction] Transaction sent:", hash);
 
     return {
       hash,
@@ -765,8 +786,20 @@ export async function sendRawTransaction(params: SendRawTransactionParams): Prom
       explorerUrl: getExplorerTxUrl(chainId, hash),
     };
   } catch (error) {
+    console.error("[sendRawTransaction] Error:", error);
     if (error instanceof WalletLockedError) {
       throw error;
+    }
+    if (error instanceof Error) {
+      if (error.message.includes("insufficient funds") || error.message.includes("Insufficient funds")) {
+        throw new TransactionFailedError({ message: "Insufficient funds for this transaction", code: "INSUFFICIENT_FUNDS" });
+      }
+      if (error.message.includes("execution reverted")) {
+        throw new TransactionFailedError({ message: "Transaction would fail on-chain", code: "EXECUTION_REVERTED" });
+      }
+      if (error.message.includes("nonce")) {
+        throw new TransactionFailedError({ message: "Transaction nonce conflict. Please try again.", code: "NONCE_ERROR" });
+      }
     }
     const txError = formatTransactionError(error);
     throw new TransactionFailedError(txError);
