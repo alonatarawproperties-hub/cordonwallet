@@ -404,11 +404,12 @@ export default function PortfolioScreen() {
               navigation.navigate("Approvals");
             }}
           >
+            <Feather name="shield" size={12} color={activeTab === "approvals" ? theme.text : theme.textSecondary} style={{ marginRight: 4 }} />
             <ThemedText 
               type="small" 
               style={[styles.tabText, activeTab === "approvals" && { fontWeight: "600" }]}
             >
-              Approvals
+              Security
             </ThemedText>
           </Pressable>
         </View>

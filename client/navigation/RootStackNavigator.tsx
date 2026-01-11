@@ -194,7 +194,7 @@ export default function RootStackNavigator() {
       <Stack.Screen
         name="Approvals"
         component={ApprovalsScreen}
-        options={{ headerTitle: "Approvals", presentation: "modal" }}
+        options={{ headerTitle: "Security", presentation: "modal" }}
       />
       <Stack.Screen
         name="PolicySettings"
