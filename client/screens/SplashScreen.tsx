@@ -27,7 +27,8 @@ export default function SplashScreen({ onBootComplete }: SplashScreenProps) {
   const [diagnosticInfo, setDiagnosticInfo] = useState<string[]>([]);
   const [retryCount, setRetryCount] = useState(0);
 
-  const logoScale = useRef(new Animated.Value(0.98)).current;
+  const glowOpacity = useRef(new Animated.Value(0.3)).current;
+  const glowScale = useRef(new Animated.Value(1)).current;
   const logoOpacity = useRef(new Animated.Value(0)).current;
   const progressAnim = useRef(new Animated.Value(0)).current;
   const slowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -35,25 +36,41 @@ export default function SplashScreen({ onBootComplete }: SplashScreenProps) {
   useEffect(() => {
     Animated.timing(logoOpacity, {
       toValue: 1,
-      duration: 500,
+      duration: 400,
       easing: Easing.out(Easing.ease),
       useNativeDriver: true,
     }).start();
 
     const pulseAnimation = Animated.loop(
-      Animated.sequence([
-        Animated.timing(logoScale, {
-          toValue: 1.02,
-          duration: 1200,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
-        Animated.timing(logoScale, {
-          toValue: 0.98,
-          duration: 1200,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
+      Animated.parallel([
+        Animated.sequence([
+          Animated.timing(glowOpacity, {
+            toValue: 0.6,
+            duration: 1000,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: true,
+          }),
+          Animated.timing(glowOpacity, {
+            toValue: 0.2,
+            duration: 1000,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: true,
+          }),
+        ]),
+        Animated.sequence([
+          Animated.timing(glowScale, {
+            toValue: 1.15,
+            duration: 1000,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: true,
+          }),
+          Animated.timing(glowScale, {
+            toValue: 1,
+            duration: 1000,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: true,
+          }),
+        ]),
       ])
     );
 
@@ -152,12 +169,10 @@ export default function SplashScreen({ onBootComplete }: SplashScreenProps) {
     outputRange: ["0%", "100%"],
   });
 
-  const glowSize = SCREEN_WIDTH * 0.65;
-
   return (
     <View style={styles.container}>
       <LinearGradient
-        colors={["#05070D", "#0A1020", "#070B12"]}
+        colors={["#0B0F14", "#0D1117", "#0B0F14"]}
         style={StyleSheet.absoluteFill}
         start={{ x: 0.5, y: 0 }}
         end={{ x: 0.5, y: 1 }}
@@ -165,13 +180,12 @@ export default function SplashScreen({ onBootComplete }: SplashScreenProps) {
 
       <View style={styles.content}>
         <View style={styles.logoWrapper}>
-          <View
+          <Animated.View
             style={[
-              styles.glow,
+              styles.glowEffect,
               {
-                width: glowSize,
-                height: glowSize,
-                borderRadius: glowSize / 2,
+                opacity: glowOpacity,
+                transform: [{ scale: glowScale }],
               },
             ]}
           />
@@ -179,7 +193,6 @@ export default function SplashScreen({ onBootComplete }: SplashScreenProps) {
             style={[
               styles.logoContainer,
               {
-                transform: [{ scale: logoScale }],
                 opacity: logoOpacity,
               },
             ]}
@@ -192,21 +205,21 @@ export default function SplashScreen({ onBootComplete }: SplashScreenProps) {
           </Animated.View>
         </View>
 
-        <ThemedText type="h2" style={styles.appName}>
+        <ThemedText style={styles.appName}>
           Cordon
         </ThemedText>
 
         <View style={styles.statusContainer}>
           {bootState === "slow" ? (
-            <ThemedText type="caption" style={styles.statusText}>
+            <ThemedText style={styles.statusText}>
               Securing your wallet...
             </ThemedText>
           ) : bootState === "timeout" || bootState === "error" ? (
-            <ThemedText type="caption" style={styles.errorText}>
+            <ThemedText style={styles.errorText}>
               {bootState === "timeout" ? "Taking longer than expected" : "Something went wrong"}
             </ThemedText>
           ) : (
-            <ThemedText type="caption" style={styles.statusText}>
+            <ThemedText style={styles.statusText}>
               {currentStep}
             </ThemedText>
           )}
@@ -215,7 +228,7 @@ export default function SplashScreen({ onBootComplete }: SplashScreenProps) {
         <View style={styles.progressContainer}>
           <Animated.View style={[styles.progressBar, { width: progressWidth }]}>
             <LinearGradient
-              colors={["#2B7CFF", "#3B82F6"]}
+              colors={["#3B82F6", "#60A5FA"]}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 0 }}
               style={StyleSheet.absoluteFill}
@@ -230,7 +243,7 @@ export default function SplashScreen({ onBootComplete }: SplashScreenProps) {
               onPress={handleRetry}
             >
               <Feather name="refresh-cw" size={16} color="#fff" />
-              <ThemedText type="body" style={styles.retryText}>
+              <ThemedText style={styles.retryText}>
                 Retry
               </ThemedText>
             </Pressable>
@@ -239,7 +252,7 @@ export default function SplashScreen({ onBootComplete }: SplashScreenProps) {
               style={styles.diagnosticsLink}
               onPress={() => setShowDiagnostics(!showDiagnostics)}
             >
-              <ThemedText type="small" style={styles.diagnosticsLinkText}>
+              <ThemedText style={styles.diagnosticsLinkText}>
                 {showDiagnostics ? "Hide diagnostics" : "Show diagnostics"}
               </ThemedText>
             </Pressable>
@@ -249,7 +262,7 @@ export default function SplashScreen({ onBootComplete }: SplashScreenProps) {
         {showDiagnostics ? (
           <View style={styles.diagnosticsContainer}>
             {diagnosticInfo.map((info, index) => (
-              <ThemedText key={index} type="small" style={styles.diagnosticText}>
+              <ThemedText key={index} style={styles.diagnosticText}>
                 {info}
               </ThemedText>
             ))}
@@ -258,7 +271,7 @@ export default function SplashScreen({ onBootComplete }: SplashScreenProps) {
       </View>
 
       <View style={[styles.footer, { paddingBottom: insets.bottom + Spacing.lg }]}>
-        <ThemedText type="small" style={styles.footerText}>
+        <ThemedText style={styles.footerText}>
           Non-custodial wallet
         </ThemedText>
       </View>
@@ -269,7 +282,7 @@ export default function SplashScreen({ onBootComplete }: SplashScreenProps) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#05070D",
+    backgroundColor: "#0B0F14",
   },
   content: {
     flex: 1,
@@ -281,53 +294,59 @@ const styles = StyleSheet.create({
     position: "relative",
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: Spacing.xl + Spacing.md,
+    marginBottom: Spacing.md,
   },
-  glow: {
+  glowEffect: {
     position: "absolute",
-    backgroundColor: "#2B7CFF",
-    opacity: 0.15,
+    width: 160,
+    height: 160,
+    borderRadius: 80,
+    backgroundColor: "#3B82F6",
+    shadowColor: "#3B82F6",
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 1,
+    shadowRadius: 40,
   },
   logoContainer: {
-    width: 110,
-    height: 110,
+    width: 100,
+    height: 100,
     alignItems: "center",
     justifyContent: "center",
   },
   logo: {
-    width: 110,
-    height: 110,
+    width: 100,
+    height: 100,
   },
   appName: {
-    marginBottom: Spacing.sm,
-    letterSpacing: 4,
+    marginBottom: Spacing.xs,
     color: "#FFFFFF",
-    fontSize: 24,
-    fontWeight: "300",
+    fontSize: 28,
+    fontWeight: "600",
+    letterSpacing: 1,
   },
   statusContainer: {
-    height: 20,
+    height: 24,
     justifyContent: "center",
     marginBottom: Spacing.lg,
   },
   statusText: {
-    color: "rgba(255, 255, 255, 0.6)",
-    fontSize: 13,
+    color: "rgba(255, 255, 255, 0.5)",
+    fontSize: 14,
   },
   errorText: {
     color: "#EF4444",
-    fontSize: 13,
+    fontSize: 14,
   },
   progressContainer: {
-    width: 140,
-    height: 2,
-    borderRadius: 1,
-    backgroundColor: "rgba(255, 255, 255, 0.08)",
+    width: 120,
+    height: 3,
+    borderRadius: 1.5,
+    backgroundColor: "rgba(255, 255, 255, 0.1)",
     overflow: "hidden",
   },
   progressBar: {
     height: "100%",
-    borderRadius: 1,
+    borderRadius: 1.5,
     overflow: "hidden",
   },
   actionContainer: {
@@ -341,7 +360,7 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.sm,
     paddingHorizontal: Spacing.lg,
     borderRadius: BorderRadius.md,
-    backgroundColor: "#2B7CFF",
+    backgroundColor: "#3B82F6",
   },
   retryText: {
     color: "#fff",
@@ -352,7 +371,8 @@ const styles = StyleSheet.create({
     padding: Spacing.sm,
   },
   diagnosticsLinkText: {
-    color: "rgba(255, 255, 255, 0.5)",
+    color: "rgba(255, 255, 255, 0.4)",
+    fontSize: 12,
   },
   diagnosticsContainer: {
     marginTop: Spacing.md,
@@ -363,8 +383,9 @@ const styles = StyleSheet.create({
     maxHeight: 150,
   },
   diagnosticText: {
-    color: "rgba(255, 255, 255, 0.5)",
+    color: "rgba(255, 255, 255, 0.4)",
     fontFamily: "monospace",
+    fontSize: 11,
   },
   footer: {
     position: "absolute",
