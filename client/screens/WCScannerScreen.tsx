@@ -38,7 +38,11 @@ export default function WCScannerScreen({ navigation }: Props) {
 
       try {
         await connect(data);
-        navigation.goBack();
+        if (navigation.canGoBack()) {
+          navigation.goBack();
+        } else {
+          navigation.navigate("WalletConnect");
+        }
       } catch (err) {
         const message = err instanceof Error ? err.message : "Failed to connect";
         Alert.alert("Connection Failed", message, [
@@ -52,7 +56,13 @@ export default function WCScannerScreen({ navigation }: Props) {
           {
             text: "Cancel",
             style: "cancel",
-            onPress: () => navigation.goBack(),
+            onPress: () => {
+              if (navigation.canGoBack()) {
+                navigation.goBack();
+              } else {
+                navigation.navigate("WalletConnect");
+              }
+            },
           },
         ]);
       }
@@ -62,7 +72,11 @@ export default function WCScannerScreen({ navigation }: Props) {
 
   const handleClose = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    navigation.goBack();
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+    } else {
+      navigation.navigate("WalletConnect");
+    }
   }, [navigation]);
 
   if (!permission) {
