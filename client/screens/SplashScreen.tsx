@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { View, StyleSheet, Pressable, Animated, Easing, Dimensions } from "react-native";
+import { View, StyleSheet, Pressable, Animated, Easing } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
@@ -7,15 +7,77 @@ import { Feather } from "@expo/vector-icons";
 
 import { ThemedText } from "@/components/ThemedText";
 import { Spacing, BorderRadius } from "@/constants/theme";
-import { bootstrapApp, BootResult, createBootstrapWithWatchdog } from "@/lib/bootstrap";
-
-const { width: SCREEN_WIDTH } = Dimensions.get("window");
+import { BootResult, createBootstrapWithWatchdog } from "@/lib/bootstrap";
 
 interface SplashScreenProps {
   onBootComplete: (result: BootResult) => void;
 }
 
 type BootState = "booting" | "slow" | "timeout" | "error";
+
+function Sparkle({ delay, angle, distance }: { delay: number; angle: number; distance: number }) {
+  const opacity = useRef(new Animated.Value(0)).current;
+  const scale = useRef(new Animated.Value(0.5)).current;
+
+  useEffect(() => {
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.delay(delay),
+        Animated.parallel([
+          Animated.timing(opacity, {
+            toValue: 1,
+            duration: 400,
+            easing: Easing.out(Easing.ease),
+            useNativeDriver: true,
+          }),
+          Animated.timing(scale, {
+            toValue: 1,
+            duration: 400,
+            easing: Easing.out(Easing.ease),
+            useNativeDriver: true,
+          }),
+        ]),
+        Animated.parallel([
+          Animated.timing(opacity, {
+            toValue: 0,
+            duration: 600,
+            easing: Easing.in(Easing.ease),
+            useNativeDriver: true,
+          }),
+          Animated.timing(scale, {
+            toValue: 0.5,
+            duration: 600,
+            easing: Easing.in(Easing.ease),
+            useNativeDriver: true,
+          }),
+        ]),
+        Animated.delay(800),
+      ])
+    );
+    animation.start();
+    return () => animation.stop();
+  }, []);
+
+  const radians = (angle * Math.PI) / 180;
+  const x = Math.cos(radians) * distance;
+  const y = Math.sin(radians) * distance;
+
+  return (
+    <Animated.View
+      style={[
+        styles.sparkle,
+        {
+          opacity,
+          transform: [
+            { translateX: x },
+            { translateY: y },
+            { scale },
+          ],
+        },
+      ]}
+    />
+  );
+}
 
 export default function SplashScreen({ onBootComplete }: SplashScreenProps) {
   const insets = useSafeAreaInsets();
@@ -27,58 +89,28 @@ export default function SplashScreen({ onBootComplete }: SplashScreenProps) {
   const [diagnosticInfo, setDiagnosticInfo] = useState<string[]>([]);
   const [retryCount, setRetryCount] = useState(0);
 
-  const glowOpacity = useRef(new Animated.Value(0.3)).current;
-  const glowScale = useRef(new Animated.Value(1)).current;
   const logoOpacity = useRef(new Animated.Value(0)).current;
   const progressAnim = useRef(new Animated.Value(0)).current;
   const slowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const sparkles = [
+    { angle: 0, distance: 70, delay: 0 },
+    { angle: 45, distance: 75, delay: 200 },
+    { angle: 90, distance: 70, delay: 400 },
+    { angle: 135, distance: 75, delay: 600 },
+    { angle: 180, distance: 70, delay: 800 },
+    { angle: 225, distance: 75, delay: 1000 },
+    { angle: 270, distance: 70, delay: 1200 },
+    { angle: 315, distance: 75, delay: 1400 },
+  ];
+
   useEffect(() => {
     Animated.timing(logoOpacity, {
       toValue: 1,
-      duration: 400,
+      duration: 500,
       easing: Easing.out(Easing.ease),
       useNativeDriver: true,
     }).start();
-
-    const pulseAnimation = Animated.loop(
-      Animated.parallel([
-        Animated.sequence([
-          Animated.timing(glowOpacity, {
-            toValue: 0.6,
-            duration: 1000,
-            easing: Easing.inOut(Easing.ease),
-            useNativeDriver: true,
-          }),
-          Animated.timing(glowOpacity, {
-            toValue: 0.2,
-            duration: 1000,
-            easing: Easing.inOut(Easing.ease),
-            useNativeDriver: true,
-          }),
-        ]),
-        Animated.sequence([
-          Animated.timing(glowScale, {
-            toValue: 1.15,
-            duration: 1000,
-            easing: Easing.inOut(Easing.ease),
-            useNativeDriver: true,
-          }),
-          Animated.timing(glowScale, {
-            toValue: 1,
-            duration: 1000,
-            easing: Easing.inOut(Easing.ease),
-            useNativeDriver: true,
-          }),
-        ]),
-      ])
-    );
-
-    pulseAnimation.start();
-
-    return () => {
-      pulseAnimation.stop();
-    };
   }, []);
 
   useEffect(() => {
@@ -180,21 +212,18 @@ export default function SplashScreen({ onBootComplete }: SplashScreenProps) {
 
       <View style={styles.content}>
         <View style={styles.logoWrapper}>
-          <Animated.View
-            style={[
-              styles.glowEffect,
-              {
-                opacity: glowOpacity,
-                transform: [{ scale: glowScale }],
-              },
-            ]}
-          />
+          {sparkles.map((sparkle, index) => (
+            <Sparkle
+              key={index}
+              angle={sparkle.angle}
+              distance={sparkle.distance}
+              delay={sparkle.delay}
+            />
+          ))}
           <Animated.View
             style={[
               styles.logoContainer,
-              {
-                opacity: logoOpacity,
-              },
+              { opacity: logoOpacity },
             ]}
           >
             <Image
@@ -294,18 +323,20 @@ const styles = StyleSheet.create({
     position: "relative",
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: Spacing.md,
-  },
-  glowEffect: {
-    position: "absolute",
     width: 160,
     height: 160,
-    borderRadius: 80,
-    backgroundColor: "#3B82F6",
+    marginBottom: Spacing.md,
+  },
+  sparkle: {
+    position: "absolute",
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "#60A5FA",
     shadowColor: "#3B82F6",
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 1,
-    shadowRadius: 40,
+    shadowRadius: 8,
   },
   logoContainer: {
     width: 100,
