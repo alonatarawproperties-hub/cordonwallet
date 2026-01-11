@@ -20,6 +20,8 @@ import { Spacing } from "@/constants/theme";
 import {
   PersonalSignRequest,
   SendTransactionRequest,
+  SolanaSignMessageRequest,
+  SolanaSignTransactionRequest,
   ParsedRequest,
   getChainName,
 } from "@/lib/walletconnect/handlers";
@@ -39,6 +41,7 @@ interface Props {
       };
     };
     parsed: ParsedRequest;
+    isSolana: boolean;
   } | null;
   dappName: string;
   dappUrl: string;
@@ -80,13 +83,21 @@ export function SignRequestSheet({
 
   if (!request) return null;
 
-  const { parsed } = request;
+  const { parsed, isSolana } = request;
   const isPersonalSign = parsed.method === "personal_sign";
   const isSendTx = parsed.method === "eth_sendTransaction";
+  const isSolanaSign = parsed.method.startsWith("solana_");
 
-  const chainId = isSendTx ? (parsed as SendTransactionRequest).chainId : 1;
-  const chain = getChainById(chainId);
-  const chainName = chain?.name || `Chain ${chainId}`;
+  let chainName: string;
+  if (isSolana || isSolanaSign) {
+    chainName = "Solana";
+  } else if (isSendTx) {
+    const chainId = (parsed as SendTransactionRequest).chainId;
+    const chain = getChainById(chainId);
+    chainName = chain?.name || `Chain ${chainId}`;
+  } else {
+    chainName = "Ethereum";
+  }
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={handleReject}>
@@ -98,7 +109,11 @@ export function SignRequestSheet({
 
           <View style={styles.header}>
             <ThemedText type="h3">
-              {isPersonalSign ? "Sign Message" : "Review Transaction"}
+              {isPersonalSign || parsed.method === "solana_signMessage" 
+                ? "Sign Message" 
+                : isSolanaSign 
+                  ? "Sign Transaction" 
+                  : "Review Transaction"}
             </ThemedText>
             <Pressable onPress={handleReject} hitSlop={12}>
               <Feather name="x" size={24} color={theme.textSecondary} />
@@ -130,6 +145,14 @@ export function SignRequestSheet({
                 request={parsed as SendTransactionRequest}
                 isApprovalBlocked={isApprovalBlocked}
               />
+            ) : null}
+
+            {parsed.method === "solana_signMessage" ? (
+              <SolanaSignMessageContent request={parsed as SolanaSignMessageRequest} />
+            ) : null}
+
+            {(parsed.method === "solana_signTransaction" || parsed.method === "solana_signAllTransactions") ? (
+              <SolanaTransactionContent method={parsed.method} />
             ) : null}
 
             {isApprovalBlocked ? (
@@ -194,6 +217,46 @@ function PersonalSignContent({
       </ThemedText>
       <ThemedText type="body" style={{ lineHeight: 22 }}>
         {request.displayMessage}
+      </ThemedText>
+    </View>
+  );
+}
+
+function SolanaSignMessageContent({
+  request,
+}: {
+  request: SolanaSignMessageRequest;
+}) {
+  const { theme } = useTheme();
+  return (
+    <View style={[styles.contentCard, { backgroundColor: theme.backgroundDefault }]}>
+      <ThemedText type="small" style={{ color: theme.textSecondary, marginBottom: Spacing.sm }}>
+        Message to sign:
+      </ThemedText>
+      <ThemedText type="body" style={{ lineHeight: 22 }}>
+        {request.displayMessage}
+      </ThemedText>
+    </View>
+  );
+}
+
+function SolanaTransactionContent({
+  method,
+}: {
+  method: string;
+}) {
+  const { theme } = useTheme();
+  const isMultiple = method === "solana_signAllTransactions";
+  return (
+    <View style={[styles.contentCard, { backgroundColor: theme.backgroundDefault }]}>
+      <View style={styles.txRow}>
+        <ThemedText type="small" style={{ color: theme.textSecondary }}>
+          Type
+        </ThemedText>
+        <Badge label={isMultiple ? "Multiple Transactions" : "Transaction"} variant="neutral" />
+      </View>
+      <ThemedText type="small" style={{ color: theme.textSecondary, marginTop: Spacing.sm }}>
+        The dApp is requesting you to sign a Solana {isMultiple ? "batch of transactions" : "transaction"}.
       </ThemedText>
     </View>
   );
