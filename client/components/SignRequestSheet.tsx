@@ -6,6 +6,7 @@ import {
   Pressable,
   ScrollView,
   ActivityIndicator,
+  Image,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
@@ -48,6 +49,7 @@ interface Props {
   } | null;
   dappName: string;
   dappUrl: string;
+  dappIcon?: string;
   isSigning: boolean;
   isApprovalBlocked: boolean;
   onSign: () => void;
@@ -55,11 +57,28 @@ interface Props {
   onCapAllowance: () => void;
 }
 
+function extractDomain(url: string): string {
+  if (!url) return "";
+  try {
+    const parsed = new URL(url.startsWith("http") ? url : `https://${url}`);
+    return parsed.hostname;
+  } catch {
+    return url.replace(/^https?:\/\//, "").split("/")[0] || "";
+  }
+}
+
+function isValidDomain(domain: string): boolean {
+  if (!domain) return false;
+  // Basic domain validation - must have at least one dot and no spaces
+  return domain.includes(".") && !domain.includes(" ") && domain.length > 3;
+}
+
 export function SignRequestSheet({
   visible,
   request,
   dappName,
   dappUrl,
+  dappIcon,
   isSigning,
   isApprovalBlocked,
   onSign,
@@ -90,6 +109,9 @@ export function SignRequestSheet({
   const isPersonalSign = parsed.method === "personal_sign";
   const isSendTx = parsed.method === "eth_sendTransaction";
   const isSolanaSign = parsed.method.startsWith("solana_");
+
+  const domain = extractDomain(dappUrl);
+  const isDomainVerified = isValidDomain(domain);
 
   let chainName: string;
   if (isSolana || isSolanaSign) {
@@ -125,19 +147,44 @@ export function SignRequestSheet({
 
           <ScrollView showsVerticalScrollIndicator={false} style={styles.scrollContent}>
             <View style={styles.dappRow}>
-              <View style={[styles.dappIcon, { backgroundColor: theme.accent + "20" }]}>
-                <Feather name="globe" size={20} color={theme.accent} />
-              </View>
+              {dappIcon ? (
+                <Image 
+                  source={{ uri: dappIcon }} 
+                  style={styles.dappIconImage}
+                  defaultSource={require("../../assets/images/icon.png")}
+                />
+              ) : (
+                <View style={[styles.dappIcon, { backgroundColor: theme.accent + "20" }]}>
+                  <Feather name="globe" size={20} color={theme.accent} />
+                </View>
+              )}
               <View style={{ flex: 1, marginLeft: Spacing.sm }}>
-                <ThemedText type="body" style={{ fontWeight: "600" }}>
-                  {dappName}
-                </ThemedText>
+                <View style={{ flexDirection: "row", alignItems: "center" }}>
+                  <ThemedText type="body" style={{ fontWeight: "600" }}>
+                    {dappName}
+                  </ThemedText>
+                  <View style={{ marginLeft: Spacing.xs }}>
+                    <Badge 
+                      label={isDomainVerified ? "Verified" : "Unverified"} 
+                      variant={isDomainVerified ? "success" : "warning"} 
+                    />
+                  </View>
+                </View>
                 <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                  {dappUrl.replace(/^https?:\/\//, "")}
+                  {domain || "Unknown domain"}
                 </ThemedText>
               </View>
-              <Badge label={chainName} variant="warning" />
+              <Badge label={chainName} variant="neutral" />
             </View>
+
+            {!isDomainVerified && dappName !== "Unknown dApp" ? (
+              <View style={[styles.unverifiedWarning, { backgroundColor: theme.warning + "15", borderColor: theme.warning }]}>
+                <Feather name="alert-triangle" size={16} color={theme.warning} />
+                <ThemedText type="small" style={{ color: theme.textSecondary, marginLeft: Spacing.sm, flex: 1 }}>
+                  This dApp did not provide a verifiable domain. Proceed carefully.
+                </ThemedText>
+              </View>
+            ) : null}
 
             {isPersonalSign ? (
               <PersonalSignContent request={parsed as PersonalSignRequest} />
@@ -676,6 +723,19 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     justifyContent: "center",
     alignItems: "center",
+  },
+  dappIconImage: {
+    width: 44,
+    height: 44,
+    borderRadius: 10,
+  },
+  unverifiedWarning: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: Spacing.sm,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginBottom: Spacing.md,
   },
   contentCard: {
     borderRadius: 12,

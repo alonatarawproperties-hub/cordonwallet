@@ -27,6 +27,7 @@ export function WalletConnectHandler({ children }: { children: React.ReactNode }
   const {
     currentProposal,
     currentRequest,
+    sessions,
     approve,
     reject,
     respondSuccess,
@@ -238,14 +239,26 @@ export function WalletConnectHandler({ children }: { children: React.ReactNode }
   const getDappInfo = useCallback(() => {
     if (currentProposal) {
       const meta = currentProposal.params.proposer.metadata;
-      return { name: meta.name, url: meta.url };
+      return { 
+        name: meta.name || "Unknown dApp", 
+        url: meta.url || "",
+        icons: meta.icons || [],
+      };
     }
     if (currentRequest) {
-      // Try to get dApp info from current request's session
-      return { name: "dApp", url: "" };
+      // Look up the session by topic to get real dApp metadata
+      const session = sessions.find(s => s.topic === currentRequest.request.topic);
+      if (session?.peerMeta) {
+        return {
+          name: session.peerMeta.name || "Unknown dApp",
+          url: session.peerMeta.url || "",
+          icons: session.peerMeta.icons || [],
+        };
+      }
+      return { name: "Unknown dApp", url: "", icons: [] };
     }
-    return { name: "dApp", url: "" };
-  }, [currentProposal, currentRequest]);
+    return { name: "Unknown dApp", url: "", icons: [] };
+  }, [currentProposal, currentRequest, sessions]);
 
   const dappInfo = getDappInfo();
   const showSignSheet = !!currentRequest && !isCapSheetVisible;
@@ -265,6 +278,7 @@ export function WalletConnectHandler({ children }: { children: React.ReactNode }
         request={currentRequest}
         dappName={dappInfo.name}
         dappUrl={dappInfo.url}
+        dappIcon={dappInfo.icons[0]}
         isSigning={isSigning}
         isApprovalBlocked={isApprovalBlocked}
         onSign={handleSign}

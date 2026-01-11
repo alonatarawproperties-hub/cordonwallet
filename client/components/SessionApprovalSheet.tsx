@@ -6,6 +6,7 @@ import {
   Pressable,
   ScrollView,
   ActivityIndicator,
+  Image,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
@@ -14,9 +15,25 @@ import * as Haptics from "expo-haptics";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
 import { Button } from "@/components/Button";
+import { Badge } from "@/components/Badge";
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing } from "@/constants/theme";
 import { SUPPORTED_EVM_CHAINS, SOLANA_MAINNET_CHAIN } from "@/lib/walletconnect/client";
+
+function extractDomain(url: string): string {
+  if (!url) return "";
+  try {
+    const parsed = new URL(url.startsWith("http") ? url : `https://${url}`);
+    return parsed.hostname;
+  } catch {
+    return url.replace(/^https?:\/\//, "").split("/")[0] || "";
+  }
+}
+
+function isValidDomain(domain: string): boolean {
+  if (!domain) return false;
+  return domain.includes(".") && !domain.includes(" ") && domain.length > 3;
+}
 
 interface Props {
   visible: boolean;
@@ -63,6 +80,9 @@ export function SessionApprovalSheet({
   if (!proposal) return null;
 
   const { metadata } = proposal.params.proposer;
+  const domain = extractDomain(metadata.url);
+  const isDomainVerified = isValidDomain(domain);
+  const dappIcon = metadata.icons?.[0];
   
   const requiredNamespaces = proposal.params.requiredNamespaces || {};
   const optionalNamespaces = proposal.params.optionalNamespaces || {};
@@ -119,19 +139,52 @@ export function SessionApprovalSheet({
 
           <ScrollView showsVerticalScrollIndicator={false} style={styles.scrollContent}>
             <View style={styles.dappInfo}>
-              <View style={[styles.dappIcon, { backgroundColor: theme.accent + "20" }]}>
-                <Feather name="globe" size={32} color={theme.accent} />
+              {dappIcon ? (
+                <Image 
+                  source={{ uri: dappIcon }} 
+                  style={styles.dappIconImage}
+                  defaultSource={require("../../assets/images/icon.png")}
+                />
+              ) : (
+                <View style={[styles.dappIcon, { backgroundColor: theme.accent + "20" }]}>
+                  <Feather name="globe" size={32} color={theme.accent} />
+                </View>
+              )}
+              <View style={{ flexDirection: "row", alignItems: "center", marginTop: Spacing.md }}>
+                <ThemedText type="h3">
+                  {metadata.name || "Unknown dApp"}
+                </ThemedText>
+                <View style={{ marginLeft: Spacing.sm }}>
+                  <Badge 
+                    label={isDomainVerified ? "Verified" : "Unverified"} 
+                    variant={isDomainVerified ? "success" : "warning"} 
+                  />
+                </View>
               </View>
-              <ThemedText type="h3" style={{ marginTop: Spacing.md }}>
-                {metadata.name}
-              </ThemedText>
               <ThemedText type="small" style={{ color: theme.textSecondary, marginTop: Spacing.xs }}>
-                {metadata.url.replace(/^https?:\/\//, "")}
+                {domain || "Unknown domain"}
               </ThemedText>
             </View>
 
+            {!isDomainVerified && metadata.name ? (
+              <View style={[styles.unverifiedWarning, { backgroundColor: theme.warning + "15", borderColor: theme.warning }]}>
+                <Feather name="alert-triangle" size={16} color={theme.warning} />
+                <ThemedText type="small" style={{ color: theme.textSecondary, marginLeft: Spacing.sm, flex: 1 }}>
+                  This dApp did not provide a verifiable domain. Proceed carefully.
+                </ThemedText>
+              </View>
+            ) : null}
+
             <View style={[styles.infoCard, { backgroundColor: theme.backgroundDefault }]}>
               <View style={styles.infoRow}>
+                <ThemedText type="small" style={{ color: theme.textSecondary }}>
+                  Domain
+                </ThemedText>
+                <ThemedText type="body" style={{ fontWeight: "500" }}>
+                  {domain || "Unverified"}
+                </ThemedText>
+              </View>
+              <View style={[styles.infoRow, { marginTop: Spacing.sm }]}>
                 <ThemedText type="small" style={{ color: theme.textSecondary }}>
                   Networks
                 </ThemedText>
@@ -246,6 +299,19 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     justifyContent: "center",
     alignItems: "center",
+  },
+  dappIconImage: {
+    width: 72,
+    height: 72,
+    borderRadius: 16,
+  },
+  unverifiedWarning: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: Spacing.sm,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginBottom: Spacing.md,
   },
   infoCard: {
     borderRadius: 12,
