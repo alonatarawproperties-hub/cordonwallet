@@ -168,21 +168,24 @@ export function WalletConnectHandler({ children }: { children: React.ReactNode }
           walletId: activeWallet.id,
           message: solanaReq.message,
         });
-        await respondSuccess(signature);
+        // WalletConnect Solana expects { signature: "base58..." }
+        await respondSuccess({ signature });
       } else if (parsed.method === "solana_signTransaction") {
         const solanaReq = parsed as SolanaSignTransactionRequest;
         const signedTx = await signSolanaTransaction({
           walletId: activeWallet.id,
           transaction: solanaReq.transaction,
         });
-        await respondSuccess(signedTx);
+        // WalletConnect Solana expects { transaction: "base64..." }
+        await respondSuccess({ transaction: signedTx });
       } else if (parsed.method === "solana_signAllTransactions") {
         const solanaReq = parsed as SolanaSignAllTransactionsRequest;
         const signedTxs = await signAllSolanaTransactions(
           activeWallet.id,
           solanaReq.transactions
         );
-        await respondSuccess(signedTxs);
+        // WalletConnect Solana expects { transactions: ["base64...", ...] }
+        await respondSuccess({ transactions: signedTxs });
       } else {
         await respondError("Unsupported method");
       }
