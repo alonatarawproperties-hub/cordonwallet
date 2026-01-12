@@ -280,7 +280,7 @@ export default function SendDetailsScreen({ navigation, route }: Props) {
   }, [risk.reasons]);
 
   useEffect(() => {
-    if (risk.isScam && !scamOverrideAccepted) {
+    if (risk.isScam) {
       showRiskAura({ level: "high", reason: risk.scamReason });
     } else if (risk.level === "high") {
       showRiskAura({ level: "high", reason: riskReasonRef.current });
@@ -289,7 +289,7 @@ export default function SendDetailsScreen({ navigation, route }: Props) {
     } else {
       hideRiskAura();
     }
-  }, [risk.isScam, risk.level, risk.scamReason, scamOverrideAccepted, showRiskAura, hideRiskAura]);
+  }, [risk.isScam, risk.level, risk.scamReason, showRiskAura, hideRiskAura]);
 
   const getRiskColor = (level: RiskLevel) => {
     switch (level) {

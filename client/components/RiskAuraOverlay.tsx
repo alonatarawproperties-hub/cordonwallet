@@ -148,7 +148,10 @@ export function RiskAuraOverlay() {
   const animationProgress = useSharedValue(0);
   const [shouldRender, setShouldRender] = useState(false);
 
+  console.log("[RiskAuraOverlay] state:", { isVisible, riskLevel, shouldRender });
+
   useEffect(() => {
+    console.log("[RiskAuraOverlay] effect triggered:", { isVisible, riskLevel });
     if (isVisible && riskLevel !== "none") {
       setShouldRender(true);
       fadeValue.value = withTiming(1, { duration: 400, easing: Easing.out(Easing.ease) });
