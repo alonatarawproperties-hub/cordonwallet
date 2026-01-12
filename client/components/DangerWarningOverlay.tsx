@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { View, StyleSheet, Dimensions } from "react-native";
+import { View, StyleSheet } from "react-native";
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -16,19 +16,18 @@ interface DangerWarningOverlayProps {
   isActive: boolean;
 }
 
-const EDGE_WIDTH = 25;
+const EDGE_WIDTH = 12;
 
 export function DangerWarningOverlay({ isActive }: DangerWarningOverlayProps) {
   const pulseValue = useSharedValue(0);
   const glowIntensity = useSharedValue(0);
-  const breathValue = useSharedValue(0);
 
   useEffect(() => {
     if (isActive) {
       pulseValue.value = withRepeat(
         withSequence(
-          withTiming(1, { duration: 1000, easing: Easing.inOut(Easing.ease) }),
-          withTiming(0.4, { duration: 1000, easing: Easing.inOut(Easing.ease) })
+          withTiming(1, { duration: 1200, easing: Easing.inOut(Easing.ease) }),
+          withTiming(0.3, { duration: 1200, easing: Easing.inOut(Easing.ease) })
         ),
         -1,
         false
@@ -36,17 +35,8 @@ export function DangerWarningOverlay({ isActive }: DangerWarningOverlayProps) {
 
       glowIntensity.value = withRepeat(
         withSequence(
-          withTiming(1, { duration: 1500, easing: Easing.inOut(Easing.quad) }),
-          withTiming(0.5, { duration: 1500, easing: Easing.inOut(Easing.quad) })
-        ),
-        -1,
-        false
-      );
-
-      breathValue.value = withRepeat(
-        withSequence(
-          withDelay(100, withTiming(1, { duration: 1200, easing: Easing.out(Easing.ease) })),
-          withTiming(0.3, { duration: 1200, easing: Easing.inOut(Easing.ease) })
+          withDelay(100, withTiming(1, { duration: 1400, easing: Easing.inOut(Easing.quad) })),
+          withTiming(0.4, { duration: 1400, easing: Easing.inOut(Easing.quad) })
         ),
         -1,
         false
@@ -54,82 +44,62 @@ export function DangerWarningOverlay({ isActive }: DangerWarningOverlayProps) {
     } else {
       pulseValue.value = withTiming(0, { duration: 300 });
       glowIntensity.value = withTiming(0, { duration: 300 });
-      breathValue.value = withTiming(0, { duration: 300 });
     }
-  }, [isActive, pulseValue, glowIntensity, breathValue]);
+  }, [isActive, pulseValue, glowIntensity]);
 
   const edgeStyle = useAnimatedStyle(() => {
-    const opacity = interpolate(glowIntensity.value, [0, 1], [0.6, 1]);
+    const opacity = interpolate(glowIntensity.value, [0, 1], [0.4, 0.75]);
     return { opacity };
   });
 
   const cornerStyle = useAnimatedStyle(() => {
-    const opacity = interpolate(pulseValue.value, [0, 1], [0.5, 0.95]);
-    const scale = interpolate(breathValue.value, [0, 1], [0.95, 1.05]);
-    return { opacity, transform: [{ scale }] };
-  });
-
-  const innerGlowStyle = useAnimatedStyle(() => {
-    const opacity = interpolate(pulseValue.value, [0, 1], [0, 0.04]);
+    const opacity = interpolate(pulseValue.value, [0, 1], [0.35, 0.8]);
     return { opacity };
   });
 
   if (!isActive) return null;
 
   return (
-    <View style={StyleSheet.absoluteFill} pointerEvents="none">
-      <Animated.View style={[styles.innerGlow, innerGlowStyle]}>
-        <LinearGradient
-          colors={["#FF0000", "transparent"]}
-          style={StyleSheet.absoluteFill}
-          start={{ x: 0.5, y: 0 }}
-          end={{ x: 0.5, y: 0.4 }}
-        />
-      </Animated.View>
-
+    <View style={styles.container} pointerEvents="none">
       <Animated.View style={[styles.topEdge, edgeStyle]}>
         <LinearGradient
-          colors={["#FF2020", "#FF5500", "#FF3030", "transparent"]}
+          colors={["rgba(255,50,50,0.9)", "rgba(255,80,0,0.6)", "transparent"]}
           style={StyleSheet.absoluteFill}
           start={{ x: 0.5, y: 0 }}
           end={{ x: 0.5, y: 1 }}
-          locations={[0, 0.3, 0.6, 1]}
         />
       </Animated.View>
 
       <Animated.View style={[styles.bottomEdge, edgeStyle]}>
         <LinearGradient
-          colors={["transparent", "#FF3030", "#FF5500", "#FF2020"]}
+          colors={["transparent", "rgba(255,80,0,0.6)", "rgba(255,50,50,0.9)"]}
           style={StyleSheet.absoluteFill}
           start={{ x: 0.5, y: 0 }}
           end={{ x: 0.5, y: 1 }}
-          locations={[0, 0.4, 0.7, 1]}
         />
       </Animated.View>
 
       <Animated.View style={[styles.leftEdge, edgeStyle]}>
         <LinearGradient
-          colors={["#FF2020", "#FF4400", "#FF5500", "transparent"]}
+          colors={["rgba(255,50,50,0.9)", "rgba(255,70,0,0.6)", "transparent"]}
           style={StyleSheet.absoluteFill}
           start={{ x: 0, y: 0.5 }}
           end={{ x: 1, y: 0.5 }}
-          locations={[0, 0.3, 0.6, 1]}
         />
       </Animated.View>
 
       <Animated.View style={[styles.rightEdge, edgeStyle]}>
         <LinearGradient
-          colors={["transparent", "#FF5500", "#FF4400", "#FF2020"]}
+          colors={["transparent", "rgba(255,70,0,0.6)", "rgba(255,50,50,0.9)"]}
           style={StyleSheet.absoluteFill}
           start={{ x: 0, y: 0.5 }}
           end={{ x: 1, y: 0.5 }}
-          locations={[0, 0.4, 0.7, 1]}
         />
       </Animated.View>
 
       <Animated.View style={[styles.topLeftCorner, cornerStyle]}>
         <LinearGradient
-          colors={["#FF3030", "#FF5500", "transparent"]}
+          colors={["rgba(255,60,60,0.85)", "rgba(255,90,0,0.5)", "transparent"]}
           style={StyleSheet.absoluteFill}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
@@ -138,7 +108,7 @@ export function DangerWarningOverlay({ isActive }: DangerWarningOverlayProps) {
 
       <Animated.View style={[styles.topRightCorner, cornerStyle]}>
         <LinearGradient
-          colors={["#FF5500", "#FF3030", "transparent"]}
+          colors={["rgba(255,90,0,0.85)", "rgba(255,60,60,0.5)", "transparent"]}
           style={StyleSheet.absoluteFill}
           start={{ x: 1, y: 0 }}
           end={{ x: 0, y: 1 }}
@@ -147,7 +117,7 @@ export function DangerWarningOverlay({ isActive }: DangerWarningOverlayProps) {
 
       <Animated.View style={[styles.bottomLeftCorner, cornerStyle]}>
         <LinearGradient
-          colors={["#FF4400", "#FF2020", "transparent"]}
+          colors={["rgba(255,70,0,0.85)", "rgba(255,50,50,0.5)", "transparent"]}
           style={StyleSheet.absoluteFill}
           start={{ x: 0, y: 1 }}
           end={{ x: 1, y: 0 }}
@@ -156,7 +126,7 @@ export function DangerWarningOverlay({ isActive }: DangerWarningOverlayProps) {
 
       <Animated.View style={[styles.bottomRightCorner, cornerStyle]}>
         <LinearGradient
-          colors={["#FF3030", "#FF5500", "transparent"]}
+          colors={["rgba(255,60,60,0.85)", "rgba(255,90,0,0.5)", "transparent"]}
           style={StyleSheet.absoluteFill}
           start={{ x: 1, y: 1 }}
           end={{ x: 0, y: 0 }}
@@ -167,9 +137,10 @@ export function DangerWarningOverlay({ isActive }: DangerWarningOverlayProps) {
 }
 
 const styles = StyleSheet.create({
-  innerGlow: {
+  container: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "#FF0000",
+    zIndex: 9999,
+    elevation: 9999,
   },
   topEdge: {
     position: "absolute",
@@ -203,28 +174,28 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: 0,
     left: 0,
-    width: EDGE_WIDTH * 2,
-    height: EDGE_WIDTH * 2,
+    width: EDGE_WIDTH * 1.5,
+    height: EDGE_WIDTH * 1.5,
   },
   topRightCorner: {
     position: "absolute",
     top: 0,
     right: 0,
-    width: EDGE_WIDTH * 2,
-    height: EDGE_WIDTH * 2,
+    width: EDGE_WIDTH * 1.5,
+    height: EDGE_WIDTH * 1.5,
   },
   bottomLeftCorner: {
     position: "absolute",
     bottom: 0,
     left: 0,
-    width: EDGE_WIDTH * 2,
-    height: EDGE_WIDTH * 2,
+    width: EDGE_WIDTH * 1.5,
+    height: EDGE_WIDTH * 1.5,
   },
   bottomRightCorner: {
     position: "absolute",
     bottom: 0,
     right: 0,
-    width: EDGE_WIDTH * 2,
-    height: EDGE_WIDTH * 2,
+    width: EDGE_WIDTH * 1.5,
+    height: EDGE_WIDTH * 1.5,
   },
 });
