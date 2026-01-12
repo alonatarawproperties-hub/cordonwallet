@@ -17,6 +17,7 @@ import { Button } from "@/components/Button";
 import { Input } from "@/components/Input";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import { ScamExplainerModal } from "@/components/ScamExplainerModal";
+import { RiskBorder } from "@/components/RiskBorder";
 import { useSecurityOverlay } from "@/context/SecurityOverlayContext";
 import { useWallet } from "@/lib/wallet-context";
 import {
@@ -737,6 +738,8 @@ export default function SendDetailsScreen({ navigation, route }: Props) {
         onClose={handleScamModalClose}
         onProceedAnyway={handleProceedAnyway}
       />
+
+      <RiskBorder level="high" visible={risk.isScam === true && !scamOverrideAccepted} />
     </ThemedView>
   );
 }
