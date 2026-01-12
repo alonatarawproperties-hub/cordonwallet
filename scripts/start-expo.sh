@@ -16,4 +16,4 @@ echo "Starting Metro bundler with tunnel..."
 echo ""
 
 # Start Expo with tunnel mode - shows QR code for scanning
-npx expo start --tunnel --clear
+npx expo start --tunnel
