@@ -29,6 +29,7 @@ import { sendSol, sendSplToken } from "@/lib/solana/transactions";
 import { getMnemonic } from "@/lib/wallet-engine";
 import { saveTransaction, updateTransactionStatus } from "@/lib/transaction-history";
 import { getApiUrl } from "@/lib/query-client";
+import { checkAddressBlocklist } from "@/lib/security/blocklist";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 
 type Props = NativeStackScreenProps<RootStackParamList, "SendDetails">;
@@ -186,6 +187,14 @@ export default function SendDetailsScreen({ navigation, route }: Props) {
     
     if (policySettings.denylistedAddresses.some(addr => addr.toLowerCase() === normalizedRecipient)) {
       reasons.push("Recipient is on your denylist");
+      level = "blocked";
+      canProceed = false;
+      return { level, reasons, canProceed };
+    }
+
+    const blocklistCheck = checkAddressBlocklist(recipient);
+    if (blocklistCheck.isBlocked) {
+      reasons.push(blocklistCheck.reason || "Known malicious address detected");
       level = "blocked";
       canProceed = false;
       return { level, reasons, canProceed };
