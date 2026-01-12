@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { View, StyleSheet, Pressable, Alert, ActivityIndicator, TextInput, Image } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
@@ -193,7 +193,7 @@ export default function SendDetailsScreen({ navigation, route }: Props) {
     return isValidEvmAddress(addr);
   };
 
-  const riskAssessment = (): RiskAssessment => {
+  const risk = useMemo((): RiskAssessment => {
     const reasons: string[] = [];
     let level: RiskLevel = "low";
     let canProceed = true;
@@ -268,9 +268,7 @@ export default function SendDetailsScreen({ navigation, route }: Props) {
     }
 
     return { level, reasons, canProceed };
-  };
-
-  const risk = riskAssessment();
+  }, [recipient, amount, policySettings.denylistedAddresses, policySettings.allowlistedAddresses, scamOverrideAccepted, params.chainType, params.balance, params.isNative, gasEstimate?.estimatedFeeNative, isValidAddress]);
 
   const riskReasonRef = useRef<string | undefined>(undefined);
   
@@ -280,7 +278,7 @@ export default function SendDetailsScreen({ navigation, route }: Props) {
   }, [risk.reasons]);
 
   useEffect(() => {
-    console.log("[SendDetailsScreen] Risk assessment:", { isScam: risk.isScam, level: risk.level, scamReason: risk.scamReason });
+    console.log("[SendDetailsScreen] Risk assessment:", { isScam: risk.isScam, level: risk.level, scamReason: risk.scamReason, recipient: recipient.substring(0, 20) });
     if (risk.isScam) {
       console.log("[SendDetailsScreen] Triggering showRiskAura for SCAM");
       showRiskAura({ level: "high", reason: risk.scamReason });
