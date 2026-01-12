@@ -1,21 +1,20 @@
 import * as SecureStore from "expo-secure-store";
 import * as WebBrowser from "expo-web-browser";
-import * as Linking from "expo-linking";
-import { sha256 } from "@noble/hashes/sha2.js";
+import * as AuthSession from "expo-auth-session";
 import { Platform } from "react-native";
+
+WebBrowser.maybeCompleteAuthSession();
 
 const SECURE_AUTH_STATE_KEY = "cordon_auth_state";
 const SECURE_AUTH_VERIFIER_KEY = "cordon_auth_verifier";
 const SECURE_AUTH_RETURN_URL_KEY = "cordon_auth_return_url";
-const SECURE_AUTH_PROVIDER_KEY = "cordon_auth_provider";
+const SECURE_AUTH_REQUEST_KEY = "cordon_auth_request";
 
-const GOOGLE_AUTH_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth";
-const GOOGLE_TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
-const GOOGLE_CLIENT_ID_IOS = "YOUR_GOOGLE_CLIENT_ID_IOS.apps.googleusercontent.com";
-const GOOGLE_CLIENT_ID_ANDROID = "YOUR_GOOGLE_CLIENT_ID_ANDROID.apps.googleusercontent.com";
-const GOOGLE_CLIENT_ID_WEB = "YOUR_GOOGLE_CLIENT_ID_WEB.apps.googleusercontent.com";
-
-const REDIRECT_URI = "cordon://auth/callback";
+const GOOGLE_DISCOVERY = {
+  authorizationEndpoint: "https://accounts.google.com/o/oauth2/v2/auth",
+  tokenEndpoint: "https://oauth2.googleapis.com/token",
+  revocationEndpoint: "https://oauth2.googleapis.com/revoke",
+};
 
 export interface AuthState {
   state: string;
@@ -48,30 +47,21 @@ export interface RoachyAuthResponse {
 
 function getGoogleClientId(): string {
   if (Platform.OS === "ios") {
-    return GOOGLE_CLIENT_ID_IOS;
+    return process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID || 
+           process.env.GOOGLE_IOS_CLIENT_ID || "";
   } else if (Platform.OS === "android") {
-    return GOOGLE_CLIENT_ID_ANDROID;
+    return process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID || 
+           process.env.GOOGLE_ANDROID_CLIENT_ID || "";
   }
-  return GOOGLE_CLIENT_ID_WEB;
+  return process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || 
+         process.env.GOOGLE_WEB_CLIENT_ID || "";
 }
 
-function generateRandomString(length: number): string {
-  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
-  let result = "";
-  const randomValues = new Uint8Array(length);
-  globalThis.crypto.getRandomValues(randomValues);
-  for (let i = 0; i < length; i++) {
-    result += chars[randomValues[i] % chars.length];
-  }
-  return result;
-}
-
-function generateCodeChallenge(verifier: string): string {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(verifier);
-  const digest = sha256(data);
-  const base64 = btoa(String.fromCharCode(...digest));
-  return base64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
+function getRedirectUri(): string {
+  return AuthSession.makeRedirectUri({
+    scheme: "cordon",
+    path: "auth/callback",
+  });
 }
 
 export async function storeAuthState(authState: AuthState): Promise<void> {
@@ -79,29 +69,37 @@ export async function storeAuthState(authState: AuthState): Promise<void> {
     SecureStore.setItemAsync(SECURE_AUTH_STATE_KEY, authState.state),
     SecureStore.setItemAsync(SECURE_AUTH_VERIFIER_KEY, authState.codeVerifier),
     SecureStore.setItemAsync(SECURE_AUTH_RETURN_URL_KEY, authState.returnUrl),
-    SecureStore.setItemAsync(SECURE_AUTH_PROVIDER_KEY, authState.provider),
+    SecureStore.setItemAsync(SECURE_AUTH_REQUEST_KEY, JSON.stringify({
+      provider: authState.provider,
+      startedAt: authState.startedAt,
+    })),
   ]);
 }
 
 export async function getStoredAuthState(): Promise<AuthState | null> {
-  const [state, codeVerifier, returnUrl, provider] = await Promise.all([
+  const [state, codeVerifier, returnUrl, requestJson] = await Promise.all([
     SecureStore.getItemAsync(SECURE_AUTH_STATE_KEY),
     SecureStore.getItemAsync(SECURE_AUTH_VERIFIER_KEY),
     SecureStore.getItemAsync(SECURE_AUTH_RETURN_URL_KEY),
-    SecureStore.getItemAsync(SECURE_AUTH_PROVIDER_KEY),
+    SecureStore.getItemAsync(SECURE_AUTH_REQUEST_KEY),
   ]);
 
-  if (!state || !codeVerifier || !returnUrl || !provider) {
+  if (!state || !codeVerifier || !returnUrl || !requestJson) {
     return null;
   }
 
-  return {
-    state,
-    codeVerifier,
-    returnUrl,
-    provider: provider as "google",
-    startedAt: 0,
-  };
+  try {
+    const request = JSON.parse(requestJson);
+    return {
+      state,
+      codeVerifier,
+      returnUrl,
+      provider: request.provider || "google",
+      startedAt: request.startedAt || 0,
+    };
+  } catch {
+    return null;
+  }
 }
 
 export async function clearAuthState(): Promise<void> {
@@ -109,19 +107,44 @@ export async function clearAuthState(): Promise<void> {
     SecureStore.deleteItemAsync(SECURE_AUTH_STATE_KEY),
     SecureStore.deleteItemAsync(SECURE_AUTH_VERIFIER_KEY),
     SecureStore.deleteItemAsync(SECURE_AUTH_RETURN_URL_KEY),
-    SecureStore.deleteItemAsync(SECURE_AUTH_PROVIDER_KEY),
+    SecureStore.deleteItemAsync(SECURE_AUTH_REQUEST_KEY),
   ]);
 }
 
-export async function startGoogleAuth(returnUrl: string): Promise<{ success: boolean; error?: string }> {
+export async function startGoogleAuth(returnUrl: string): Promise<{ 
+  success: boolean; 
+  error?: string;
+  completionUrl?: string;
+}> {
+  const clientId = getGoogleClientId();
+  
+  if (!clientId) {
+    return { 
+      success: false, 
+      error: "Google OAuth is not configured for this platform" 
+    };
+  }
+
   try {
-    const state = generateRandomString(32);
-    const codeVerifier = generateRandomString(64);
-    const codeChallenge = generateCodeChallenge(codeVerifier);
+    const redirectUri = getRedirectUri();
+
+    const request = new AuthSession.AuthRequest({
+      clientId,
+      redirectUri,
+      scopes: ["openid", "email", "profile"],
+      responseType: AuthSession.ResponseType.Code,
+      usePKCE: true,
+      extraParams: {
+        access_type: "offline",
+        prompt: "select_account",
+      },
+    });
+
+    await request.makeAuthUrlAsync(GOOGLE_DISCOVERY);
 
     const authState: AuthState = {
-      state,
-      codeVerifier,
+      state: request.state!,
+      codeVerifier: request.codeVerifier!,
       returnUrl,
       provider: "google",
       startedAt: Date.now(),
@@ -129,22 +152,8 @@ export async function startGoogleAuth(returnUrl: string): Promise<{ success: boo
 
     await storeAuthState(authState);
 
-    const params = new URLSearchParams({
-      client_id: getGoogleClientId(),
-      redirect_uri: REDIRECT_URI,
-      response_type: "code",
-      scope: "openid email profile",
-      state,
-      code_challenge: codeChallenge,
-      code_challenge_method: "S256",
-      prompt: "select_account",
-    });
-
-    const authUrl = `${GOOGLE_AUTH_ENDPOINT}?${params.toString()}`;
-
-    const result = await WebBrowser.openAuthSessionAsync(authUrl, REDIRECT_URI, {
+    const result = await request.promptAsync(GOOGLE_DISCOVERY, {
       showInRecents: true,
-      preferEphemeralSession: false,
     });
 
     if (result.type === "cancel" || result.type === "dismiss") {
@@ -152,88 +161,48 @@ export async function startGoogleAuth(returnUrl: string): Promise<{ success: boo
       return { success: false, error: "Authentication was cancelled" };
     }
 
-    if (result.type === "success" && result.url) {
-      return { success: true };
+    if (result.type === "error") {
+      await clearAuthState();
+      return { 
+        success: false, 
+        error: result.error?.message || "Authentication failed" 
+      };
     }
 
-    return { success: false, error: "Authentication failed" };
+    if (result.type === "success" && result.params.code) {
+      const completionResult = await completeGoogleAuth(
+        result.params.code,
+        authState.codeVerifier,
+        authState.returnUrl,
+        redirectUri
+      );
+      return completionResult;
+    }
+
+    await clearAuthState();
+    return { success: false, error: "No authorization code received" };
   } catch (error: any) {
     await clearAuthState();
     return { success: false, error: error.message || "Failed to start authentication" };
   }
 }
 
-export function parseAuthCallback(url: string): AuthCallbackParams {
-  const parsed = Linking.parse(url);
-  const queryParams = parsed.queryParams || {};
+export async function exchangeCodeForTokens(
+  code: string, 
+  codeVerifier: string,
+  redirectUri: string
+): Promise<TokenResponse> {
+  const clientId = getGoogleClientId();
 
-  return {
-    code: queryParams.code as string | undefined,
-    state: queryParams.state as string | undefined,
-    error: queryParams.error as string | undefined,
-    error_description: queryParams.error_description as string | undefined,
-  };
-}
-
-export async function validateAuthCallback(params: AuthCallbackParams): Promise<{ valid: boolean; error?: string; authState?: AuthState }> {
-  if (params.error) {
-    await clearAuthState();
-    return {
-      valid: false,
-      error: params.error_description || params.error || "Authentication error",
-    };
-  }
-
-  if (!params.code || !params.state) {
-    await clearAuthState();
-    return {
-      valid: false,
-      error: "Missing authorization code or state",
-    };
-  }
-
-  const storedState = await getStoredAuthState();
-
-  if (!storedState) {
-    return {
-      valid: false,
-      error: "No pending authentication session found",
-    };
-  }
-
-  if (storedState.state !== params.state) {
-    await clearAuthState();
-    return {
-      valid: false,
-      error: "State mismatch - possible CSRF attack",
-    };
-  }
-
-  const elapsed = Date.now() - storedState.startedAt;
-  if (elapsed > 10 * 60 * 1000) {
-    await clearAuthState();
-    return {
-      valid: false,
-      error: "Authentication session expired",
-    };
-  }
-
-  return {
-    valid: true,
-    authState: storedState,
-  };
-}
-
-export async function exchangeCodeForTokens(code: string, codeVerifier: string): Promise<TokenResponse> {
   const params = new URLSearchParams({
-    client_id: getGoogleClientId(),
+    client_id: clientId,
     code,
     code_verifier: codeVerifier,
     grant_type: "authorization_code",
-    redirect_uri: REDIRECT_URI,
+    redirect_uri: redirectUri,
   });
 
-  const response = await fetch(GOOGLE_TOKEN_ENDPOINT, {
+  const response = await fetch(GOOGLE_DISCOVERY.tokenEndpoint, {
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
@@ -269,22 +238,21 @@ export async function exchangeWithRoachy(idToken: string, returnUrl: string): Pr
   return response.json();
 }
 
-export async function completeGoogleAuth(code: string): Promise<{ success: boolean; completionUrl?: string; error?: string }> {
+export async function completeGoogleAuth(
+  code: string,
+  codeVerifier: string,
+  returnUrl: string,
+  redirectUri: string
+): Promise<{ success: boolean; completionUrl?: string; error?: string }> {
   try {
-    const storedState = await getStoredAuthState();
-
-    if (!storedState) {
-      return { success: false, error: "No pending authentication session" };
-    }
-
-    const tokens = await exchangeCodeForTokens(code, storedState.codeVerifier);
+    const tokens = await exchangeCodeForTokens(code, codeVerifier, redirectUri);
 
     if (!tokens.id_token) {
       await clearAuthState();
       return { success: false, error: "No ID token received from Google" };
     }
 
-    const roachyResponse = await exchangeWithRoachy(tokens.id_token, storedState.returnUrl);
+    const roachyResponse = await exchangeWithRoachy(tokens.id_token, returnUrl);
 
     await clearAuthState();
 
@@ -311,7 +279,8 @@ export function isRoachyAuthTrigger(url: string): boolean {
 
     const parsedUrl = new URL(url);
     if (parsedUrl.hostname === "roachy.games" || parsedUrl.hostname.endsWith(".roachy.games")) {
-      if (parsedUrl.pathname.includes("/auth/google/secure")) {
+      if (parsedUrl.pathname.includes("/auth/google/secure") || 
+          parsedUrl.pathname.includes("/auth/cordon/start")) {
         return true;
       }
     }
@@ -324,19 +293,22 @@ export function isRoachyAuthTrigger(url: string): boolean {
 
 export function extractReturnUrl(triggerUrl: string): string {
   try {
-    const parsed = Linking.parse(triggerUrl);
-    if (parsed.queryParams?.returnUrl) {
-      return parsed.queryParams.returnUrl as string;
-    }
-
     const url = new URL(triggerUrl);
-    const returnUrl = url.searchParams.get("returnUrl");
+    const returnUrl = url.searchParams.get("returnUrl") || url.searchParams.get("return_url");
     if (returnUrl) {
       return returnUrl;
     }
-
     return "https://roachy.games";
   } catch {
     return "https://roachy.games";
   }
+}
+
+export function getAuthConfig() {
+  return {
+    redirectUri: getRedirectUri(),
+    clientId: getGoogleClientId(),
+    hasClientId: !!getGoogleClientId(),
+    platform: Platform.OS,
+  };
 }

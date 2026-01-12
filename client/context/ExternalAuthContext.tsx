@@ -1,13 +1,10 @@
-import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from "react";
-import * as Linking from "expo-linking";
+import React, { createContext, useContext, useState, useCallback, useRef } from "react";
 import {
   startGoogleAuth,
-  parseAuthCallback,
-  validateAuthCallback,
-  completeGoogleAuth,
   isRoachyAuthTrigger,
   extractReturnUrl,
   clearAuthState,
+  getAuthConfig,
 } from "@/services/externalAuth";
 
 export type AuthStatus = "idle" | "starting" | "pending" | "exchanging" | "success" | "error";
@@ -17,9 +14,9 @@ interface ExternalAuthContextValue {
   error: string | null;
   completionUrl: string | null;
   startAuth: (triggerUrl: string) => Promise<void>;
-  handleDeepLink: (url: string) => Promise<boolean>;
   reset: () => void;
   isAuthTrigger: (url: string) => boolean;
+  getConfig: () => { redirectUri: string; clientId: string; hasClientId: boolean; platform: string };
 }
 
 const ExternalAuthContext = createContext<ExternalAuthContextValue | null>(null);
@@ -50,59 +47,31 @@ export function ExternalAuthProvider({ children }: { children: React.ReactNode }
 
     try {
       const returnUrl = extractReturnUrl(triggerUrl);
+      
+      setStatus("pending");
+      
       const result = await startGoogleAuth(returnUrl);
 
       if (!result.success) {
         setStatus("error");
-        setError(result.error || "Failed to start authentication");
+        setError(result.error || "Authentication failed");
         authInProgress.current = false;
         return;
       }
 
-      setStatus("pending");
+      if (result.completionUrl) {
+        setStatus("success");
+        setCompletionUrl(result.completionUrl);
+      } else {
+        setStatus("error");
+        setError("No completion URL received");
+      }
+      
+      authInProgress.current = false;
     } catch (err: any) {
       setStatus("error");
-      setError(err.message || "Failed to start authentication");
+      setError(err.message || "Failed to complete authentication");
       authInProgress.current = false;
-    }
-  }, []);
-
-  const handleDeepLink = useCallback(async (url: string): Promise<boolean> => {
-    if (!url.startsWith("cordon://auth/callback")) {
-      return false;
-    }
-
-    setStatus("exchanging");
-
-    try {
-      const params = parseAuthCallback(url);
-      const validation = await validateAuthCallback(params);
-
-      if (!validation.valid) {
-        setStatus("error");
-        setError(validation.error || "Invalid authentication response");
-        authInProgress.current = false;
-        return true;
-      }
-
-      const result = await completeGoogleAuth(params.code!);
-
-      if (!result.success) {
-        setStatus("error");
-        setError(result.error || "Failed to complete authentication");
-        authInProgress.current = false;
-        return true;
-      }
-
-      setStatus("success");
-      setCompletionUrl(result.completionUrl || null);
-      authInProgress.current = false;
-      return true;
-    } catch (err: any) {
-      setStatus("error");
-      setError(err.message || "Authentication failed");
-      authInProgress.current = false;
-      return true;
     }
   }, []);
 
@@ -110,23 +79,9 @@ export function ExternalAuthProvider({ children }: { children: React.ReactNode }
     return isRoachyAuthTrigger(url);
   }, []);
 
-  useEffect(() => {
-    const subscription = Linking.addEventListener("url", async (event) => {
-      if (event.url.startsWith("cordon://auth/callback")) {
-        await handleDeepLink(event.url);
-      }
-    });
-
-    Linking.getInitialURL().then((url) => {
-      if (url && url.startsWith("cordon://auth/callback")) {
-        handleDeepLink(url);
-      }
-    });
-
-    return () => {
-      subscription.remove();
-    };
-  }, [handleDeepLink]);
+  const getConfig = useCallback(() => {
+    return getAuthConfig();
+  }, []);
 
   return (
     <ExternalAuthContext.Provider
@@ -135,9 +90,9 @@ export function ExternalAuthProvider({ children }: { children: React.ReactNode }
         error,
         completionUrl,
         startAuth,
-        handleDeepLink,
         reset,
         isAuthTrigger,
+        getConfig,
       }}
     >
       {children}
