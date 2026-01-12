@@ -176,7 +176,8 @@ function configureExpoAndLanding(app: express.Application) {
       return next();
     }
 
-    const platform = req.header("expo-platform");
+    // Check header first, then query param (Expo Go uses ?platform=ios)
+    const platform = req.header("expo-platform") || (req.query.platform as string);
     if (platform && (platform === "ios" || platform === "android")) {
       return serveExpoManifest(platform, res);
     }
