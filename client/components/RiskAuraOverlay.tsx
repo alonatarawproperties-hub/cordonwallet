@@ -1,5 +1,5 @@
-import { useEffect, useRef } from "react";
-import { View, StyleSheet, Dimensions, Platform } from "react-native";
+import { useEffect } from "react";
+import { View, StyleSheet, Dimensions } from "react-native";
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -10,239 +10,245 @@ import Animated, {
   Easing,
   interpolate,
   cancelAnimation,
+  SharedValue,
 } from "react-native-reanimated";
 import { LinearGradient } from "expo-linear-gradient";
 import { BlurView } from "expo-blur";
 
 import { useSecurityOverlay, RiskLevel } from "@/context/SecurityOverlayContext";
 
-const { width, height } = Dimensions.get("screen");
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("screen");
 
-const RISK_COLORS: Record<RiskLevel, { primary: string; secondary: string; tertiary: string }> = {
-  none: { primary: "transparent", secondary: "transparent", tertiary: "transparent" },
-  low: { primary: "rgba(59,130,246,0.15)", secondary: "rgba(96,165,250,0.1)", tertiary: "rgba(147,197,253,0.05)" },
-  medium: { primary: "rgba(245,158,11,0.4)", secondary: "rgba(251,191,36,0.25)", tertiary: "rgba(252,211,77,0.1)" },
-  high: { primary: "rgba(239,68,68,0.65)", secondary: "rgba(249,115,22,0.45)", tertiary: "rgba(234,88,12,0.25)" },
+function hexToRgba(color: string, alpha: number): string {
+  if (color === "transparent") return "transparent";
+  if (color.startsWith("rgba")) return color;
+  if (color.startsWith("rgb(")) {
+    return color.replace("rgb(", "rgba(").replace(")", `,${alpha})`);
+  }
+  if (!color.startsWith("#") || color.length < 7) {
+    return `rgba(128,128,128,${alpha})`;
+  }
+  const r = parseInt(color.slice(1, 3), 16);
+  const g = parseInt(color.slice(3, 5), 16);
+  const b = parseInt(color.slice(5, 7), 16);
+  if (isNaN(r) || isNaN(g) || isNaN(b)) {
+    return `rgba(128,128,128,${alpha})`;
+  }
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+const RISK_COLORS: Record<RiskLevel, { primary: string; secondary: string; glow: string }> = {
+  none: { primary: "transparent", secondary: "transparent", glow: "transparent" },
+  low: { primary: "#2E90FF", secondary: "#60A5FA", glow: "rgba(46,144,255,0.25)" },
+  medium: { primary: "#FFB020", secondary: "#FBBF24", glow: "rgba(255,176,32,0.35)" },
+  high: { primary: "#FF3B30", secondary: "#FF6A3D", glow: "rgba(255,59,48,0.45)" },
 };
 
-const RISK_INTENSITY: Record<RiskLevel, { min: number; max: number }> = {
-  none: { min: 0, max: 0 },
-  low: { min: 0.15, max: 0.25 },
-  medium: { min: 0.35, max: 0.5 },
-  high: { min: 0.55, max: 0.75 },
-};
+interface BlobConfig {
+  size: number;
+  initialX: number;
+  initialY: number;
+  driftRangeX: number;
+  driftRangeY: number;
+  duration: number;
+  delay: number;
+  colorKey: "primary" | "secondary";
+  alpha: number;
+}
+
+const BLOB_CONFIGS: BlobConfig[] = [
+  { size: 380, initialX: -100, initialY: -80, driftRangeX: 60, driftRangeY: 40, duration: 10000, delay: 0, colorKey: "primary", alpha: 0.22 },
+  { size: 320, initialX: SCREEN_WIDTH - 180, initialY: -60, driftRangeX: 50, driftRangeY: 35, duration: 12000, delay: 500, colorKey: "secondary", alpha: 0.18 },
+  { size: 340, initialX: -80, initialY: SCREEN_HEIGHT - 280, driftRangeX: 55, driftRangeY: 45, duration: 11000, delay: 1000, colorKey: "secondary", alpha: 0.20 },
+  { size: 400, initialX: SCREEN_WIDTH - 220, initialY: SCREEN_HEIGHT - 320, driftRangeX: 65, driftRangeY: 50, duration: 14000, delay: 300, colorKey: "primary", alpha: 0.24 },
+  { size: 260, initialX: SCREEN_WIDTH / 2 - 130, initialY: SCREEN_HEIGHT / 2 - 200, driftRangeX: 80, driftRangeY: 60, duration: 9000, delay: 800, colorKey: "primary", alpha: 0.15 },
+];
+
+function AnimatedBlob({ config, riskLevel, fadeValue }: { config: BlobConfig; riskLevel: RiskLevel; fadeValue: SharedValue<number> }) {
+  const driftX = useSharedValue(0);
+  const driftY = useSharedValue(0);
+  const pulse = useSharedValue(0);
+
+  const colors = RISK_COLORS[riskLevel];
+  const baseColor = colors[config.colorKey];
+
+  useEffect(() => {
+    if (riskLevel !== "none") {
+      driftX.value = withDelay(
+        config.delay,
+        withRepeat(
+          withSequence(
+            withTiming(1, { duration: config.duration / 2, easing: Easing.inOut(Easing.sin) }),
+            withTiming(0, { duration: config.duration / 2, easing: Easing.inOut(Easing.sin) })
+          ),
+          -1,
+          true
+        )
+      );
+
+      driftY.value = withDelay(
+        config.delay + 200,
+        withRepeat(
+          withSequence(
+            withTiming(1, { duration: (config.duration * 0.8) / 2, easing: Easing.inOut(Easing.sin) }),
+            withTiming(0, { duration: (config.duration * 0.8) / 2, easing: Easing.inOut(Easing.sin) })
+          ),
+          -1,
+          true
+        )
+      );
+
+      pulse.value = withDelay(
+        config.delay,
+        withRepeat(
+          withSequence(
+            withTiming(1, { duration: 3000, easing: Easing.inOut(Easing.ease) }),
+            withTiming(0, { duration: 3000, easing: Easing.inOut(Easing.ease) })
+          ),
+          -1,
+          true
+        )
+      );
+    } else {
+      cancelAnimation(driftX);
+      cancelAnimation(driftY);
+      cancelAnimation(pulse);
+    }
+  }, [riskLevel, config, driftX, driftY, pulse]);
+
+  const blobStyle = useAnimatedStyle(() => {
+    const translateX = interpolate(driftX.value, [0, 1], [-config.driftRangeX / 2, config.driftRangeX / 2]);
+    const translateY = interpolate(driftY.value, [0, 1], [-config.driftRangeY / 2, config.driftRangeY / 2]);
+    const scale = interpolate(pulse.value, [0, 1], [0.95, 1.05]);
+    const opacity = interpolate(pulse.value, [0, 1], [config.alpha * 0.8, config.alpha * 1.2]) * fadeValue.value;
+
+    return {
+      opacity,
+      transform: [{ translateX }, { translateY }, { scale }],
+    };
+  });
+
+  return (
+    <Animated.View
+      style={[
+        {
+          position: "absolute",
+          left: config.initialX,
+          top: config.initialY,
+          width: config.size,
+          height: config.size,
+          borderRadius: config.size / 2,
+          backgroundColor: hexToRgba(baseColor, 0.3),
+        },
+        blobStyle,
+      ]}
+    />
+  );
+}
 
 export function RiskAuraOverlay() {
   const { state } = useSecurityOverlay();
   const { isVisible, riskLevel } = state;
 
-  const breatheValue = useSharedValue(0);
-  const shimmerValue = useSharedValue(0);
-  const driftValue = useSharedValue(0);
   const fadeValue = useSharedValue(0);
 
   useEffect(() => {
     if (isVisible && riskLevel !== "none") {
-      fadeValue.value = withTiming(1, { duration: 400, easing: Easing.out(Easing.ease) });
-
-      breatheValue.value = withRepeat(
-        withSequence(
-          withTiming(1, { duration: 2000, easing: Easing.inOut(Easing.ease) }),
-          withTiming(0, { duration: 2000, easing: Easing.inOut(Easing.ease) })
-        ),
-        -1,
-        false
-      );
-
-      driftValue.value = withRepeat(
-        withSequence(
-          withTiming(1, { duration: 3000, easing: Easing.inOut(Easing.sin) }),
-          withTiming(0, { duration: 3000, easing: Easing.inOut(Easing.sin) })
-        ),
-        -1,
-        false
-      );
-
-      shimmerValue.value = withRepeat(
-        withDelay(
-          2500,
-          withSequence(
-            withTiming(1, { duration: 800, easing: Easing.out(Easing.ease) }),
-            withTiming(0, { duration: 600, easing: Easing.in(Easing.ease) })
-          )
-        ),
-        -1,
-        false
-      );
+      fadeValue.value = withTiming(1, { duration: 500, easing: Easing.out(Easing.ease) });
     } else {
-      fadeValue.value = withTiming(0, { duration: 300 });
-      cancelAnimation(breatheValue);
-      cancelAnimation(driftValue);
-      cancelAnimation(shimmerValue);
+      fadeValue.value = withTiming(0, { duration: 350, easing: Easing.in(Easing.ease) });
     }
-  }, [isVisible, riskLevel, breatheValue, driftValue, shimmerValue, fadeValue]);
-
-  const colors = RISK_COLORS[riskLevel];
-  const intensity = RISK_INTENSITY[riskLevel];
+  }, [isVisible, riskLevel, fadeValue]);
 
   const containerStyle = useAnimatedStyle(() => ({
     opacity: fadeValue.value,
+    pointerEvents: fadeValue.value > 0.01 ? "none" : "none",
   }));
 
-  const topAuraStyle = useAnimatedStyle(() => {
-    const opacity = interpolate(breatheValue.value, [0, 1], [intensity.min, intensity.max]);
-    const translateY = interpolate(driftValue.value, [0, 1], [-5, 5]);
-    return {
-      opacity,
-      transform: [{ translateY }],
-    };
-  });
+  const colors = RISK_COLORS[riskLevel];
 
-  const bottomAuraStyle = useAnimatedStyle(() => {
-    const opacity = interpolate(breatheValue.value, [0, 1], [intensity.min * 0.8, intensity.max * 0.8]);
-    const translateY = interpolate(driftValue.value, [0, 1], [5, -5]);
-    return {
-      opacity,
-      transform: [{ translateY }],
-    };
-  });
+  if (!isVisible && fadeValue.value === 0) return null;
 
-  const leftAuraStyle = useAnimatedStyle(() => {
-    const opacity = interpolate(breatheValue.value, [0, 1], [intensity.min * 0.7, intensity.max * 0.7]);
-    const translateX = interpolate(driftValue.value, [0, 1], [-3, 3]);
-    return {
-      opacity,
-      transform: [{ translateX }],
-    };
-  });
-
-  const rightAuraStyle = useAnimatedStyle(() => {
-    const opacity = interpolate(breatheValue.value, [0, 1], [intensity.min * 0.7, intensity.max * 0.7]);
-    const translateX = interpolate(driftValue.value, [0, 1], [3, -3]);
-    return {
-      opacity,
-      transform: [{ translateX }],
-    };
-  });
-
-  const shimmerStyle = useAnimatedStyle(() => {
-    const opacity = interpolate(shimmerValue.value, [0, 0.5, 1], [0, 0.3, 0]);
-    const translateX = interpolate(shimmerValue.value, [0, 1], [-width, width]);
-    return {
-      opacity,
-      transform: [{ translateX }],
-    };
-  });
-
-  const vignetteStyle = useAnimatedStyle(() => {
-    const opacity = interpolate(breatheValue.value, [0, 1], [0.1, 0.2]);
-    return { opacity };
-  });
-
-  if (!isVisible || riskLevel === "none") return null;
+  const edgeAlpha = riskLevel === "high" ? 0.5 : riskLevel === "medium" ? 0.35 : 0.25;
 
   return (
     <Animated.View style={[styles.container, containerStyle]} pointerEvents="none">
-      <Animated.View style={[styles.vignette, vignetteStyle]}>
+      <BlurView intensity={8} tint="dark" style={[StyleSheet.absoluteFill, { opacity: 0.4 }]} />
+
+      {BLOB_CONFIGS.map((config, index) => (
+        <AnimatedBlob key={index} config={config} riskLevel={riskLevel} fadeValue={fadeValue} />
+      ))}
+
+      <BlurView intensity={40} tint="dark" style={[StyleSheet.absoluteFill, { opacity: 0.5 }]} />
+
+      <View style={styles.topEdge}>
         <LinearGradient
-          colors={["rgba(0,0,0,0.4)", "transparent", "transparent", "rgba(0,0,0,0.4)"]}
+          colors={[hexToRgba(colors.primary, edgeAlpha), hexToRgba(colors.secondary, edgeAlpha * 0.5), "transparent"]}
           style={StyleSheet.absoluteFill}
           start={{ x: 0.5, y: 0 }}
           end={{ x: 0.5, y: 1 }}
-          locations={[0, 0.3, 0.7, 1]}
         />
-      </Animated.View>
+      </View>
 
-      <Animated.View style={[styles.topAura, topAuraStyle]}>
+      <View style={styles.bottomEdge}>
         <LinearGradient
-          colors={[colors.primary, colors.secondary, colors.tertiary, "transparent"]}
+          colors={["transparent", hexToRgba(colors.secondary, edgeAlpha * 0.5), hexToRgba(colors.primary, edgeAlpha)]}
           style={StyleSheet.absoluteFill}
           start={{ x: 0.5, y: 0 }}
           end={{ x: 0.5, y: 1 }}
-          locations={[0, 0.25, 0.5, 1]}
         />
-        {Platform.OS === "ios" && (
-          <BlurView intensity={15} style={styles.blurOverlay} tint="dark" />
-        )}
-      </Animated.View>
+      </View>
 
-      <Animated.View style={[styles.bottomAura, bottomAuraStyle]}>
+      <View style={styles.leftEdge}>
         <LinearGradient
-          colors={["transparent", colors.tertiary, colors.secondary, colors.primary]}
-          style={StyleSheet.absoluteFill}
-          start={{ x: 0.5, y: 0 }}
-          end={{ x: 0.5, y: 1 }}
-          locations={[0, 0.5, 0.75, 1]}
-        />
-        {Platform.OS === "ios" && (
-          <BlurView intensity={15} style={styles.blurOverlay} tint="dark" />
-        )}
-      </Animated.View>
-
-      <Animated.View style={[styles.leftAura, leftAuraStyle]}>
-        <LinearGradient
-          colors={[colors.primary, colors.secondary, colors.tertiary, "transparent"]}
+          colors={[hexToRgba(colors.primary, edgeAlpha * 0.8), hexToRgba(colors.secondary, edgeAlpha * 0.4), "transparent"]}
           style={StyleSheet.absoluteFill}
           start={{ x: 0, y: 0.5 }}
           end={{ x: 1, y: 0.5 }}
-          locations={[0, 0.2, 0.45, 1]}
         />
-      </Animated.View>
+      </View>
 
-      <Animated.View style={[styles.rightAura, rightAuraStyle]}>
+      <View style={styles.rightEdge}>
         <LinearGradient
-          colors={["transparent", colors.tertiary, colors.secondary, colors.primary]}
+          colors={["transparent", hexToRgba(colors.secondary, edgeAlpha * 0.4), hexToRgba(colors.primary, edgeAlpha * 0.8)]}
           style={StyleSheet.absoluteFill}
           start={{ x: 0, y: 0.5 }}
           end={{ x: 1, y: 0.5 }}
-          locations={[0, 0.55, 0.8, 1]}
         />
-      </Animated.View>
+      </View>
 
-      <Animated.View style={[styles.topLeftBlob, topAuraStyle]}>
+      <View style={styles.cornerTL}>
         <LinearGradient
-          colors={[colors.secondary, colors.tertiary, "transparent"]}
+          colors={[hexToRgba(colors.primary, edgeAlpha * 1.2), "transparent"]}
           style={StyleSheet.absoluteFill}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
         />
-      </Animated.View>
-
-      <Animated.View style={[styles.topRightBlob, topAuraStyle]}>
+      </View>
+      <View style={styles.cornerTR}>
         <LinearGradient
-          colors={[colors.primary, colors.tertiary, "transparent"]}
+          colors={[hexToRgba(colors.secondary, edgeAlpha), "transparent"]}
           style={StyleSheet.absoluteFill}
           start={{ x: 1, y: 0 }}
           end={{ x: 0, y: 1 }}
         />
-      </Animated.View>
-
-      <Animated.View style={[styles.bottomLeftBlob, bottomAuraStyle]}>
+      </View>
+      <View style={styles.cornerBL}>
         <LinearGradient
-          colors={[colors.tertiary, colors.secondary, "transparent"]}
+          colors={[hexToRgba(colors.secondary, edgeAlpha), "transparent"]}
           style={StyleSheet.absoluteFill}
           start={{ x: 0, y: 1 }}
           end={{ x: 1, y: 0 }}
         />
-      </Animated.View>
-
-      <Animated.View style={[styles.bottomRightBlob, bottomAuraStyle]}>
+      </View>
+      <View style={styles.cornerBR}>
         <LinearGradient
-          colors={[colors.primary, colors.secondary, "transparent"]}
+          colors={[hexToRgba(colors.primary, edgeAlpha * 1.2), "transparent"]}
           style={StyleSheet.absoluteFill}
           start={{ x: 1, y: 1 }}
           end={{ x: 0, y: 0 }}
         />
-      </Animated.View>
-
-      <Animated.View style={[styles.shimmer, shimmerStyle]}>
-        <LinearGradient
-          colors={["transparent", "rgba(255,255,255,0.08)", "transparent"]}
-          style={StyleSheet.absoluteFill}
-          start={{ x: 0, y: 0.5 }}
-          end={{ x: 1, y: 0.5 }}
-        />
-      </Animated.View>
+      </View>
     </Animated.View>
   );
 }
@@ -250,82 +256,64 @@ export function RiskAuraOverlay() {
 const styles = StyleSheet.create({
   container: {
     ...StyleSheet.absoluteFillObject,
-    zIndex: 999999,
-    elevation: 999999,
+    zIndex: 9999,
+    elevation: 9999,
+    overflow: "hidden",
   },
-  vignette: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  topAura: {
+  topEdge: {
     position: "absolute",
     top: 0,
     left: 0,
     right: 0,
-    height: 180,
-    overflow: "hidden",
+    height: 160,
   },
-  bottomAura: {
+  bottomEdge: {
     position: "absolute",
     bottom: 0,
     left: 0,
     right: 0,
     height: 160,
-    overflow: "hidden",
   },
-  leftAura: {
+  leftEdge: {
     position: "absolute",
-    top: 150,
+    top: 100,
     left: 0,
-    bottom: 130,
-    width: 60,
+    bottom: 100,
+    width: 90,
   },
-  rightAura: {
+  rightEdge: {
     position: "absolute",
-    top: 150,
+    top: 100,
     right: 0,
-    bottom: 130,
-    width: 60,
+    bottom: 100,
+    width: 90,
   },
-  topLeftBlob: {
+  cornerTL: {
     position: "absolute",
     top: 0,
     left: 0,
-    width: 120,
-    height: 120,
-    borderBottomRightRadius: 120,
+    width: 140,
+    height: 140,
   },
-  topRightBlob: {
+  cornerTR: {
     position: "absolute",
     top: 0,
     right: 0,
-    width: 120,
-    height: 120,
-    borderBottomLeftRadius: 120,
+    width: 140,
+    height: 140,
   },
-  bottomLeftBlob: {
+  cornerBL: {
     position: "absolute",
     bottom: 0,
     left: 0,
-    width: 100,
-    height: 100,
-    borderTopRightRadius: 100,
+    width: 140,
+    height: 140,
   },
-  bottomRightBlob: {
+  cornerBR: {
     position: "absolute",
     bottom: 0,
     right: 0,
-    width: 100,
-    height: 100,
-    borderTopLeftRadius: 100,
-  },
-  shimmer: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 100,
-  },
-  blurOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    width: 140,
+    height: 140,
   },
 });
