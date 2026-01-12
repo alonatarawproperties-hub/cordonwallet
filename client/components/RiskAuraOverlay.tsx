@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { View, StyleSheet, Dimensions } from "react-native";
+import { View, StyleSheet, Dimensions, Modal } from "react-native";
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -22,161 +22,164 @@ const RISK_COLORS: Record<RiskLevel, { primary: string; secondary: string }> = {
   high: { primary: "#EF4444", secondary: "#F87171" },
 };
 
-const BORDER_WIDTH = 3;
-const GLOW_SPREAD = 30;
+const BORDER_WIDTH = 4;
+const GLOW_SPREAD = 40;
 
 export function RiskAuraOverlay() {
   const { state } = useSecurityOverlay();
   const { isVisible, riskLevel } = state;
 
-  const fadeValue = useSharedValue(0);
   const pulseValue = useSharedValue(0);
-  const flowValue = useSharedValue(0);
   const [shouldRender, setShouldRender] = useState(false);
 
   useEffect(() => {
+    console.log("[RiskAuraOverlay] state:", { isVisible, riskLevel, shouldRender });
     if (isVisible && riskLevel !== "none") {
       setShouldRender(true);
-      fadeValue.value = withTiming(1, { duration: 300 });
       pulseValue.value = withRepeat(
-        withTiming(1, { duration: 2000, easing: Easing.inOut(Easing.ease) }),
+        withTiming(1, { duration: 1500, easing: Easing.inOut(Easing.ease) }),
         -1,
         true
       );
-      flowValue.value = withRepeat(
-        withTiming(1, { duration: 3000, easing: Easing.linear }),
-        -1,
-        false
-      );
     } else {
-      fadeValue.value = withTiming(0, { duration: 200 }, (finished) => {
-        "worklet";
-        if (finished) {
-          runOnJS(setShouldRender)(false);
-        }
-      });
+      pulseValue.value = 0;
+      setShouldRender(false);
     }
-  }, [isVisible, riskLevel, fadeValue, pulseValue, flowValue]);
-
-  const containerStyle = useAnimatedStyle(() => ({
-    opacity: fadeValue.value,
-  }));
+  }, [isVisible, riskLevel, pulseValue]);
 
   const pulseStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(pulseValue.value, [0, 0.5, 1], [0.4, 0.8, 0.4]),
-    transform: [{ scale: interpolate(pulseValue.value, [0, 0.5, 1], [1, 1.02, 1]) }],
+    opacity: interpolate(pulseValue.value, [0, 0.5, 1], [0.6, 1, 0.6]),
   }));
 
-  if (!shouldRender) return null;
+  if (!shouldRender) {
+    return null;
+  }
 
   const colors = RISK_COLORS[riskLevel];
+  console.log("[RiskAuraOverlay] rendering with colors:", colors);
 
   return (
-    <Animated.View style={[styles.container, containerStyle]} pointerEvents="none">
-      <Animated.View style={[StyleSheet.absoluteFill, pulseStyle]}>
-        <View style={[styles.topEdge, { backgroundColor: colors.primary }]}>
-          <LinearGradient
-            colors={[colors.primary, colors.secondary, colors.primary]}
-            style={StyleSheet.absoluteFill}
-            start={{ x: 0, y: 0.5 }}
-            end={{ x: 1, y: 0.5 }}
-          />
-        </View>
-        <View style={[styles.bottomEdge, { backgroundColor: colors.primary }]}>
-          <LinearGradient
-            colors={[colors.primary, colors.secondary, colors.primary]}
-            style={StyleSheet.absoluteFill}
-            start={{ x: 1, y: 0.5 }}
-            end={{ x: 0, y: 0.5 }}
-          />
-        </View>
-        <View style={[styles.leftEdge, { backgroundColor: colors.primary }]}>
-          <LinearGradient
-            colors={[colors.primary, colors.secondary, colors.primary]}
-            style={StyleSheet.absoluteFill}
-            start={{ x: 0.5, y: 1 }}
-            end={{ x: 0.5, y: 0 }}
-          />
-        </View>
-        <View style={[styles.rightEdge, { backgroundColor: colors.primary }]}>
-          <LinearGradient
-            colors={[colors.primary, colors.secondary, colors.primary]}
-            style={StyleSheet.absoluteFill}
-            start={{ x: 0.5, y: 0 }}
-            end={{ x: 0.5, y: 1 }}
-          />
-        </View>
+    <Modal
+      visible={true}
+      transparent={true}
+      animationType="fade"
+      statusBarTranslucent={true}
+      hardwareAccelerated={true}
+    >
+      <View style={styles.modalContainer} pointerEvents="none">
+        <Animated.View style={[styles.overlayFrame, pulseStyle]}>
+          {/* Top border */}
+          <View style={styles.topBorder}>
+            <LinearGradient
+              colors={[colors.primary, colors.secondary, colors.primary]}
+              style={StyleSheet.absoluteFill}
+              start={{ x: 0, y: 0.5 }}
+              end={{ x: 1, y: 0.5 }}
+            />
+          </View>
+          
+          {/* Bottom border */}
+          <View style={styles.bottomBorder}>
+            <LinearGradient
+              colors={[colors.primary, colors.secondary, colors.primary]}
+              style={StyleSheet.absoluteFill}
+              start={{ x: 1, y: 0.5 }}
+              end={{ x: 0, y: 0.5 }}
+            />
+          </View>
+          
+          {/* Left border */}
+          <View style={styles.leftBorder}>
+            <LinearGradient
+              colors={[colors.primary, colors.secondary, colors.primary]}
+              style={StyleSheet.absoluteFill}
+              start={{ x: 0.5, y: 1 }}
+              end={{ x: 0.5, y: 0 }}
+            />
+          </View>
+          
+          {/* Right border */}
+          <View style={styles.rightBorder}>
+            <LinearGradient
+              colors={[colors.primary, colors.secondary, colors.primary]}
+              style={StyleSheet.absoluteFill}
+              start={{ x: 0.5, y: 0 }}
+              end={{ x: 0.5, y: 1 }}
+            />
+          </View>
 
-        <View style={styles.topGlow}>
-          <LinearGradient
-            colors={[`${colors.primary}60`, "transparent"]}
-            style={StyleSheet.absoluteFill}
-            start={{ x: 0.5, y: 0 }}
-            end={{ x: 0.5, y: 1 }}
-          />
-        </View>
-        <View style={styles.bottomGlow}>
-          <LinearGradient
-            colors={["transparent", `${colors.primary}60`]}
-            style={StyleSheet.absoluteFill}
-            start={{ x: 0.5, y: 0 }}
-            end={{ x: 0.5, y: 1 }}
-          />
-        </View>
-        <View style={styles.leftGlow}>
-          <LinearGradient
-            colors={[`${colors.primary}60`, "transparent"]}
-            style={StyleSheet.absoluteFill}
-            start={{ x: 0, y: 0.5 }}
-            end={{ x: 1, y: 0.5 }}
-          />
-        </View>
-        <View style={styles.rightGlow}>
-          <LinearGradient
-            colors={["transparent", `${colors.primary}60`]}
-            style={StyleSheet.absoluteFill}
-            start={{ x: 0, y: 0.5 }}
-            end={{ x: 1, y: 0.5 }}
-          />
-        </View>
-
-        <View style={[styles.cornerTL, { borderTopColor: colors.primary, borderLeftColor: colors.primary }]} />
-        <View style={[styles.cornerTR, { borderTopColor: colors.primary, borderRightColor: colors.primary }]} />
-        <View style={[styles.cornerBL, { borderBottomColor: colors.primary, borderLeftColor: colors.primary }]} />
-        <View style={[styles.cornerBR, { borderBottomColor: colors.primary, borderRightColor: colors.primary }]} />
-      </Animated.View>
-    </Animated.View>
+          {/* Glow effects */}
+          <View style={styles.topGlow}>
+            <LinearGradient
+              colors={[`${colors.primary}80`, `${colors.primary}40`, "transparent"]}
+              style={StyleSheet.absoluteFill}
+              start={{ x: 0.5, y: 0 }}
+              end={{ x: 0.5, y: 1 }}
+            />
+          </View>
+          
+          <View style={styles.bottomGlow}>
+            <LinearGradient
+              colors={["transparent", `${colors.primary}40`, `${colors.primary}80`]}
+              style={StyleSheet.absoluteFill}
+              start={{ x: 0.5, y: 0 }}
+              end={{ x: 0.5, y: 1 }}
+            />
+          </View>
+          
+          <View style={styles.leftGlow}>
+            <LinearGradient
+              colors={[`${colors.primary}80`, `${colors.primary}40`, "transparent"]}
+              style={StyleSheet.absoluteFill}
+              start={{ x: 0, y: 0.5 }}
+              end={{ x: 1, y: 0.5 }}
+            />
+          </View>
+          
+          <View style={styles.rightGlow}>
+            <LinearGradient
+              colors={["transparent", `${colors.primary}40`, `${colors.primary}80`]}
+              style={StyleSheet.absoluteFill}
+              start={{ x: 0, y: 0.5 }}
+              end={{ x: 1, y: 0.5 }}
+            />
+          </View>
+        </Animated.View>
+      </View>
+    </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    ...StyleSheet.absoluteFillObject,
-    zIndex: 99999,
-    elevation: 99999,
+  modalContainer: {
+    flex: 1,
+    backgroundColor: "transparent",
   },
-  topEdge: {
+  overlayFrame: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  topBorder: {
     position: "absolute",
     top: 0,
     left: 0,
     right: 0,
     height: BORDER_WIDTH,
   },
-  bottomEdge: {
+  bottomBorder: {
     position: "absolute",
     bottom: 0,
     left: 0,
     right: 0,
     height: BORDER_WIDTH,
   },
-  leftEdge: {
+  leftBorder: {
     position: "absolute",
     top: 0,
     left: 0,
     bottom: 0,
     width: BORDER_WIDTH,
   },
-  rightEdge: {
+  rightBorder: {
     position: "absolute",
     top: 0,
     right: 0,
@@ -210,45 +213,5 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     width: GLOW_SPREAD,
-  },
-  cornerTL: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    width: 20,
-    height: 20,
-    borderTopWidth: BORDER_WIDTH + 1,
-    borderLeftWidth: BORDER_WIDTH + 1,
-    borderTopLeftRadius: 8,
-  },
-  cornerTR: {
-    position: "absolute",
-    top: 0,
-    right: 0,
-    width: 20,
-    height: 20,
-    borderTopWidth: BORDER_WIDTH + 1,
-    borderRightWidth: BORDER_WIDTH + 1,
-    borderTopRightRadius: 8,
-  },
-  cornerBL: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    width: 20,
-    height: 20,
-    borderBottomWidth: BORDER_WIDTH + 1,
-    borderLeftWidth: BORDER_WIDTH + 1,
-    borderBottomLeftRadius: 8,
-  },
-  cornerBR: {
-    position: "absolute",
-    bottom: 0,
-    right: 0,
-    width: 20,
-    height: 20,
-    borderBottomWidth: BORDER_WIDTH + 1,
-    borderRightWidth: BORDER_WIDTH + 1,
-    borderBottomRightRadius: 8,
   },
 });
