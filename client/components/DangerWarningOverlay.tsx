@@ -9,7 +9,6 @@ import Animated, {
   withDelay,
   Easing,
   interpolate,
-  interpolateColor,
 } from "react-native-reanimated";
 import { LinearGradient } from "expo-linear-gradient";
 
@@ -17,11 +16,10 @@ interface DangerWarningOverlayProps {
   isActive: boolean;
 }
 
-const { width, height } = Dimensions.get("window");
+const EDGE_WIDTH = 25;
 
 export function DangerWarningOverlay({ isActive }: DangerWarningOverlayProps) {
   const pulseValue = useSharedValue(0);
-  const flowValue = useSharedValue(0);
   const glowIntensity = useSharedValue(0);
   const breathValue = useSharedValue(0);
 
@@ -29,23 +27,17 @@ export function DangerWarningOverlay({ isActive }: DangerWarningOverlayProps) {
     if (isActive) {
       pulseValue.value = withRepeat(
         withSequence(
-          withTiming(1, { duration: 800, easing: Easing.inOut(Easing.ease) }),
-          withTiming(0.3, { duration: 800, easing: Easing.inOut(Easing.ease) })
+          withTiming(1, { duration: 1000, easing: Easing.inOut(Easing.ease) }),
+          withTiming(0.4, { duration: 1000, easing: Easing.inOut(Easing.ease) })
         ),
-        -1,
-        false
-      );
-
-      flowValue.value = withRepeat(
-        withTiming(1, { duration: 3000, easing: Easing.linear }),
         -1,
         false
       );
 
       glowIntensity.value = withRepeat(
         withSequence(
-          withTiming(1, { duration: 1200, easing: Easing.inOut(Easing.quad) }),
-          withTiming(0.4, { duration: 1200, easing: Easing.inOut(Easing.quad) })
+          withTiming(1, { duration: 1500, easing: Easing.inOut(Easing.quad) }),
+          withTiming(0.5, { duration: 1500, easing: Easing.inOut(Easing.quad) })
         ),
         -1,
         false
@@ -53,126 +45,89 @@ export function DangerWarningOverlay({ isActive }: DangerWarningOverlayProps) {
 
       breathValue.value = withRepeat(
         withSequence(
-          withDelay(200, withTiming(1, { duration: 1000, easing: Easing.out(Easing.ease) })),
-          withTiming(0.2, { duration: 1400, easing: Easing.inOut(Easing.ease) })
+          withDelay(100, withTiming(1, { duration: 1200, easing: Easing.out(Easing.ease) })),
+          withTiming(0.3, { duration: 1200, easing: Easing.inOut(Easing.ease) })
         ),
         -1,
         false
       );
     } else {
       pulseValue.value = withTiming(0, { duration: 300 });
-      flowValue.value = withTiming(0, { duration: 300 });
       glowIntensity.value = withTiming(0, { duration: 300 });
       breathValue.value = withTiming(0, { duration: 300 });
     }
-  }, [isActive, pulseValue, flowValue, glowIntensity, breathValue]);
+  }, [isActive, pulseValue, glowIntensity, breathValue]);
 
-  const topEdgeStyle = useAnimatedStyle(() => {
-    const opacity = interpolate(glowIntensity.value, [0, 1], [0.5, 1]);
-    const scaleY = interpolate(breathValue.value, [0, 1], [0.8, 1.3]);
-    return {
-      opacity,
-      transform: [{ scaleY }],
-    };
+  const edgeStyle = useAnimatedStyle(() => {
+    const opacity = interpolate(glowIntensity.value, [0, 1], [0.6, 1]);
+    return { opacity };
   });
 
-  const bottomEdgeStyle = useAnimatedStyle(() => {
-    const opacity = interpolate(glowIntensity.value, [0, 1], [0.4, 0.9]);
-    const scaleY = interpolate(breathValue.value, [0, 1], [0.7, 1.2]);
-    return {
-      opacity,
-      transform: [{ scaleY }],
-    };
+  const cornerStyle = useAnimatedStyle(() => {
+    const opacity = interpolate(pulseValue.value, [0, 1], [0.5, 0.95]);
+    const scale = interpolate(breathValue.value, [0, 1], [0.95, 1.05]);
+    return { opacity, transform: [{ scale }] };
   });
 
-  const leftEdgeStyle = useAnimatedStyle(() => {
-    const opacity = interpolate(pulseValue.value, [0, 1], [0.3, 0.8]);
-    const scaleX = interpolate(breathValue.value, [0, 1], [0.6, 1.4]);
-    return {
-      opacity,
-      transform: [{ scaleX }],
-    };
-  });
-
-  const rightEdgeStyle = useAnimatedStyle(() => {
-    const opacity = interpolate(pulseValue.value, [0, 1], [0.3, 0.8]);
-    const scaleX = interpolate(breathValue.value, [0, 1], [0.6, 1.4]);
-    return {
-      opacity,
-      transform: [{ scaleX }],
-    };
-  });
-
-  const cornerGlowStyle = useAnimatedStyle(() => {
-    const opacity = interpolate(glowIntensity.value, [0, 1], [0.2, 0.7]);
-    const scale = interpolate(breathValue.value, [0, 1], [0.9, 1.2]);
-    return {
-      opacity,
-      transform: [{ scale }],
-    };
-  });
-
-  const innerPulseStyle = useAnimatedStyle(() => {
-    const opacity = interpolate(pulseValue.value, [0, 1], [0, 0.08]);
-    return {
-      opacity,
-    };
+  const innerGlowStyle = useAnimatedStyle(() => {
+    const opacity = interpolate(pulseValue.value, [0, 1], [0, 0.04]);
+    return { opacity };
   });
 
   if (!isActive) return null;
 
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="none">
-      <Animated.View style={[styles.innerPulse, innerPulseStyle]}>
+      <Animated.View style={[styles.innerGlow, innerGlowStyle]}>
         <LinearGradient
           colors={["#FF0000", "transparent"]}
           style={StyleSheet.absoluteFill}
           start={{ x: 0.5, y: 0 }}
-          end={{ x: 0.5, y: 0.5 }}
+          end={{ x: 0.5, y: 0.4 }}
         />
       </Animated.View>
 
-      <Animated.View style={[styles.topEdge, topEdgeStyle]}>
+      <Animated.View style={[styles.topEdge, edgeStyle]}>
         <LinearGradient
-          colors={["#FF2020", "#FF4444", "#FF6B00", "#FF2020", "transparent"]}
+          colors={["#FF2020", "#FF5500", "#FF3030", "transparent"]}
           style={StyleSheet.absoluteFill}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 0, y: 1 }}
-          locations={[0, 0.2, 0.5, 0.7, 1]}
-        />
-      </Animated.View>
-
-      <Animated.View style={[styles.bottomEdge, bottomEdgeStyle]}>
-        <LinearGradient
-          colors={["transparent", "#FF2020", "#FF5500", "#FF3030"]}
-          style={StyleSheet.absoluteFill}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 0, y: 1 }}
+          start={{ x: 0.5, y: 0 }}
+          end={{ x: 0.5, y: 1 }}
           locations={[0, 0.3, 0.6, 1]}
         />
       </Animated.View>
 
-      <Animated.View style={[styles.leftEdge, leftEdgeStyle]}>
+      <Animated.View style={[styles.bottomEdge, edgeStyle]}>
         <LinearGradient
-          colors={["#FF2020", "#FF4400", "#FF6B00", "#FF2020", "transparent"]}
+          colors={["transparent", "#FF3030", "#FF5500", "#FF2020"]}
           style={StyleSheet.absoluteFill}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 0 }}
-          locations={[0, 0.15, 0.4, 0.6, 1]}
+          start={{ x: 0.5, y: 0 }}
+          end={{ x: 0.5, y: 1 }}
+          locations={[0, 0.4, 0.7, 1]}
         />
       </Animated.View>
 
-      <Animated.View style={[styles.rightEdge, rightEdgeStyle]}>
+      <Animated.View style={[styles.leftEdge, edgeStyle]}>
         <LinearGradient
-          colors={["transparent", "#FF2020", "#FF5500", "#FF4400", "#FF2020"]}
+          colors={["#FF2020", "#FF4400", "#FF5500", "transparent"]}
           style={StyleSheet.absoluteFill}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 0 }}
-          locations={[0, 0.4, 0.6, 0.85, 1]}
+          start={{ x: 0, y: 0.5 }}
+          end={{ x: 1, y: 0.5 }}
+          locations={[0, 0.3, 0.6, 1]}
         />
       </Animated.View>
 
-      <Animated.View style={[styles.topLeftCorner, cornerGlowStyle]}>
+      <Animated.View style={[styles.rightEdge, edgeStyle]}>
+        <LinearGradient
+          colors={["transparent", "#FF5500", "#FF4400", "#FF2020"]}
+          style={StyleSheet.absoluteFill}
+          start={{ x: 0, y: 0.5 }}
+          end={{ x: 1, y: 0.5 }}
+          locations={[0, 0.4, 0.7, 1]}
+        />
+      </Animated.View>
+
+      <Animated.View style={[styles.topLeftCorner, cornerStyle]}>
         <LinearGradient
           colors={["#FF3030", "#FF5500", "transparent"]}
           style={StyleSheet.absoluteFill}
@@ -181,16 +136,16 @@ export function DangerWarningOverlay({ isActive }: DangerWarningOverlayProps) {
         />
       </Animated.View>
 
-      <Animated.View style={[styles.topRightCorner, cornerGlowStyle]}>
+      <Animated.View style={[styles.topRightCorner, cornerStyle]}>
         <LinearGradient
-          colors={["#FF5500", "#FF2020", "transparent"]}
+          colors={["#FF5500", "#FF3030", "transparent"]}
           style={StyleSheet.absoluteFill}
           start={{ x: 1, y: 0 }}
           end={{ x: 0, y: 1 }}
         />
       </Animated.View>
 
-      <Animated.View style={[styles.bottomLeftCorner, cornerGlowStyle]}>
+      <Animated.View style={[styles.bottomLeftCorner, cornerStyle]}>
         <LinearGradient
           colors={["#FF4400", "#FF2020", "transparent"]}
           style={StyleSheet.absoluteFill}
@@ -199,93 +154,77 @@ export function DangerWarningOverlay({ isActive }: DangerWarningOverlayProps) {
         />
       </Animated.View>
 
-      <Animated.View style={[styles.bottomRightCorner, cornerGlowStyle]}>
+      <Animated.View style={[styles.bottomRightCorner, cornerStyle]}>
         <LinearGradient
-          colors={["#FF2020", "#FF6B00", "transparent"]}
+          colors={["#FF3030", "#FF5500", "transparent"]}
           style={StyleSheet.absoluteFill}
           start={{ x: 1, y: 1 }}
           end={{ x: 0, y: 0 }}
         />
       </Animated.View>
-
-      <View style={styles.topHighlight}>
-        <LinearGradient
-          colors={["rgba(255,100,50,0.4)", "transparent"]}
-          style={StyleSheet.absoluteFill}
-          start={{ x: 0.5, y: 0 }}
-          end={{ x: 0.5, y: 1 }}
-        />
-      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  innerPulse: {
+  innerGlow: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "#FF0000",
   },
   topEdge: {
     position: "absolute",
     top: 0,
-    left: 0,
-    right: 0,
-    height: 120,
+    left: EDGE_WIDTH,
+    right: EDGE_WIDTH,
+    height: EDGE_WIDTH,
   },
   bottomEdge: {
     position: "absolute",
     bottom: 0,
-    left: 0,
-    right: 0,
-    height: 100,
+    left: EDGE_WIDTH,
+    right: EDGE_WIDTH,
+    height: EDGE_WIDTH,
   },
   leftEdge: {
     position: "absolute",
-    top: 100,
+    top: EDGE_WIDTH,
     left: 0,
-    bottom: 80,
-    width: 80,
+    bottom: EDGE_WIDTH,
+    width: EDGE_WIDTH,
   },
   rightEdge: {
     position: "absolute",
-    top: 100,
+    top: EDGE_WIDTH,
     right: 0,
-    bottom: 80,
-    width: 80,
+    bottom: EDGE_WIDTH,
+    width: EDGE_WIDTH,
   },
   topLeftCorner: {
     position: "absolute",
     top: 0,
     left: 0,
-    width: 150,
-    height: 150,
+    width: EDGE_WIDTH * 2,
+    height: EDGE_WIDTH * 2,
   },
   topRightCorner: {
     position: "absolute",
     top: 0,
     right: 0,
-    width: 150,
-    height: 150,
+    width: EDGE_WIDTH * 2,
+    height: EDGE_WIDTH * 2,
   },
   bottomLeftCorner: {
     position: "absolute",
     bottom: 0,
     left: 0,
-    width: 120,
-    height: 120,
+    width: EDGE_WIDTH * 2,
+    height: EDGE_WIDTH * 2,
   },
   bottomRightCorner: {
     position: "absolute",
     bottom: 0,
     right: 0,
-    width: 120,
-    height: 120,
-  },
-  topHighlight: {
-    position: "absolute",
-    top: 0,
-    left: "20%",
-    right: "20%",
-    height: 40,
+    width: EDGE_WIDTH * 2,
+    height: EDGE_WIDTH * 2,
   },
 });
