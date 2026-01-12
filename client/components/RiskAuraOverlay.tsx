@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { View, StyleSheet, Dimensions, Modal } from "react-native";
+import { View, StyleSheet, Dimensions } from "react-native";
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -8,170 +8,63 @@ import Animated, {
   Easing,
   interpolate,
   runOnJS,
-  SharedValue,
 } from "react-native-reanimated";
 import { LinearGradient } from "expo-linear-gradient";
-import { BlurView } from "expo-blur";
 
 import { useSecurityOverlay, RiskLevel } from "@/context/SecurityOverlayContext";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("screen");
 
-const RISK_COLORS: Record<RiskLevel, { colors: string[]; glowColor: string }> = {
-  none: { colors: ["transparent", "transparent"], glowColor: "transparent" },
-  low: { 
-    colors: ["#2E90FF", "#60A5FA", "#3B82F6", "#1D4ED8", "#2E90FF"],
-    glowColor: "rgba(46,144,255,0.6)" 
-  },
-  medium: { 
-    colors: ["#FFB020", "#FBBF24", "#F59E0B", "#D97706", "#FFB020"],
-    glowColor: "rgba(255,176,32,0.6)" 
-  },
-  high: { 
-    colors: ["#FF3B30", "#FF6B6B", "#FF4757", "#E74C3C", "#FF3B30", "#FF6B6B", "#C0392B", "#FF3B30"],
-    glowColor: "rgba(255,59,48,0.7)" 
-  },
+const RISK_COLORS: Record<RiskLevel, { primary: string; secondary: string }> = {
+  none: { primary: "transparent", secondary: "transparent" },
+  low: { primary: "#3B82F6", secondary: "#60A5FA" },
+  medium: { primary: "#F59E0B", secondary: "#FBBF24" },
+  high: { primary: "#EF4444", secondary: "#F87171" },
 };
 
-const BORDER_WIDTH = 4;
-const GLOW_SIZE = 80;
-
-function AnimatedBorderSegment({ 
-  position, 
-  riskLevel, 
-  animationProgress, 
-  fadeValue 
-}: { 
-  position: "top" | "bottom" | "left" | "right";
-  riskLevel: RiskLevel;
-  animationProgress: SharedValue<number>;
-  fadeValue: SharedValue<number>;
-}) {
-  const colors = RISK_COLORS[riskLevel];
-  
-  const gradientStyle = useAnimatedStyle(() => {
-    const offset = position === "top" ? 0 : 
-                   position === "right" ? 0.25 : 
-                   position === "bottom" ? 0.5 : 0.75;
-    const adjustedProgress = (animationProgress.value + offset) % 1;
-    
-    return {
-      opacity: fadeValue.value,
-      transform: position === "top" || position === "bottom" 
-        ? [{ translateX: interpolate(adjustedProgress, [0, 1], [-SCREEN_WIDTH, SCREEN_WIDTH]) }]
-        : [{ translateY: interpolate(adjustedProgress, [0, 1], [-SCREEN_HEIGHT, SCREEN_HEIGHT]) }],
-    };
-  });
-
-  const isHorizontal = position === "top" || position === "bottom";
-  const gradientStart = isHorizontal ? { x: 0, y: 0.5 } : { x: 0.5, y: 0 };
-  const gradientEnd = isHorizontal ? { x: 1, y: 0.5 } : { x: 0.5, y: 1 };
-
-  return (
-    <View style={[styles.borderSegment, styles[`${position}Border`]]}>
-      <Animated.View style={[StyleSheet.absoluteFill, gradientStyle]}>
-        <LinearGradient
-          colors={[...colors.colors, ...colors.colors] as [string, string, ...string[]]}
-          style={[StyleSheet.absoluteFill, isHorizontal ? { width: SCREEN_WIDTH * 3 } : { height: SCREEN_HEIGHT * 3 }]}
-          start={gradientStart}
-          end={gradientEnd}
-        />
-      </Animated.View>
-    </View>
-  );
-}
-
-function AnimatedGlowOrb({ 
-  index, 
-  riskLevel, 
-  animationProgress, 
-  fadeValue 
-}: { 
-  index: number;
-  riskLevel: RiskLevel;
-  animationProgress: SharedValue<number>;
-  fadeValue: SharedValue<number>;
-}) {
-  const colors = RISK_COLORS[riskLevel];
-  const orbOffset = index / 6;
-  
-  const orbStyle = useAnimatedStyle(() => {
-    const progress = (animationProgress.value + orbOffset) % 1;
-    const perimeter = (SCREEN_WIDTH + SCREEN_HEIGHT) * 2;
-    const distance = progress * perimeter;
-    
-    let x = 0, y = 0;
-    
-    if (distance < SCREEN_WIDTH) {
-      x = distance;
-      y = 0;
-    } else if (distance < SCREEN_WIDTH + SCREEN_HEIGHT) {
-      x = SCREEN_WIDTH;
-      y = distance - SCREEN_WIDTH;
-    } else if (distance < SCREEN_WIDTH * 2 + SCREEN_HEIGHT) {
-      x = SCREEN_WIDTH - (distance - SCREEN_WIDTH - SCREEN_HEIGHT);
-      y = SCREEN_HEIGHT;
-    } else {
-      x = 0;
-      y = SCREEN_HEIGHT - (distance - SCREEN_WIDTH * 2 - SCREEN_HEIGHT);
-    }
-    
-    const pulse = Math.sin(animationProgress.value * Math.PI * 4 + index) * 0.3 + 1;
-    
-    return {
-      opacity: fadeValue.value * 0.8,
-      transform: [
-        { translateX: x - GLOW_SIZE / 2 },
-        { translateY: y - GLOW_SIZE / 2 },
-        { scale: pulse },
-      ],
-    };
-  });
-
-  return (
-    <Animated.View style={[styles.glowOrb, orbStyle]}>
-      <LinearGradient
-        colors={["transparent", colors.glowColor, colors.glowColor, "transparent"]}
-        style={styles.glowGradient}
-        start={{ x: 0.5, y: 0.5 }}
-        end={{ x: 1, y: 1 }}
-      />
-    </Animated.View>
-  );
-}
+const BORDER_WIDTH = 3;
+const GLOW_SPREAD = 30;
 
 export function RiskAuraOverlay() {
   const { state } = useSecurityOverlay();
   const { isVisible, riskLevel } = state;
 
   const fadeValue = useSharedValue(0);
-  const animationProgress = useSharedValue(0);
+  const pulseValue = useSharedValue(0);
+  const flowValue = useSharedValue(0);
   const [shouldRender, setShouldRender] = useState(false);
 
-  console.log("[RiskAuraOverlay] state:", { isVisible, riskLevel, shouldRender });
-
   useEffect(() => {
-    console.log("[RiskAuraOverlay] effect triggered:", { isVisible, riskLevel });
     if (isVisible && riskLevel !== "none") {
       setShouldRender(true);
-      fadeValue.value = withTiming(1, { duration: 400, easing: Easing.out(Easing.ease) });
-      animationProgress.value = withRepeat(
-        withTiming(1, { duration: 4000, easing: Easing.linear }),
+      fadeValue.value = withTiming(1, { duration: 300 });
+      pulseValue.value = withRepeat(
+        withTiming(1, { duration: 2000, easing: Easing.inOut(Easing.ease) }),
+        -1,
+        true
+      );
+      flowValue.value = withRepeat(
+        withTiming(1, { duration: 3000, easing: Easing.linear }),
         -1,
         false
       );
     } else {
-      fadeValue.value = withTiming(0, { duration: 300, easing: Easing.in(Easing.ease) }, (finished) => {
+      fadeValue.value = withTiming(0, { duration: 200 }, (finished) => {
         "worklet";
         if (finished) {
           runOnJS(setShouldRender)(false);
         }
       });
     }
-  }, [isVisible, riskLevel, fadeValue, animationProgress]);
+  }, [isVisible, riskLevel, fadeValue, pulseValue, flowValue]);
 
   const containerStyle = useAnimatedStyle(() => ({
     opacity: fadeValue.value,
+  }));
+
+  const pulseStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(pulseValue.value, [0, 0.5, 1], [0.4, 0.8, 0.4]),
+    transform: [{ scale: interpolate(pulseValue.value, [0, 0.5, 1], [1, 1.02, 1]) }],
   }));
 
   if (!shouldRender) return null;
@@ -179,204 +72,183 @@ export function RiskAuraOverlay() {
   const colors = RISK_COLORS[riskLevel];
 
   return (
-    <Modal
-      visible={shouldRender}
-      transparent={true}
-      animationType="none"
-      statusBarTranslucent={true}
-      presentationStyle="overFullScreen"
-    >
-      <Animated.View style={[styles.container, containerStyle]} pointerEvents="none">
-        <BlurView intensity={15} tint="dark" style={[StyleSheet.absoluteFill, { opacity: 0.2 }]} />
-        
-        {[0, 1, 2, 3, 4, 5].map((index) => (
-          <AnimatedGlowOrb
-            key={index}
-            index={index}
-            riskLevel={riskLevel}
-            animationProgress={animationProgress}
-            fadeValue={fadeValue}
+    <Animated.View style={[styles.container, containerStyle]} pointerEvents="none">
+      <Animated.View style={[StyleSheet.absoluteFill, pulseStyle]}>
+        <View style={[styles.topEdge, { backgroundColor: colors.primary }]}>
+          <LinearGradient
+            colors={[colors.primary, colors.secondary, colors.primary]}
+            style={StyleSheet.absoluteFill}
+            start={{ x: 0, y: 0.5 }}
+            end={{ x: 1, y: 0.5 }}
           />
-        ))}
-        
+        </View>
+        <View style={[styles.bottomEdge, { backgroundColor: colors.primary }]}>
+          <LinearGradient
+            colors={[colors.primary, colors.secondary, colors.primary]}
+            style={StyleSheet.absoluteFill}
+            start={{ x: 1, y: 0.5 }}
+            end={{ x: 0, y: 0.5 }}
+          />
+        </View>
+        <View style={[styles.leftEdge, { backgroundColor: colors.primary }]}>
+          <LinearGradient
+            colors={[colors.primary, colors.secondary, colors.primary]}
+            style={StyleSheet.absoluteFill}
+            start={{ x: 0.5, y: 1 }}
+            end={{ x: 0.5, y: 0 }}
+          />
+        </View>
+        <View style={[styles.rightEdge, { backgroundColor: colors.primary }]}>
+          <LinearGradient
+            colors={[colors.primary, colors.secondary, colors.primary]}
+            style={StyleSheet.absoluteFill}
+            start={{ x: 0.5, y: 0 }}
+            end={{ x: 0.5, y: 1 }}
+          />
+        </View>
+
         <View style={styles.topGlow}>
           <LinearGradient
-            colors={[colors.glowColor, "transparent"]}
+            colors={[`${colors.primary}60`, "transparent"]}
             style={StyleSheet.absoluteFill}
             start={{ x: 0.5, y: 0 }}
             end={{ x: 0.5, y: 1 }}
           />
         </View>
-        
         <View style={styles.bottomGlow}>
           <LinearGradient
-            colors={["transparent", colors.glowColor]}
+            colors={["transparent", `${colors.primary}60`]}
             style={StyleSheet.absoluteFill}
             start={{ x: 0.5, y: 0 }}
             end={{ x: 0.5, y: 1 }}
           />
         </View>
-        
         <View style={styles.leftGlow}>
           <LinearGradient
-            colors={[colors.glowColor, "transparent"]}
+            colors={[`${colors.primary}60`, "transparent"]}
             style={StyleSheet.absoluteFill}
             start={{ x: 0, y: 0.5 }}
             end={{ x: 1, y: 0.5 }}
           />
         </View>
-        
         <View style={styles.rightGlow}>
           <LinearGradient
-            colors={["transparent", colors.glowColor]}
+            colors={["transparent", `${colors.primary}60`]}
             style={StyleSheet.absoluteFill}
             start={{ x: 0, y: 0.5 }}
             end={{ x: 1, y: 0.5 }}
           />
         </View>
 
-        <AnimatedBorderSegment position="top" riskLevel={riskLevel} animationProgress={animationProgress} fadeValue={fadeValue} />
-        <AnimatedBorderSegment position="bottom" riskLevel={riskLevel} animationProgress={animationProgress} fadeValue={fadeValue} />
-        <AnimatedBorderSegment position="left" riskLevel={riskLevel} animationProgress={animationProgress} fadeValue={fadeValue} />
-        <AnimatedBorderSegment position="right" riskLevel={riskLevel} animationProgress={animationProgress} fadeValue={fadeValue} />
-
-        <View style={styles.cornerTL}>
-          <LinearGradient
-            colors={[colors.glowColor, "transparent"]}
-            style={StyleSheet.absoluteFill}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-          />
-        </View>
-        <View style={styles.cornerTR}>
-          <LinearGradient
-            colors={[colors.glowColor, "transparent"]}
-            style={StyleSheet.absoluteFill}
-            start={{ x: 1, y: 0 }}
-            end={{ x: 0, y: 1 }}
-          />
-        </View>
-        <View style={styles.cornerBL}>
-          <LinearGradient
-            colors={[colors.glowColor, "transparent"]}
-            style={StyleSheet.absoluteFill}
-            start={{ x: 0, y: 1 }}
-            end={{ x: 1, y: 0 }}
-          />
-        </View>
-        <View style={styles.cornerBR}>
-          <LinearGradient
-            colors={[colors.glowColor, "transparent"]}
-            style={StyleSheet.absoluteFill}
-            start={{ x: 1, y: 1 }}
-            end={{ x: 0, y: 0 }}
-          />
-        </View>
+        <View style={[styles.cornerTL, { borderTopColor: colors.primary, borderLeftColor: colors.primary }]} />
+        <View style={[styles.cornerTR, { borderTopColor: colors.primary, borderRightColor: colors.primary }]} />
+        <View style={[styles.cornerBL, { borderBottomColor: colors.primary, borderLeftColor: colors.primary }]} />
+        <View style={[styles.cornerBR, { borderBottomColor: colors.primary, borderRightColor: colors.primary }]} />
       </Animated.View>
-    </Modal>
+    </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     ...StyleSheet.absoluteFillObject,
-    zIndex: 9999,
-    elevation: 9999,
-    overflow: "hidden",
+    zIndex: 99999,
+    elevation: 99999,
   },
-  borderSegment: {
+  topEdge: {
     position: "absolute",
-    overflow: "hidden",
-  },
-  topBorder: {
     top: 0,
     left: 0,
     right: 0,
     height: BORDER_WIDTH,
   },
-  bottomBorder: {
+  bottomEdge: {
+    position: "absolute",
     bottom: 0,
     left: 0,
     right: 0,
     height: BORDER_WIDTH,
   },
-  leftBorder: {
+  leftEdge: {
+    position: "absolute",
     top: 0,
     left: 0,
     bottom: 0,
     width: BORDER_WIDTH,
   },
-  rightBorder: {
+  rightEdge: {
+    position: "absolute",
     top: 0,
     right: 0,
     bottom: 0,
     width: BORDER_WIDTH,
-  },
-  glowOrb: {
-    position: "absolute",
-    width: GLOW_SIZE,
-    height: GLOW_SIZE,
-    borderRadius: GLOW_SIZE / 2,
-  },
-  glowGradient: {
-    width: GLOW_SIZE,
-    height: GLOW_SIZE,
-    borderRadius: GLOW_SIZE / 2,
   },
   topGlow: {
     position: "absolute",
     top: 0,
     left: 0,
     right: 0,
-    height: 100,
+    height: GLOW_SPREAD,
   },
   bottomGlow: {
     position: "absolute",
     bottom: 0,
     left: 0,
     right: 0,
-    height: 100,
+    height: GLOW_SPREAD,
   },
   leftGlow: {
     position: "absolute",
-    top: 100,
+    top: 0,
     left: 0,
-    bottom: 100,
-    width: 60,
+    bottom: 0,
+    width: GLOW_SPREAD,
   },
   rightGlow: {
     position: "absolute",
-    top: 100,
+    top: 0,
     right: 0,
-    bottom: 100,
-    width: 60,
+    bottom: 0,
+    width: GLOW_SPREAD,
   },
   cornerTL: {
     position: "absolute",
     top: 0,
     left: 0,
-    width: 150,
-    height: 150,
+    width: 20,
+    height: 20,
+    borderTopWidth: BORDER_WIDTH + 1,
+    borderLeftWidth: BORDER_WIDTH + 1,
+    borderTopLeftRadius: 8,
   },
   cornerTR: {
     position: "absolute",
     top: 0,
     right: 0,
-    width: 150,
-    height: 150,
+    width: 20,
+    height: 20,
+    borderTopWidth: BORDER_WIDTH + 1,
+    borderRightWidth: BORDER_WIDTH + 1,
+    borderTopRightRadius: 8,
   },
   cornerBL: {
     position: "absolute",
     bottom: 0,
     left: 0,
-    width: 150,
-    height: 150,
+    width: 20,
+    height: 20,
+    borderBottomWidth: BORDER_WIDTH + 1,
+    borderLeftWidth: BORDER_WIDTH + 1,
+    borderBottomLeftRadius: 8,
   },
   cornerBR: {
     position: "absolute",
     bottom: 0,
     right: 0,
-    width: 150,
-    height: 150,
+    width: 20,
+    height: 20,
+    borderBottomWidth: BORDER_WIDTH + 1,
+    borderRightWidth: BORDER_WIDTH + 1,
+    borderBottomRightRadius: 8,
   },
 });
