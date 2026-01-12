@@ -33,17 +33,15 @@ export default function App() {
                 <WalletConnectProvider>
                   <WalletConnectHandler>
                     <SecurityOverlayProvider>
-                      <View style={styles.root}>
-                        <GestureHandlerRootView style={styles.root}>
-                          <KeyboardProvider>
-                            <NavigationContainer>
-                              <RootStackNavigator />
-                            </NavigationContainer>
-                            <StatusBar style="auto" />
-                          </KeyboardProvider>
-                        </GestureHandlerRootView>
+                      <GestureHandlerRootView style={styles.root}>
+                        <KeyboardProvider>
+                          <NavigationContainer>
+                            <RootStackNavigator />
+                          </NavigationContainer>
+                          <StatusBar style="auto" />
+                        </KeyboardProvider>
                         <GlobalOverlayHost />
-                      </View>
+                      </GestureHandlerRootView>
                     </SecurityOverlayProvider>
                   </WalletConnectHandler>
                 </WalletConnectProvider>
