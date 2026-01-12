@@ -16,8 +16,8 @@ import { ThemedView } from "@/components/ThemedView";
 import { Button } from "@/components/Button";
 import { Input } from "@/components/Input";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
-import { DangerWarningOverlay } from "@/components/DangerWarningOverlay";
 import { ScamExplainerModal } from "@/components/ScamExplainerModal";
+import { useSecurityOverlay } from "@/context/SecurityOverlayContext";
 import { useWallet } from "@/lib/wallet-context";
 import {
   sendNative,
@@ -61,6 +61,7 @@ export default function SendDetailsScreen({ navigation, route }: Props) {
   const headerHeight = useHeaderHeight();
   const { theme } = useTheme();
   const { activeWallet, policySettings } = useWallet();
+  const { showRiskAura, hideRiskAura } = useSecurityOverlay();
   const params = route.params;
 
   const [recipient, setRecipient] = useState("");
@@ -85,6 +86,14 @@ export default function SendDetailsScreen({ navigation, route }: Props) {
   useEffect(() => {
     setScamOverrideAccepted(false);
   }, [recipient]);
+
+  useFocusEffect(
+    useCallback(() => {
+      return () => {
+        hideRiskAura();
+      };
+    }, [hideRiskAura])
+  );
 
   const estimateGas = useCallback(async () => {
     if (params.chainType === "solana") {
@@ -262,6 +271,18 @@ export default function SendDetailsScreen({ navigation, route }: Props) {
   };
 
   const risk = riskAssessment();
+
+  useEffect(() => {
+    if (risk.isScam && !scamOverrideAccepted) {
+      showRiskAura({ level: "high", reason: risk.scamReason });
+    } else if (risk.level === "high") {
+      showRiskAura({ level: "high", reason: risk.reasons[0] });
+    } else if (risk.level === "medium") {
+      showRiskAura({ level: "medium", reason: risk.reasons[0] });
+    } else {
+      hideRiskAura();
+    }
+  }, [risk.isScam, risk.level, risk.scamReason, risk.reasons, scamOverrideAccepted, showRiskAura, hideRiskAura]);
 
   const getRiskColor = (level: RiskLevel) => {
     switch (level) {
@@ -698,8 +719,6 @@ export default function SendDetailsScreen({ navigation, route }: Props) {
           </Button>
         </View>
       </KeyboardAwareScrollViewCompat>
-
-      <DangerWarningOverlay isActive={risk.isScam === true && !scamOverrideAccepted} />
 
       <ScamExplainerModal
         visible={showScamModal}

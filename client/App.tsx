@@ -16,6 +16,8 @@ import { CapAllowanceProvider } from "@/lib/cap-allowance-context";
 import { WalletConnectProvider } from "@/lib/walletconnect/context";
 import { WalletConnectHandler } from "@/components/WalletConnectHandler";
 import { DemoProvider } from "@/lib/demo/context";
+import { SecurityOverlayProvider } from "@/context/SecurityOverlayContext";
+import { GlobalOverlayHost } from "@/components/GlobalOverlayHost";
 
 import RootStackNavigator from "@/navigation/RootStackNavigator";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
@@ -30,14 +32,17 @@ export default function App() {
               <CapAllowanceProvider>
                 <WalletConnectProvider>
                   <WalletConnectHandler>
-                    <GestureHandlerRootView style={styles.root}>
-                      <KeyboardProvider>
-                        <NavigationContainer>
-                          <RootStackNavigator />
-                        </NavigationContainer>
-                        <StatusBar style="auto" />
-                      </KeyboardProvider>
-                    </GestureHandlerRootView>
+                    <SecurityOverlayProvider>
+                      <GestureHandlerRootView style={styles.root}>
+                        <KeyboardProvider>
+                          <NavigationContainer>
+                            <RootStackNavigator />
+                          </NavigationContainer>
+                          <StatusBar style="auto" />
+                        </KeyboardProvider>
+                        <GlobalOverlayHost />
+                      </GestureHandlerRootView>
+                    </SecurityOverlayProvider>
                   </WalletConnectHandler>
                 </WalletConnectProvider>
               </CapAllowanceProvider>

@@ -1,0 +1,105 @@
+Goal: Replace the current “Scam Detected” animation with a premium Siri-like full-screen aura that appears in front of everything (including modals), never looks cut, and feels like iOS system glow. The current animation looks like a red border behind the UI and gets clipped—fix that.
+
+1) Create a global overlay system (must render above all screens/modals)
+	•	Implement a GlobalOverlayHost using a Portal so it’s not clipped by screen containers.
+	•	Use either:
+	•	react-native-paper Portal, or
+	•	react-native-portalize, or
+	•	a top-level absolute overlay inside App.tsx placed after NavigationContainer.
+	•	Requirement: overlay must appear above bottom sheets, modals, navigation, etc.
+
+Acceptance criteria
+	•	Aura overlay is visible even when a BottomSheet, modal, or alert is open.
+	•	Aura overlay is NOT inside the Send screen layout tree (so it won’t clip).
+
+⸻
+
+2) Build RiskAuraOverlay component (Siri-like glow)
+
+Create: src/components/security/RiskAuraOverlay.tsx
+
+Visual
+	•	Fullscreen overlay with:
+	1.	subtle dark vignette (dim background slightly)
+	2.	a soft glowing aura around the edges (not a hard border)
+	3.	optional floating “mist” glow blobs (very subtle)
+
+Style
+	•	Looks like iOS Siri glow / ambient edge light.
+	•	Not a rectangle border. It should be blurred gradients that “breathe”.
+
+Implementation details
+	•	Use expo-linear-gradient for glow layers.
+	•	Use expo-blur (BlurView) lightly for premium softness.
+	•	Animate using react-native-reanimated (preferred) or RN Animated.
+
+Animation behavior
+	•	For High Risk / Scam:
+	•	aura color: red → orange gradient
+	•	effect: slow breathing pulse + slight drift
+	•	opacity intensity: 0.55–0.75 max (don’t blind)
+	•	For Medium Risk:
+	•	aura color: amber/yellow
+	•	intensity: 0.35–0.5
+	•	For Low Risk:
+	•	either no aura, or very subtle blue (0.15–0.25)
+
+Layering requirement
+	•	Use StyleSheet.absoluteFillObject
+	•	pointerEvents="none" so user can still interact with the screen.
+	•	Must cover the entire screen including safe areas (notch, home bar).
+	•	Must not look “cut” by rounded corners—overlay is on top of everything.
+
+⸻
+
+3) Trigger logic: show aura when risk is detected
+
+Wherever the send screen determines risk (ex: “Scam Detected” state), do this:
+	•	Add a global state: securityOverlayStore (Zustand or existing global store).
+	•	Expose:
+	•	showRiskAura({ level: 'low'|'medium'|'high', reason?: string })
+	•	hideRiskAura()
+
+Rules
+	•	When a user enters/pastes a recipient address:
+	•	if risk returns high/scam → show aura immediately
+	•	When user clears/changes to safe address → hide aura after 250ms
+	•	When leaving Send screen → hide aura
+
+⸻
+
+4) Replace the current ugly red border
+	•	Remove the old animation code entirely.
+	•	Keep the “Scam Detected” red warning card, but the visual WOW comes from the aura overlay.
+
+⸻
+
+5) Make it feel premium (micro-details)
+
+Add these:
+	•	A subtle “edge shimmer” sweep every 2–3 seconds (very faint)
+	•	A gentle haptic on detection (iOS):
+	•	use expo-haptics
+	•	trigger once when risk becomes high (not every render)
+
+⸻
+
+6) Deliverables checklist (agent must confirm)
+	•	GlobalOverlayHost working and mounted at app root
+	•	RiskAuraOverlay component with pulse animation
+	•	Uses gradient + blur (no harsh border)
+	•	Not clipped / always in front
+	•	Triggered from Send screen risk detection
+	•	Haptics on High Risk
+	•	Cleaned up old border animation
+
+⸻
+
+If libraries are missing, add them
+
+Install (Expo):
+	•	expo-linear-gradient
+	•	expo-blur
+	•	expo-haptics
+	•	react-native-reanimated (if not already)
+	•	Portal lib if needed (react-native-paper or react-native-portalize)
