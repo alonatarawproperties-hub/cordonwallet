@@ -16,6 +16,8 @@ import { ThemedView } from "@/components/ThemedView";
 import { Button } from "@/components/Button";
 import { Input } from "@/components/Input";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
+import { DangerWarningOverlay } from "@/components/DangerWarningOverlay";
+import { ScamExplainerModal } from "@/components/ScamExplainerModal";
 import { useWallet } from "@/lib/wallet-context";
 import {
   sendNative,
@@ -34,12 +36,14 @@ import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 
 type Props = NativeStackScreenProps<RootStackParamList, "SendDetails">;
 
-type RiskLevel = "low" | "medium" | "high" | "blocked";
+type RiskLevel = "low" | "medium" | "high" | "blocked" | "scam";
 
 interface RiskAssessment {
   level: RiskLevel;
   reasons: string[];
   canProceed: boolean;
+  isScam?: boolean;
+  scamReason?: string;
 }
 
 function isValidSolanaAddress(address: string): boolean {
@@ -66,6 +70,8 @@ export default function SendDetailsScreen({ navigation, route }: Props) {
   const [gasLoading, setGasLoading] = useState(false);
   const [gasError, setGasError] = useState<string | null>(null);
   const [txSuccess, setTxSuccess] = useState<{ hash: string; explorerUrl: string } | null>(null);
+  const [showScamModal, setShowScamModal] = useState(false);
+  const [scamOverrideAccepted, setScamOverrideAccepted] = useState(false);
 
   const evmAddress = activeWallet?.addresses?.evm || activeWallet?.address || "";
   const solanaAddress = activeWallet?.addresses?.solana || "";
@@ -75,6 +81,10 @@ export default function SendDetailsScreen({ navigation, route }: Props) {
       setRecipient(params.scannedAddress);
     }
   }, [params.scannedAddress]);
+
+  useEffect(() => {
+    setScamOverrideAccepted(false);
+  }, [recipient]);
 
   const estimateGas = useCallback(async () => {
     if (params.chainType === "solana") {
@@ -194,10 +204,15 @@ export default function SendDetailsScreen({ navigation, route }: Props) {
 
     const blocklistCheck = checkAddressBlocklist(recipient);
     if (blocklistCheck.isBlocked) {
-      reasons.push(blocklistCheck.reason || "Known malicious address detected");
-      level = "blocked";
-      canProceed = false;
-      return { level, reasons, canProceed };
+      const scamReason = blocklistCheck.reason || "Known malicious address detected";
+      reasons.push(scamReason);
+      return { 
+        level: "scam", 
+        reasons, 
+        canProceed: scamOverrideAccepted,
+        isScam: true,
+        scamReason,
+      };
     }
 
     const isAllowlisted = policySettings.allowlistedAddresses.some(
@@ -254,6 +269,7 @@ export default function SendDetailsScreen({ navigation, route }: Props) {
       case "medium": return theme.warning;
       case "high": return theme.danger;
       case "blocked": return theme.danger;
+      case "scam": return theme.danger;
     }
   };
 
@@ -263,6 +279,7 @@ export default function SendDetailsScreen({ navigation, route }: Props) {
       case "medium": return "Medium Risk";
       case "high": return "High Risk";
       case "blocked": return "Blocked";
+      case "scam": return "Scam Detected";
     }
   };
 
@@ -421,6 +438,12 @@ export default function SendDetailsScreen({ navigation, route }: Props) {
       return;
     }
 
+    if (risk.isScam && !scamOverrideAccepted) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      setShowScamModal(true);
+      return;
+    }
+
     if (!risk.canProceed) {
       Alert.alert(
         "Transaction Blocked",
@@ -448,12 +471,22 @@ export default function SendDetailsScreen({ navigation, route }: Props) {
       [
         { text: "Cancel", style: "cancel" },
         { 
-          text: risk.level === "high" ? "I Understand, Send" : "Confirm Send",
-          style: risk.level === "high" ? "destructive" : "default",
+          text: risk.level === "high" || risk.isScam ? "I Understand, Send" : "Confirm Send",
+          style: risk.level === "high" || risk.isScam ? "destructive" : "default",
           onPress: handleSend
         },
       ]
     );
+  };
+
+  const handleScamModalClose = () => {
+    setShowScamModal(false);
+  };
+
+  const handleProceedAnyway = () => {
+    setShowScamModal(false);
+    setScamOverrideAccepted(true);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
   };
 
   const handleCopyHash = async () => {
@@ -658,12 +691,23 @@ export default function SendDetailsScreen({ navigation, route }: Props) {
         <View style={styles.footer}>
           <Button 
             onPress={handleReview} 
-            disabled={isSending || !risk.canProceed}
+            disabled={isSending || (!risk.canProceed && !risk.isScam)}
+            style={risk.isScam && !scamOverrideAccepted ? { backgroundColor: theme.danger } : undefined}
           >
-            {isSending ? "Sending..." : "Review Transaction"}
+            {isSending ? "Sending..." : risk.isScam && !scamOverrideAccepted ? "Review Warning" : "Review Transaction"}
           </Button>
         </View>
       </KeyboardAwareScrollViewCompat>
+
+      <DangerWarningOverlay isActive={risk.isScam === true && !scamOverrideAccepted} />
+
+      <ScamExplainerModal
+        visible={showScamModal}
+        address={recipient}
+        reason={risk.scamReason || "Known malicious address detected"}
+        onClose={handleScamModalClose}
+        onProceedAnyway={handleProceedAnyway}
+      />
     </ThemedView>
   );
 }
