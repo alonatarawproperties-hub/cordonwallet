@@ -29,6 +29,7 @@ import ScanQRScreen from "@/screens/ScanQRScreen";
 import WalletConnectScreen from "@/screens/WalletConnectScreen";
 import WCScannerScreen from "@/screens/WCScannerScreen";
 import DemoFlowScreen from "@/screens/DemoFlowScreen";
+import BrowserWebViewScreen from "@/screens/BrowserWebViewScreen";
 import type { BootResult, InitialRoute } from "@/lib/bootstrap";
 
 export type TransactionDetailParams = {
@@ -94,6 +95,7 @@ export type RootStackParamList = {
   WalletConnect: undefined;
   WCScanner: undefined;
   DemoFlow: undefined;
+  BrowserWebView: { url: string; title?: string };
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -244,6 +246,11 @@ export default function RootStackNavigator() {
         name="DemoFlow"
         component={DemoFlowScreen}
         options={{ headerTitle: "Demo Mode", presentation: "modal" }}
+      />
+      <Stack.Screen
+        name="BrowserWebView"
+        component={BrowserWebViewScreen}
+        options={{ headerShown: false, presentation: "fullScreenModal" }}
       />
     </Stack.Navigator>
   );
