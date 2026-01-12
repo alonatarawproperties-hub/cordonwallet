@@ -2,7 +2,7 @@ import "react-native-get-random-values";
 import "react-native-url-polyfill/auto";
 
 import React from "react";
-import { StyleSheet } from "react-native";
+import { StyleSheet, View } from "react-native";
 import { NavigationContainer } from "@react-navigation/native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
@@ -33,15 +33,17 @@ export default function App() {
                 <WalletConnectProvider>
                   <WalletConnectHandler>
                     <SecurityOverlayProvider>
-                      <GestureHandlerRootView style={styles.root}>
-                        <KeyboardProvider>
-                          <NavigationContainer>
-                            <RootStackNavigator />
-                          </NavigationContainer>
-                          <StatusBar style="auto" />
-                        </KeyboardProvider>
+                      <View style={styles.root}>
+                        <GestureHandlerRootView style={styles.root}>
+                          <KeyboardProvider>
+                            <NavigationContainer>
+                              <RootStackNavigator />
+                            </NavigationContainer>
+                            <StatusBar style="auto" />
+                          </KeyboardProvider>
+                        </GestureHandlerRootView>
                         <GlobalOverlayHost />
-                      </GestureHandlerRootView>
+                      </View>
                     </SecurityOverlayProvider>
                   </WalletConnectHandler>
                 </WalletConnectProvider>
