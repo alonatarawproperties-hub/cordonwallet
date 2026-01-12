@@ -280,13 +280,18 @@ export default function SendDetailsScreen({ navigation, route }: Props) {
   }, [risk.reasons]);
 
   useEffect(() => {
+    console.log("[SendDetailsScreen] Risk assessment:", { isScam: risk.isScam, level: risk.level, scamReason: risk.scamReason });
     if (risk.isScam) {
+      console.log("[SendDetailsScreen] Triggering showRiskAura for SCAM");
       showRiskAura({ level: "high", reason: risk.scamReason });
     } else if (risk.level === "high") {
+      console.log("[SendDetailsScreen] Triggering showRiskAura for HIGH risk");
       showRiskAura({ level: "high", reason: riskReasonRef.current });
     } else if (risk.level === "medium") {
+      console.log("[SendDetailsScreen] Triggering showRiskAura for MEDIUM risk");
       showRiskAura({ level: "medium", reason: riskReasonRef.current });
     } else {
+      console.log("[SendDetailsScreen] Hiding risk aura");
       hideRiskAura();
     }
   }, [risk.isScam, risk.level, risk.scamReason, showRiskAura, hideRiskAura]);
