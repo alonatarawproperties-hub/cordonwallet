@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { View, StyleSheet, Modal } from "react-native";
+import { View, StyleSheet } from "react-native";
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -53,96 +53,89 @@ export function RiskBorder({ level, visible }: RiskBorderProps) {
   const colors = RISK_COLORS[level];
 
   return (
-    <Modal
-      visible={true}
-      transparent={true}
-      animationType="fade"
-      statusBarTranslucent={true}
-      hardwareAccelerated={true}
-    >
-      <View style={styles.modalContainer} pointerEvents="none">
-        <Animated.View style={[styles.overlayFrame, pulseStyle]}>
-          <View style={styles.topBorder}>
-            <LinearGradient
-              colors={[colors.primary, colors.secondary, colors.primary]}
-              style={StyleSheet.absoluteFill}
-              start={{ x: 0, y: 0.5 }}
-              end={{ x: 1, y: 0.5 }}
-            />
-          </View>
-          
-          <View style={styles.bottomBorder}>
-            <LinearGradient
-              colors={[colors.primary, colors.secondary, colors.primary]}
-              style={StyleSheet.absoluteFill}
-              start={{ x: 1, y: 0.5 }}
-              end={{ x: 0, y: 0.5 }}
-            />
-          </View>
-          
-          <View style={styles.leftBorder}>
-            <LinearGradient
-              colors={[colors.primary, colors.secondary, colors.primary]}
-              style={StyleSheet.absoluteFill}
-              start={{ x: 0.5, y: 1 }}
-              end={{ x: 0.5, y: 0 }}
-            />
-          </View>
-          
-          <View style={styles.rightBorder}>
-            <LinearGradient
-              colors={[colors.primary, colors.secondary, colors.primary]}
-              style={StyleSheet.absoluteFill}
-              start={{ x: 0.5, y: 0 }}
-              end={{ x: 0.5, y: 1 }}
-            />
-          </View>
+    <View style={styles.overlayContainer} pointerEvents="box-none">
+      <Animated.View style={[styles.overlayFrame, pulseStyle]} pointerEvents="box-none">
+        <View style={styles.topBorder} pointerEvents="none">
+          <LinearGradient
+            colors={[colors.primary, colors.secondary, colors.primary]}
+            style={StyleSheet.absoluteFill}
+            start={{ x: 0, y: 0.5 }}
+            end={{ x: 1, y: 0.5 }}
+          />
+        </View>
+        
+        <View style={styles.bottomBorder} pointerEvents="none">
+          <LinearGradient
+            colors={[colors.primary, colors.secondary, colors.primary]}
+            style={StyleSheet.absoluteFill}
+            start={{ x: 1, y: 0.5 }}
+            end={{ x: 0, y: 0.5 }}
+          />
+        </View>
+        
+        <View style={styles.leftBorder} pointerEvents="none">
+          <LinearGradient
+            colors={[colors.primary, colors.secondary, colors.primary]}
+            style={StyleSheet.absoluteFill}
+            start={{ x: 0.5, y: 1 }}
+            end={{ x: 0.5, y: 0 }}
+          />
+        </View>
+        
+        <View style={styles.rightBorder} pointerEvents="none">
+          <LinearGradient
+            colors={[colors.primary, colors.secondary, colors.primary]}
+            style={StyleSheet.absoluteFill}
+            start={{ x: 0.5, y: 0 }}
+            end={{ x: 0.5, y: 1 }}
+          />
+        </View>
 
-          <View style={styles.topGlow}>
-            <LinearGradient
-              colors={[`${colors.primary}80`, `${colors.primary}40`, "transparent"]}
-              style={StyleSheet.absoluteFill}
-              start={{ x: 0.5, y: 0 }}
-              end={{ x: 0.5, y: 1 }}
-            />
-          </View>
-          
-          <View style={styles.bottomGlow}>
-            <LinearGradient
-              colors={["transparent", `${colors.primary}40`, `${colors.primary}80`]}
-              style={StyleSheet.absoluteFill}
-              start={{ x: 0.5, y: 0 }}
-              end={{ x: 0.5, y: 1 }}
-            />
-          </View>
-          
-          <View style={styles.leftGlow}>
-            <LinearGradient
-              colors={[`${colors.primary}80`, `${colors.primary}40`, "transparent"]}
-              style={StyleSheet.absoluteFill}
-              start={{ x: 0, y: 0.5 }}
-              end={{ x: 1, y: 0.5 }}
-            />
-          </View>
-          
-          <View style={styles.rightGlow}>
-            <LinearGradient
-              colors={["transparent", `${colors.primary}40`, `${colors.primary}80`]}
-              style={StyleSheet.absoluteFill}
-              start={{ x: 0, y: 0.5 }}
-              end={{ x: 1, y: 0.5 }}
-            />
-          </View>
-        </Animated.View>
-      </View>
-    </Modal>
+        <View style={styles.topGlow} pointerEvents="none">
+          <LinearGradient
+            colors={[`${colors.primary}80`, `${colors.primary}40`, "transparent"]}
+            style={StyleSheet.absoluteFill}
+            start={{ x: 0.5, y: 0 }}
+            end={{ x: 0.5, y: 1 }}
+          />
+        </View>
+        
+        <View style={styles.bottomGlow} pointerEvents="none">
+          <LinearGradient
+            colors={["transparent", `${colors.primary}40`, `${colors.primary}80`]}
+            style={StyleSheet.absoluteFill}
+            start={{ x: 0.5, y: 0 }}
+            end={{ x: 0.5, y: 1 }}
+          />
+        </View>
+        
+        <View style={styles.leftGlow} pointerEvents="none">
+          <LinearGradient
+            colors={[`${colors.primary}80`, `${colors.primary}40`, "transparent"]}
+            style={StyleSheet.absoluteFill}
+            start={{ x: 0, y: 0.5 }}
+            end={{ x: 1, y: 0.5 }}
+          />
+        </View>
+        
+        <View style={styles.rightGlow} pointerEvents="none">
+          <LinearGradient
+            colors={["transparent", `${colors.primary}40`, `${colors.primary}80`]}
+            style={StyleSheet.absoluteFill}
+            start={{ x: 0, y: 0.5 }}
+            end={{ x: 1, y: 0.5 }}
+          />
+        </View>
+      </Animated.View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  modalContainer: {
-    flex: 1,
-    backgroundColor: "transparent",
+  overlayContainer: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 9999,
+    elevation: 9999,
   },
   overlayFrame: {
     ...StyleSheet.absoluteFillObject,
