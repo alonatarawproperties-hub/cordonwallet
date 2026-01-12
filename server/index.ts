@@ -126,11 +126,15 @@ function serveExpoManifest(platform: string, req: Request, res: Response) {
     const forwardedHost = req.header("x-forwarded-host") || req.get("host");
     const baseUrl = `${forwardedProto}://${forwardedHost}`;
 
-    // Build Expo manifest
+    // Build Expo manifest - sdkVersion is CRITICAL for Expo Go compatibility
+    const sdkVersion = "54.0.0";
+    const runtimeVersion = expo.runtimeVersion || `exposdk:${sdkVersion}`;
+    
     const manifest = {
       id: `@anonymous/${expo.slug || "app"}`,
       createdAt: new Date().toISOString(),
-      runtimeVersion: expo.runtimeVersion || expo.version || "1.0.0",
+      runtimeVersion: runtimeVersion,
+      sdkVersion: sdkVersion,
       launchAsset: {
         key: "bundle",
         contentType: "application/javascript",
