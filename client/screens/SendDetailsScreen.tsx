@@ -17,8 +17,7 @@ import { Button } from "@/components/Button";
 import { Input } from "@/components/Input";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import { ScamExplainerModal } from "@/components/ScamExplainerModal";
-import { RiskBorder } from "@/components/RiskBorder";
-import { useSecurityOverlay } from "@/context/SecurityOverlayContext";
+import { AnimatedRiskCard } from "@/components/AnimatedRiskCard";
 import { useWallet } from "@/lib/wallet-context";
 import {
   sendNative,
@@ -62,7 +61,6 @@ export default function SendDetailsScreen({ navigation, route }: Props) {
   const headerHeight = useHeaderHeight();
   const { theme } = useTheme();
   const { activeWallet, policySettings } = useWallet();
-  const { showRiskAura, hideRiskAura } = useSecurityOverlay();
   const params = route.params;
 
   const [recipient, setRecipient] = useState("");
@@ -88,13 +86,6 @@ export default function SendDetailsScreen({ navigation, route }: Props) {
     setScamOverrideAccepted(false);
   }, [recipient]);
 
-  useFocusEffect(
-    useCallback(() => {
-      return () => {
-        hideRiskAura();
-      };
-    }, [hideRiskAura])
-  );
 
   const estimateGas = useCallback(async () => {
     if (params.chainType === "solana") {
@@ -271,29 +262,6 @@ export default function SendDetailsScreen({ navigation, route }: Props) {
     return { level, reasons, canProceed };
   }, [recipient, amount, policySettings.denylistedAddresses, policySettings.allowlistedAddresses, scamOverrideAccepted, params.chainType, params.balance, params.isNative, gasEstimate?.estimatedFeeNative, isValidAddress]);
 
-  const riskReasonRef = useRef<string | undefined>(undefined);
-  
-  useEffect(() => {
-    const firstReason = risk.reasons.length > 0 ? risk.reasons[0] : undefined;
-    riskReasonRef.current = firstReason;
-  }, [risk.reasons]);
-
-  useEffect(() => {
-    console.log("[SendDetailsScreen] Risk assessment:", { isScam: risk.isScam, level: risk.level, scamReason: risk.scamReason, recipient: recipient.substring(0, 20) });
-    if (risk.isScam) {
-      console.log("[SendDetailsScreen] Triggering showRiskAura for SCAM");
-      showRiskAura({ level: "high", reason: risk.scamReason });
-    } else if (risk.level === "high") {
-      console.log("[SendDetailsScreen] Triggering showRiskAura for HIGH risk");
-      showRiskAura({ level: "high", reason: riskReasonRef.current });
-    } else if (risk.level === "medium") {
-      console.log("[SendDetailsScreen] Triggering showRiskAura for MEDIUM risk");
-      showRiskAura({ level: "medium", reason: riskReasonRef.current });
-    } else {
-      console.log("[SendDetailsScreen] Hiding risk aura");
-      hideRiskAura();
-    }
-  }, [risk.isScam, risk.level, risk.scamReason, showRiskAura, hideRiskAura]);
 
   const getRiskColor = (level: RiskLevel) => {
     switch (level) {
@@ -665,29 +633,12 @@ export default function SendDetailsScreen({ navigation, route }: Props) {
         </View>
 
         {risk.reasons.length > 0 ? (
-          <View style={[
-            styles.riskCard, 
-            { 
-              backgroundColor: getRiskColor(risk.level) + "15",
-              borderColor: getRiskColor(risk.level) + "40",
-            }
-          ]}>
-            <View style={styles.riskHeader}>
-              <Feather 
-                name={risk.level === "low" ? "check-circle" : "alert-triangle"} 
-                size={20} 
-                color={getRiskColor(risk.level)} 
-              />
-              <ThemedText type="body" style={{ color: getRiskColor(risk.level), fontWeight: "600" }}>
-                {getRiskLabel(risk.level)}
-              </ThemedText>
-            </View>
-            {risk.reasons.map((reason, index) => (
-              <ThemedText key={index} type="small" style={{ color: getRiskColor(risk.level) }}>
-                - {reason}
-              </ThemedText>
-            ))}
-          </View>
+          <AnimatedRiskCard
+            level={risk.level}
+            label={getRiskLabel(risk.level)}
+            reasons={risk.reasons}
+            animate={risk.isScam === true && !scamOverrideAccepted}
+          />
         ) : null}
 
         <View style={[styles.feeCard, { backgroundColor: theme.backgroundDefault }]}>
@@ -739,7 +690,6 @@ export default function SendDetailsScreen({ navigation, route }: Props) {
         onProceedAnyway={handleProceedAnyway}
       />
 
-      <RiskBorder level="high" visible={risk.isScam === true && !scamOverrideAccepted} />
     </ThemedView>
   );
 }
