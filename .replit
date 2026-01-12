@@ -73,17 +73,6 @@ mode = "sequential"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "npm run expo:dev"
-waitForPort = 8081
-ensurePreviewReachable = "/status"
-
-[[workflows.workflow]]
-name = "Expo Go"
-mode = "sequential"
-author = 49765699
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
 args = "bash scripts/start-expo.sh"
 
 [userenv]
