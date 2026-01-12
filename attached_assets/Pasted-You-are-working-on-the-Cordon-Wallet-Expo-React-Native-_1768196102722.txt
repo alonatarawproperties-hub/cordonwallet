@@ -1,0 +1,76 @@
+You are working on the Cordon Wallet (Expo + React Native). We have a “Scam Detected” / risk warning feature, but the animation is awful and our new overlay attempt crashes with:
+
+“Maximum update depth exceeded … SecurityOverlayContext.tsx (37:13) setState …”
+
+Goal:
+1) FIX the infinite render loop in SecurityOverlayContext by refactoring state updates so they never run on every render.
+2) Replace the current red border animation with a PREMIUM “Siri-like” security aura overlay:
+   - Full-screen overlay above content (not cut off), subtle blur + animated gradient glow around edges
+   - Works on iOS, looks premium, monochrome blue/white normally; turns red/orange for High Risk
+   - Overlay should animate IN and OUT smoothly, and not block interactions unless in “High Risk” mode
+   - Must not introduce any render loops or heavy CPU usage.
+
+Constraints:
+- Expo managed workflow.
+- Prefer react-native-reanimated for animations.
+- If needed, use expo-blur for blur.
+- Avoid libraries that require native rebuild unless already installed.
+- Keep UI consistent with existing dark theme.
+
+Implementation Details:
+
+A) Fix SecurityOverlayContext
+- Replace any useEffect that calls setState without stable deps.
+- Expose stable API:
+   - showRiskOverlay(payload)
+   - hideRiskOverlay()
+- showRiskOverlay must only update if payload actually changed (compare previous to next).
+- Use useReducer OR useRef-based “last payload” guard to prevent repeated updates.
+- Ensure the context value is memoized (useMemo) and functions useCallback.
+
+Create / update these files:
+1) src/security/SecurityOverlayContext.tsx
+2) src/security/useSecurityOverlay.ts
+3) src/security/SecurityAuraOverlay.tsx
+
+B) Siri-like Security Aura Overlay
+- SecurityAuraOverlay renders at the ROOT of app (above NavigationContainer) using a portal-like approach:
+   - Absolute fill view, pointerEvents="none" for low/medium risk, pointerEvents="auto" for high risk (to force user to acknowledge)
+- Visual:
+   - Dark blur glass layer (very subtle)
+   - Animated “aura” on edges: use a couple of large radial-ish gradients / blobs that slowly move (left↔right, up↔down) with opacity pulsing
+   - Colors by risk:
+       Low: #2E90FF / #66C7FF
+       Medium: #FFB020 / #FFD38A
+       High: #FF4D4D / #FF7A59
+   - Add a soft vignette on edges so it looks like iOS/Siri glow.
+- Add a small “Risk Card” at bottom that slides up when visible:
+   - Title: “Security Warning”
+   - Risk badge: Low / Medium / High
+   - Reason text from payload
+   - Buttons:
+       - For Low/Medium: “Continue” and “Cancel”
+       - For High: “Cancel (Recommended)” and “I Understand, Continue”
+   - Only for High risk, require explicit “I Understand, Continue”.
+- The overlay should be triggered when we detect scam address on Send screen:
+   - When user taps “Review Warning”, call showRiskOverlay({ level, reason, chain, action, details })
+   - When user cancels or continues, call hideRiskOverlay()
+
+C) Integration
+- In App root (e.g., App.tsx or RootStackNavigator.tsx), wrap app with <SecurityOverlayProvider>.
+- Render <SecurityAuraOverlay /> once near root so it can appear above all screens.
+- Ensure no circular renders. Keep overlay state isolated.
+
+D) Bug Proofing
+- Add console.warn guard if showRiskOverlay is called repeatedly with identical payload.
+- Add unit-ish sanity: log once per visibility change (optional).
+- Make sure overlay animations do not depend on rapidly changing props that trigger re-renders.
+
+Deliverables:
+- Working build with no “Maximum update depth exceeded” crash.
+- The new premium Siri-like aura overlay appears smoothly and is not cut off.
+- High Risk requires explicit confirmation.
+- Low/Medium does not block interaction (visual only unless user opens details).
+- Code is clean, typed (TS), and commented minimally.
+
+Now implement.

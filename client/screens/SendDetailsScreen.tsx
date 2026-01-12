@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { View, StyleSheet, Pressable, Alert, ActivityIndicator, TextInput, Image } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
@@ -272,17 +272,24 @@ export default function SendDetailsScreen({ navigation, route }: Props) {
 
   const risk = riskAssessment();
 
+  const riskReasonRef = useRef<string | undefined>(undefined);
+  
+  useEffect(() => {
+    const firstReason = risk.reasons.length > 0 ? risk.reasons[0] : undefined;
+    riskReasonRef.current = firstReason;
+  }, [risk.reasons]);
+
   useEffect(() => {
     if (risk.isScam && !scamOverrideAccepted) {
       showRiskAura({ level: "high", reason: risk.scamReason });
     } else if (risk.level === "high") {
-      showRiskAura({ level: "high", reason: risk.reasons[0] });
+      showRiskAura({ level: "high", reason: riskReasonRef.current });
     } else if (risk.level === "medium") {
-      showRiskAura({ level: "medium", reason: risk.reasons[0] });
+      showRiskAura({ level: "medium", reason: riskReasonRef.current });
     } else {
       hideRiskAura();
     }
-  }, [risk.isScam, risk.level, risk.scamReason, risk.reasons, scamOverrideAccepted, showRiskAura, hideRiskAura]);
+  }, [risk.isScam, risk.level, risk.scamReason, scamOverrideAccepted, showRiskAura, hideRiskAura]);
 
   const getRiskColor = (level: RiskLevel) => {
     switch (level) {
