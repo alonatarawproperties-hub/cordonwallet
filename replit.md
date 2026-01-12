@@ -64,6 +64,14 @@ The project is organized into `/client` (frontend), `/server` (backend), and `/s
 - **Security**: Integrates with the Wallet Firewall for transaction approval intents and policy enforcement.
 - **Multi-Chain Support**: Automatically handles namespace building for EVM and Solana, ensuring correct address provisioning.
 
+### Browser/dApps Interface
+
+- **BrowserScreen**: Main discovery tab with search bar, active WalletConnect sessions, browsing recents, and curated popular dApps grid with security banner.
+- **BrowserWebViewScreen**: In-app WebView browser with full navigation controls (back/forward/refresh/share), URL bar, security status, and history tracking with smart filtering to exclude favicons and assets.
+- **BrowserStore**: AsyncStorage-backed persistence for browsing history with 50-item limit and favicon caching.
+- **dApps Catalog**: Curated list of popular dApps organized by category (DeFi, DEX, NFT, Bridge, Lending) at `client/data/dapps.ts`.
+- **Session Management**: Connected dApps display in both Browser tab and Security/Approvals screen with Solana-specific enrichment (verification badges, chain indicators).
+
 ## External Dependencies
 
 ### Mobile/Expo
