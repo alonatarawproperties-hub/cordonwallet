@@ -5,7 +5,6 @@ import React from "react";
 import { StyleSheet, View } from "react-native";
 import { NavigationContainer } from "@react-navigation/native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
-import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 
@@ -34,12 +33,10 @@ export default function App() {
                   <WalletConnectHandler>
                     <SecurityOverlayProvider>
                       <GestureHandlerRootView style={styles.root}>
-                        <KeyboardProvider>
-                          <NavigationContainer>
-                            <RootStackNavigator />
-                          </NavigationContainer>
-                          <StatusBar style="auto" />
-                        </KeyboardProvider>
+                        <NavigationContainer>
+                          <RootStackNavigator />
+                        </NavigationContainer>
+                        <StatusBar style="auto" />
                         <GlobalOverlayHost />
                       </GestureHandlerRootView>
                     </SecurityOverlayProvider>
