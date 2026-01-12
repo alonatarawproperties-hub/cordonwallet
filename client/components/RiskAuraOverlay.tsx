@@ -136,7 +136,11 @@ export function RiskAuraOverlay() {
 
 const styles = StyleSheet.create({
   overlayFrame: {
-    ...StyleSheet.absoluteFillObject,
+    position: "absolute",
+    top: 0,
+    left: 0,
+    width: SCREEN_WIDTH,
+    height: SCREEN_HEIGHT,
   },
   topBorder: {
     position: "absolute",
