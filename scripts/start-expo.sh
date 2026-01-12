@@ -11,8 +11,13 @@ echo ""
 
 # Set environment variables for Replit
 export EXPO_PUBLIC_DOMAIN="${REPLIT_DEV_DOMAIN}:5000"
-# CI=1 skips interactive prompts (login, etc.)
-export CI=1
+
+# EXPO_TOKEN is required for tunnel mode authentication
+# Get one from: https://expo.dev/accounts/[your-username]/settings/access-tokens
+if [ -z "$EXPO_TOKEN" ]; then
+  echo "WARNING: EXPO_TOKEN not set. Tunnel may fail without authentication."
+  echo "Get a token from: https://expo.dev/accounts/[your-username]/settings/access-tokens"
+fi
 
 # File to store tunnel URL for the backend to read
 TUNNEL_URL_FILE="/tmp/expo-tunnel-url.txt"
