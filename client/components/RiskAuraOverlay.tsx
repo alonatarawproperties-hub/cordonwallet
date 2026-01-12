@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { View, StyleSheet, Dimensions } from "react-native";
 import Animated, {
   useSharedValue,
@@ -11,6 +11,7 @@ import Animated, {
   interpolate,
   cancelAnimation,
   SharedValue,
+  runOnJS,
 } from "react-native-reanimated";
 import { LinearGradient } from "expo-linear-gradient";
 import { BlurView } from "expo-blur";
@@ -114,6 +115,12 @@ function AnimatedBlob({ config, riskLevel, fadeValue }: { config: BlobConfig; ri
       cancelAnimation(driftY);
       cancelAnimation(pulse);
     }
+
+    return () => {
+      cancelAnimation(driftX);
+      cancelAnimation(driftY);
+      cancelAnimation(pulse);
+    };
   }, [riskLevel, config, driftX, driftY, pulse]);
 
   const blobStyle = useAnimatedStyle(() => {
@@ -151,23 +158,29 @@ export function RiskAuraOverlay() {
   const { isVisible, riskLevel } = state;
 
   const fadeValue = useSharedValue(0);
+  const [shouldRender, setShouldRender] = useState(false);
 
   useEffect(() => {
     if (isVisible && riskLevel !== "none") {
+      setShouldRender(true);
       fadeValue.value = withTiming(1, { duration: 500, easing: Easing.out(Easing.ease) });
     } else {
-      fadeValue.value = withTiming(0, { duration: 350, easing: Easing.in(Easing.ease) });
+      fadeValue.value = withTiming(0, { duration: 350, easing: Easing.in(Easing.ease) }, (finished) => {
+        "worklet";
+        if (finished) {
+          runOnJS(setShouldRender)(false);
+        }
+      });
     }
   }, [isVisible, riskLevel, fadeValue]);
 
   const containerStyle = useAnimatedStyle(() => ({
     opacity: fadeValue.value,
-    pointerEvents: fadeValue.value > 0.01 ? "none" : "none",
   }));
 
   const colors = RISK_COLORS[riskLevel];
 
-  if (!isVisible && fadeValue.value === 0) return null;
+  if (!shouldRender) return null;
 
   const edgeAlpha = riskLevel === "high" ? 0.5 : riskLevel === "medium" ? 0.35 : 0.25;
 
