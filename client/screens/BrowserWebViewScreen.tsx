@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { View, StyleSheet, Pressable, TextInput, Share, Alert, Platform, Linking } from "react-native";
+import { View, StyleSheet, Pressable, TextInput, Share, Alert, Platform, Linking, Modal, ActivityIndicator } from "react-native";
 import { WebView, WebViewNavigation } from "react-native-webview";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
@@ -13,6 +13,7 @@ import { Spacing, BorderRadius } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
 import { useBrowserStore, getFaviconUrl, normalizeUrl } from "@/store/browserStore";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
+import { useExternalAuth, AuthStatus } from "@/context/ExternalAuthContext";
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 type RouteProps = RouteProp<RootStackParamList, "BrowserWebView">;
@@ -49,6 +50,8 @@ export default function BrowserWebViewScreen() {
   const route = useRoute<RouteProps>();
   const { addRecent } = useBrowserStore();
   const webViewRef = useRef<WebView>(null);
+  const externalAuth = useExternalAuth();
+  const [showAuthModal, setShowAuthModal] = useState(false);
 
   const [currentUrl, setCurrentUrl] = useState(route.params.url);
   const [pageTitle, setPageTitle] = useState(route.params.title || "");
@@ -165,10 +168,51 @@ export default function BrowserWebViewScreen() {
           return false;
         }
       }
+
+      if (externalAuth.isAuthTrigger(request.url)) {
+        externalAuth.startAuth(request.url);
+        return false;
+      }
+
       return true;
     },
-    []
+    [externalAuth]
   );
+
+  useEffect(() => {
+    if (externalAuth.status === "starting" || externalAuth.status === "pending" || externalAuth.status === "exchanging") {
+      setShowAuthModal(true);
+    } else if (externalAuth.status === "success" && externalAuth.completionUrl) {
+      setShowAuthModal(false);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setCurrentUrl(externalAuth.completionUrl);
+      externalAuth.reset();
+    } else if (externalAuth.status === "error") {
+      setShowAuthModal(false);
+      Alert.alert(
+        "Sign-in Failed",
+        externalAuth.error || "Something went wrong during authentication.",
+        [
+          { text: "Try Again", onPress: () => externalAuth.reset() },
+          { text: "Open in Safari", onPress: handleOpenExternal },
+          { text: "Cancel", style: "cancel", onPress: () => externalAuth.reset() },
+        ]
+      );
+    }
+  }, [externalAuth.status, externalAuth.completionUrl, externalAuth.error, handleOpenExternal, externalAuth]);
+
+  const getAuthStatusMessage = (status: AuthStatus): { title: string; subtitle: string } => {
+    switch (status) {
+      case "starting":
+        return { title: "Opening Secure Sign-in", subtitle: "Launching Google authentication..." };
+      case "pending":
+        return { title: "Complete Sign-in", subtitle: "Finish signing in through the secure browser window" };
+      case "exchanging":
+        return { title: "Signing You In", subtitle: "Completing authentication..." };
+      default:
+        return { title: "Authenticating", subtitle: "Please wait..." };
+    }
+  };
 
   const domain = (() => {
     try {
@@ -273,6 +317,44 @@ export default function BrowserWebViewScreen() {
           <Feather name="external-link" size={22} color={theme.text} />
         </Pressable>
       </View>
+
+      <Modal
+        visible={showAuthModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          externalAuth.reset();
+          setShowAuthModal(false);
+        }}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.authModal, { backgroundColor: theme.backgroundDefault }]}>
+            <View style={styles.authModalContent}>
+              <View style={[styles.authIconContainer, { backgroundColor: theme.accent + "15" }]}>
+                <Feather name="shield" size={32} color={theme.accent} />
+              </View>
+              <ThemedText type="h3" style={styles.authTitle}>
+                {getAuthStatusMessage(externalAuth.status).title}
+              </ThemedText>
+              <ThemedText type="body" style={[styles.authSubtitle, { color: theme.textSecondary }]}>
+                {getAuthStatusMessage(externalAuth.status).subtitle}
+              </ThemedText>
+              <ActivityIndicator size="large" color={theme.accent} style={styles.authSpinner} />
+              <Pressable
+                style={[styles.authCancelButton, { borderColor: theme.border }]}
+                onPress={() => {
+                  externalAuth.reset();
+                  setShowAuthModal(false);
+                }}
+              >
+                <ThemedText type="body" style={{ color: theme.textSecondary }}>
+                  Cancel
+                </ThemedText>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -335,5 +417,47 @@ const styles = StyleSheet.create({
   },
   toolbarButtonDisabled: {
     opacity: 0.5,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: Spacing.xl,
+  },
+  authModal: {
+    width: "100%",
+    maxWidth: 340,
+    borderRadius: BorderRadius.xl,
+    overflow: "hidden",
+  },
+  authModalContent: {
+    padding: Spacing["2xl"],
+    alignItems: "center",
+  },
+  authIconContainer: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: Spacing.lg,
+  },
+  authTitle: {
+    textAlign: "center",
+    marginBottom: Spacing.sm,
+  },
+  authSubtitle: {
+    textAlign: "center",
+    marginBottom: Spacing.xl,
+  },
+  authSpinner: {
+    marginBottom: Spacing.xl,
+  },
+  authCancelButton: {
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.xl,
+    borderWidth: 1,
+    borderRadius: BorderRadius.md,
   },
 });

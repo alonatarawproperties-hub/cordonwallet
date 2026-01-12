@@ -1,0 +1,81 @@
+Implement “Secure Google Login” handoff for Roachy Games inside Cordon internal browser.
+
+Problem:
+Google OAuth is blocked/flaky in embedded WebViews. We need a reliable Apple-friendly workaround:
+Open Google login in system auth session (iOS ASWebAuthenticationSession, Android Custom Tabs), then deep-link back to Cordon, exchange code with PKCE, and finish login inside our internal browser by using a one-time token from roachy.games.
+
+TARGET USER FLOW
+1) User is browsing https://roachy.games inside Cordon internal browser and taps “Continue with Google (Secure)”.
+2) Cordon launches native auth:
+   - iOS: ASWebAuthenticationSession
+   - Android: Chrome Custom Tabs
+3) Google completes login and redirects to:
+   cordon://auth/callback?code=...&state=...
+4) Cordon receives callback, validates state, exchanges code (PKCE) for tokens, obtains Google ID token.
+5) Cordon calls Roachy backend:
+   POST https://roachy.games/api/auth/cordon/google
+   Body: { idToken: "<google_id_token>", returnUrl: "<original page>" }
+   Response: { token: "<one_time_web_token>", returnUrl: "<returnUrl>" }
+6) Cordon opens the internal browser to:
+   https://roachy.games/auth/cordon/complete?token=<OTT>&returnUrl=<encoded>
+7) That page sets web HttpOnly session cookie and redirects to returnUrl. User is now logged in inside Cordon WebView.
+
+IMPLEMENTATION TASKS
+
+A) Deep linking
+- Add deep link scheme: cordon://
+- Add handler for path: /auth/callback
+- Parse code + state from URL
+- Ensure it works on iOS + Android
+
+B) PKCE + OAuth state management
+- Create AuthSession helper:
+  - generate state (random)
+  - generate PKCE verifier + challenge (S256)
+  - store verifier + state + returnUrl in secure storage (expo-secure-store)
+- Validate state on callback; if mismatch show error and abort.
+
+C) Use native auth session (Expo-friendly)
+- Use expo-auth-session or implement ASWebAuthenticationSession wrapper if already existing.
+- Configure Google OAuth:
+  - authorization endpoint: https://accounts.google.com/o/oauth2/v2/auth
+  - token endpoint: https://oauth2.googleapis.com/token
+  - scopes: openid email profile
+  - response_type: code
+  - code_challenge_method: S256
+- Redirect URI: cordon://auth/callback
+
+D) Backend exchange + web completion
+- After exchanging code -> tokens, get ID token.
+- Call Roachy backend endpoint above and handle errors cleanly.
+- On success, open internal browser to /auth/cordon/complete?token=...&returnUrl=...
+
+E) Browser integration
+- In BrowserWebViewScreen:
+  - Detect roachy.games pages and intercept the “Continue with Google (Secure)” action.
+  - We can implement this in 2 ways:
+    1) Preferred: roachy.games uses deep link cordon://auth/start?returnUrl=...
+       -> intercept navigation to cordon://auth/start and start native auth.
+    2) Alternative: JS bridge message from web -> native to start auth.
+- After auth completion, reload the WebView and verify user is logged in.
+
+F) UI/UX (premium, minimal)
+- When auth starts: show a bottom sheet or modal:
+  “Opening secure sign-in…”
+- While waiting: show spinner + “Complete sign-in in the secure browser window.”
+- On success: toast “Signed in” and return to the browser.
+- On failure: show actionable error + “Try again” + “Open in Safari”.
+
+G) Safety and compatibility
+- Do NOT store Google access token long-term.
+- Store only what we need (or nothing) after we exchange for OTT.
+- Always use HTTPS roachy.games endpoints.
+- Add timeout + cancel handling.
+
+DELIVERABLES
+- Working end-to-end on mainnet builds (no testnet dependence).
+- iOS and Android supported.
+- No breaking changes to existing wallet functions.
+- Provide a quick “how to test” checklist after implementation.
+
+START NOW.

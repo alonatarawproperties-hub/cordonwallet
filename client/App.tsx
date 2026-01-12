@@ -18,6 +18,7 @@ import { DemoProvider } from "@/lib/demo/context";
 import { SecurityOverlayProvider } from "@/context/SecurityOverlayContext";
 import { GlobalOverlayHost } from "@/components/GlobalOverlayHost";
 import { BrowserStoreProvider } from "@/store/browserStore";
+import { ExternalAuthProvider } from "@/context/ExternalAuthContext";
 
 import RootStackNavigator from "@/navigation/RootStackNavigator";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
@@ -34,13 +35,15 @@ export default function App() {
                   <WalletConnectHandler>
                     <SecurityOverlayProvider>
                       <BrowserStoreProvider>
-                        <GestureHandlerRootView style={styles.root}>
-                          <NavigationContainer>
-                            <RootStackNavigator />
-                          </NavigationContainer>
-                          <StatusBar style="auto" />
-                          <GlobalOverlayHost />
-                        </GestureHandlerRootView>
+                        <ExternalAuthProvider>
+                          <GestureHandlerRootView style={styles.root}>
+                            <NavigationContainer>
+                              <RootStackNavigator />
+                            </NavigationContainer>
+                            <StatusBar style="auto" />
+                            <GlobalOverlayHost />
+                          </GestureHandlerRootView>
+                        </ExternalAuthProvider>
                       </BrowserStoreProvider>
                     </SecurityOverlayProvider>
                   </WalletConnectHandler>
