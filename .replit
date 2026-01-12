@@ -79,5 +79,3 @@ ensurePreviewReachable = "/status"
 EXPO_PUBLIC_WC_PROJECT_ID = "33d13a2ca48035be9c03aa63b062d131"
 
 [userenv.development]
-CI = "1"
-EXPO_NO_TELEMETRY = "1"
