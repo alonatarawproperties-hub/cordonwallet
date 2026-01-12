@@ -200,6 +200,42 @@
       .open-button:hover {
         opacity: 0.9;
       }
+      
+      .tunnel-section {
+        margin-bottom: 24px;
+        padding: 20px;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        border-radius: 16px;
+        color: #fff;
+      }
+      .tunnel-section h2 {
+        margin: 0 0 8px 0;
+        font-size: 18px;
+        font-weight: 600;
+      }
+      .tunnel-section p {
+        margin: 0 0 16px 0;
+        font-size: 14px;
+        opacity: 0.9;
+      }
+      .tunnel-button {
+        display: inline-block;
+        padding: 14px 28px;
+        font-size: 16px;
+        font-weight: 600;
+        background: #fff;
+        color: #667eea;
+        border-radius: 10px;
+        text-decoration: none;
+        transition: transform 0.15s, box-shadow 0.15s;
+      }
+      .tunnel-button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+      }
+      .tunnel-hidden {
+        display: none;
+      }
 
       /* Desktop styles */
       @media (min-width: 768px) {
@@ -339,6 +375,12 @@
         <h1>APP_NAME_PLACEHOLDER</h1>
         <p class="subtitle">Preview this app on your phone</p>
 
+        <div id="tunnel-section" class="tunnel-section tunnel-hidden">
+          <h2>Open in Expo Go</h2>
+          <p>Tap the button below to open the app directly</p>
+          <a id="tunnel-button" href="TUNNEL_URL_PLACEHOLDER" class="tunnel-button">Open App Now</a>
+        </div>
+
         <div class="steps-container">
           <div class="step">
             <div class="step-header">
@@ -406,6 +448,16 @@
           (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 
         const deepLink = "exps://EXPS_URL_PLACEHOLDER";
+        const tunnelUrl = "TUNNEL_URL_PLACEHOLDER";
+        const tunnelAvailable = TUNNEL_URL_AVAILABLE;
+        
+        // Show tunnel section if available
+        if (tunnelAvailable && tunnelUrl) {
+          const tunnelSection = document.getElementById("tunnel-section");
+          if (tunnelSection) {
+            tunnelSection.classList.remove("tunnel-hidden");
+          }
+        }
 
         // Adjust store buttons based on platform
         const appStoreBtn = document.getElementById("app-store-btn");

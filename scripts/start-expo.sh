@@ -11,9 +11,29 @@ echo ""
 
 # Set environment variables for Replit
 export EXPO_PUBLIC_DOMAIN="${REPLIT_DEV_DOMAIN}:5000"
+# CI=1 skips interactive prompts (login, etc.)
+export CI=1
+
+# File to store tunnel URL for the backend to read
+TUNNEL_URL_FILE="/tmp/expo-tunnel-url.txt"
 
 echo "Starting Metro bundler with tunnel..."
 echo ""
 
-# Start Expo with tunnel mode - shows QR code for scanning
+# Start a background process to monitor for the tunnel URL
+(
+  sleep 10  # Wait for tunnel to establish
+  for i in {1..30}; do
+    # Check Expo's dev server logs for tunnel URL
+    TUNNEL_HOST=$(curl -s http://localhost:8081/ 2>/dev/null | grep -o 'exp://[^"]*\.exp\.direct' | head -1)
+    if [[ -n "$TUNNEL_HOST" ]]; then
+      echo "$TUNNEL_HOST" > "$TUNNEL_URL_FILE"
+      echo "[Tunnel URL captured: $TUNNEL_HOST]"
+      break
+    fi
+    sleep 2
+  done
+) &
+
+# Start Expo with tunnel mode
 npx expo start --tunnel

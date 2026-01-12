@@ -103,6 +103,19 @@ function getAppName(): string {
   }
 }
 
+function getTunnelUrl(): string | null {
+  try {
+    const tunnelUrlPath = "/tmp/expo-tunnel-url.txt";
+    if (fs.existsSync(tunnelUrlPath)) {
+      const url = fs.readFileSync(tunnelUrlPath, "utf-8").trim();
+      return url || null;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 function serveExpoManifest(platform: string, req: Request, res: Response) {
   const metadataPath = path.resolve(process.cwd(), "static-build", "metadata.json");
   const appJsonPath = path.resolve(process.cwd(), "app.json");
@@ -190,14 +203,20 @@ function serveLandingPage({
   const host = forwardedHost || req.get("host");
   const baseUrl = `${protocol}://${host}`;
   const expsUrl = `${host}`;
+  
+  // Get tunnel URL if available (from Expo's ngrok tunnel)
+  const tunnelUrl = getTunnelUrl();
 
   log(`baseUrl`, baseUrl);
   log(`expsUrl`, expsUrl);
+  log(`tunnelUrl`, tunnelUrl);
 
   const html = landingPageTemplate
     .replace(/BASE_URL_PLACEHOLDER/g, baseUrl)
     .replace(/EXPS_URL_PLACEHOLDER/g, expsUrl)
-    .replace(/APP_NAME_PLACEHOLDER/g, appName);
+    .replace(/APP_NAME_PLACEHOLDER/g, appName)
+    .replace(/TUNNEL_URL_PLACEHOLDER/g, tunnelUrl || "")
+    .replace(/TUNNEL_URL_AVAILABLE/g, tunnelUrl ? "true" : "false");
 
   res.setHeader("Content-Type", "text/html; charset=utf-8");
   res.status(200).send(html);
