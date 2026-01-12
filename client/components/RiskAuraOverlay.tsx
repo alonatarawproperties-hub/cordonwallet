@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { View, StyleSheet, Dimensions } from "react-native";
+import { View, StyleSheet, Dimensions, Modal } from "react-native";
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -176,98 +176,101 @@ export function RiskAuraOverlay() {
   const colors = RISK_COLORS[riskLevel];
 
   return (
-    <Animated.View style={[styles.container, containerStyle]} pointerEvents="none">
-      {/* Subtle blur background */}
-      <BlurView intensity={15} tint="dark" style={[StyleSheet.absoluteFill, { opacity: 0.2 }]} />
-      
-      {/* Animated glow orbs traveling around the perimeter */}
-      {[0, 1, 2, 3, 4, 5].map((index) => (
-        <AnimatedGlowOrb
-          key={index}
-          index={index}
-          riskLevel={riskLevel}
-          animationProgress={animationProgress}
-          fadeValue={fadeValue}
-        />
-      ))}
-      
-      {/* Static edge glows for consistent presence */}
-      <View style={styles.topGlow}>
-        <LinearGradient
-          colors={[colors.glowColor, "transparent"]}
-          style={StyleSheet.absoluteFill}
-          start={{ x: 0.5, y: 0 }}
-          end={{ x: 0.5, y: 1 }}
-        />
-      </View>
-      
-      <View style={styles.bottomGlow}>
-        <LinearGradient
-          colors={["transparent", colors.glowColor]}
-          style={StyleSheet.absoluteFill}
-          start={{ x: 0.5, y: 0 }}
-          end={{ x: 0.5, y: 1 }}
-        />
-      </View>
-      
-      <View style={styles.leftGlow}>
-        <LinearGradient
-          colors={[colors.glowColor, "transparent"]}
-          style={StyleSheet.absoluteFill}
-          start={{ x: 0, y: 0.5 }}
-          end={{ x: 1, y: 0.5 }}
-        />
-      </View>
-      
-      <View style={styles.rightGlow}>
-        <LinearGradient
-          colors={["transparent", colors.glowColor]}
-          style={StyleSheet.absoluteFill}
-          start={{ x: 0, y: 0.5 }}
-          end={{ x: 1, y: 0.5 }}
-        />
-      </View>
+    <Modal
+      visible={shouldRender}
+      transparent={true}
+      animationType="none"
+      statusBarTranslucent={true}
+      presentationStyle="overFullScreen"
+    >
+      <Animated.View style={[styles.container, containerStyle]} pointerEvents="none">
+        <BlurView intensity={15} tint="dark" style={[StyleSheet.absoluteFill, { opacity: 0.2 }]} />
+        
+        {[0, 1, 2, 3, 4, 5].map((index) => (
+          <AnimatedGlowOrb
+            key={index}
+            index={index}
+            riskLevel={riskLevel}
+            animationProgress={animationProgress}
+            fadeValue={fadeValue}
+          />
+        ))}
+        
+        <View style={styles.topGlow}>
+          <LinearGradient
+            colors={[colors.glowColor, "transparent"]}
+            style={StyleSheet.absoluteFill}
+            start={{ x: 0.5, y: 0 }}
+            end={{ x: 0.5, y: 1 }}
+          />
+        </View>
+        
+        <View style={styles.bottomGlow}>
+          <LinearGradient
+            colors={["transparent", colors.glowColor]}
+            style={StyleSheet.absoluteFill}
+            start={{ x: 0.5, y: 0 }}
+            end={{ x: 0.5, y: 1 }}
+          />
+        </View>
+        
+        <View style={styles.leftGlow}>
+          <LinearGradient
+            colors={[colors.glowColor, "transparent"]}
+            style={StyleSheet.absoluteFill}
+            start={{ x: 0, y: 0.5 }}
+            end={{ x: 1, y: 0.5 }}
+          />
+        </View>
+        
+        <View style={styles.rightGlow}>
+          <LinearGradient
+            colors={["transparent", colors.glowColor]}
+            style={StyleSheet.absoluteFill}
+            start={{ x: 0, y: 0.5 }}
+            end={{ x: 1, y: 0.5 }}
+          />
+        </View>
 
-      {/* Animated color borders */}
-      <AnimatedBorderSegment position="top" riskLevel={riskLevel} animationProgress={animationProgress} fadeValue={fadeValue} />
-      <AnimatedBorderSegment position="bottom" riskLevel={riskLevel} animationProgress={animationProgress} fadeValue={fadeValue} />
-      <AnimatedBorderSegment position="left" riskLevel={riskLevel} animationProgress={animationProgress} fadeValue={fadeValue} />
-      <AnimatedBorderSegment position="right" riskLevel={riskLevel} animationProgress={animationProgress} fadeValue={fadeValue} />
+        <AnimatedBorderSegment position="top" riskLevel={riskLevel} animationProgress={animationProgress} fadeValue={fadeValue} />
+        <AnimatedBorderSegment position="bottom" riskLevel={riskLevel} animationProgress={animationProgress} fadeValue={fadeValue} />
+        <AnimatedBorderSegment position="left" riskLevel={riskLevel} animationProgress={animationProgress} fadeValue={fadeValue} />
+        <AnimatedBorderSegment position="right" riskLevel={riskLevel} animationProgress={animationProgress} fadeValue={fadeValue} />
 
-      {/* Corner accent glows */}
-      <View style={styles.cornerTL}>
-        <LinearGradient
-          colors={[colors.glowColor, "transparent"]}
-          style={StyleSheet.absoluteFill}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-        />
-      </View>
-      <View style={styles.cornerTR}>
-        <LinearGradient
-          colors={[colors.glowColor, "transparent"]}
-          style={StyleSheet.absoluteFill}
-          start={{ x: 1, y: 0 }}
-          end={{ x: 0, y: 1 }}
-        />
-      </View>
-      <View style={styles.cornerBL}>
-        <LinearGradient
-          colors={[colors.glowColor, "transparent"]}
-          style={StyleSheet.absoluteFill}
-          start={{ x: 0, y: 1 }}
-          end={{ x: 1, y: 0 }}
-        />
-      </View>
-      <View style={styles.cornerBR}>
-        <LinearGradient
-          colors={[colors.glowColor, "transparent"]}
-          style={StyleSheet.absoluteFill}
-          start={{ x: 1, y: 1 }}
-          end={{ x: 0, y: 0 }}
-        />
-      </View>
-    </Animated.View>
+        <View style={styles.cornerTL}>
+          <LinearGradient
+            colors={[colors.glowColor, "transparent"]}
+            style={StyleSheet.absoluteFill}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+          />
+        </View>
+        <View style={styles.cornerTR}>
+          <LinearGradient
+            colors={[colors.glowColor, "transparent"]}
+            style={StyleSheet.absoluteFill}
+            start={{ x: 1, y: 0 }}
+            end={{ x: 0, y: 1 }}
+          />
+        </View>
+        <View style={styles.cornerBL}>
+          <LinearGradient
+            colors={[colors.glowColor, "transparent"]}
+            style={StyleSheet.absoluteFill}
+            start={{ x: 0, y: 1 }}
+            end={{ x: 1, y: 0 }}
+          />
+        </View>
+        <View style={styles.cornerBR}>
+          <LinearGradient
+            colors={[colors.glowColor, "transparent"]}
+            style={StyleSheet.absoluteFill}
+            start={{ x: 1, y: 1 }}
+            end={{ x: 0, y: 0 }}
+          />
+        </View>
+      </Animated.View>
+    </Modal>
   );
 }
 
