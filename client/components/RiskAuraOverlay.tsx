@@ -5,13 +5,10 @@ import Animated, {
   useAnimatedStyle,
   withRepeat,
   withTiming,
-  withSequence,
-  withDelay,
   Easing,
   interpolate,
-  cancelAnimation,
-  SharedValue,
   runOnJS,
+  SharedValue,
 } from "react-native-reanimated";
 import { LinearGradient } from "expo-linear-gradient";
 import { BlurView } from "expo-blur";
@@ -20,136 +17,126 @@ import { useSecurityOverlay, RiskLevel } from "@/context/SecurityOverlayContext"
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("screen");
 
-function hexToRgba(color: string, alpha: number): string {
-  if (color === "transparent") return "transparent";
-  if (color.startsWith("rgba")) return color;
-  if (color.startsWith("rgb(")) {
-    return color.replace("rgb(", "rgba(").replace(")", `,${alpha})`);
-  }
-  if (!color.startsWith("#") || color.length < 7) {
-    return `rgba(128,128,128,${alpha})`;
-  }
-  const r = parseInt(color.slice(1, 3), 16);
-  const g = parseInt(color.slice(3, 5), 16);
-  const b = parseInt(color.slice(5, 7), 16);
-  if (isNaN(r) || isNaN(g) || isNaN(b)) {
-    return `rgba(128,128,128,${alpha})`;
-  }
-  return `rgba(${r},${g},${b},${alpha})`;
-}
-
-const RISK_COLORS: Record<RiskLevel, { primary: string; secondary: string; glow: string }> = {
-  none: { primary: "transparent", secondary: "transparent", glow: "transparent" },
-  low: { primary: "#2E90FF", secondary: "#60A5FA", glow: "rgba(46,144,255,0.25)" },
-  medium: { primary: "#FFB020", secondary: "#FBBF24", glow: "rgba(255,176,32,0.35)" },
-  high: { primary: "#FF3B30", secondary: "#FF6A3D", glow: "rgba(255,59,48,0.45)" },
+const RISK_COLORS: Record<RiskLevel, { colors: string[]; glowColor: string }> = {
+  none: { colors: ["transparent", "transparent"], glowColor: "transparent" },
+  low: { 
+    colors: ["#2E90FF", "#60A5FA", "#3B82F6", "#1D4ED8", "#2E90FF"],
+    glowColor: "rgba(46,144,255,0.6)" 
+  },
+  medium: { 
+    colors: ["#FFB020", "#FBBF24", "#F59E0B", "#D97706", "#FFB020"],
+    glowColor: "rgba(255,176,32,0.6)" 
+  },
+  high: { 
+    colors: ["#FF3B30", "#FF6B6B", "#FF4757", "#E74C3C", "#FF3B30", "#FF6B6B", "#C0392B", "#FF3B30"],
+    glowColor: "rgba(255,59,48,0.7)" 
+  },
 };
 
-interface BlobConfig {
-  size: number;
-  initialX: number;
-  initialY: number;
-  driftRangeX: number;
-  driftRangeY: number;
-  duration: number;
-  delay: number;
-  colorKey: "primary" | "secondary";
-  alpha: number;
+const BORDER_WIDTH = 4;
+const GLOW_SIZE = 80;
+
+function AnimatedBorderSegment({ 
+  position, 
+  riskLevel, 
+  animationProgress, 
+  fadeValue 
+}: { 
+  position: "top" | "bottom" | "left" | "right";
+  riskLevel: RiskLevel;
+  animationProgress: SharedValue<number>;
+  fadeValue: SharedValue<number>;
+}) {
+  const colors = RISK_COLORS[riskLevel];
+  
+  const gradientStyle = useAnimatedStyle(() => {
+    const offset = position === "top" ? 0 : 
+                   position === "right" ? 0.25 : 
+                   position === "bottom" ? 0.5 : 0.75;
+    const adjustedProgress = (animationProgress.value + offset) % 1;
+    
+    return {
+      opacity: fadeValue.value,
+      transform: position === "top" || position === "bottom" 
+        ? [{ translateX: interpolate(adjustedProgress, [0, 1], [-SCREEN_WIDTH, SCREEN_WIDTH]) }]
+        : [{ translateY: interpolate(adjustedProgress, [0, 1], [-SCREEN_HEIGHT, SCREEN_HEIGHT]) }],
+    };
+  });
+
+  const isHorizontal = position === "top" || position === "bottom";
+  const gradientStart = isHorizontal ? { x: 0, y: 0.5 } : { x: 0.5, y: 0 };
+  const gradientEnd = isHorizontal ? { x: 1, y: 0.5 } : { x: 0.5, y: 1 };
+
+  return (
+    <View style={[styles.borderSegment, styles[`${position}Border`]]}>
+      <Animated.View style={[StyleSheet.absoluteFill, gradientStyle]}>
+        <LinearGradient
+          colors={[...colors.colors, ...colors.colors] as [string, string, ...string[]]}
+          style={[StyleSheet.absoluteFill, isHorizontal ? { width: SCREEN_WIDTH * 3 } : { height: SCREEN_HEIGHT * 3 }]}
+          start={gradientStart}
+          end={gradientEnd}
+        />
+      </Animated.View>
+    </View>
+  );
 }
 
-const BLOB_CONFIGS: BlobConfig[] = [
-  { size: 450, initialX: -150, initialY: -100, driftRangeX: 80, driftRangeY: 50, duration: 8000, delay: 0, colorKey: "primary", alpha: 0.55 },
-  { size: 400, initialX: SCREEN_WIDTH - 200, initialY: -80, driftRangeX: 70, driftRangeY: 45, duration: 9000, delay: 300, colorKey: "secondary", alpha: 0.45 },
-  { size: 420, initialX: -120, initialY: SCREEN_HEIGHT - 350, driftRangeX: 75, driftRangeY: 55, duration: 10000, delay: 600, colorKey: "secondary", alpha: 0.50 },
-  { size: 480, initialX: SCREEN_WIDTH - 280, initialY: SCREEN_HEIGHT - 380, driftRangeX: 85, driftRangeY: 60, duration: 11000, delay: 200, colorKey: "primary", alpha: 0.58 },
-  { size: 320, initialX: SCREEN_WIDTH / 2 - 160, initialY: SCREEN_HEIGHT / 2 - 250, driftRangeX: 100, driftRangeY: 80, duration: 7000, delay: 500, colorKey: "primary", alpha: 0.35 },
-];
-
-function AnimatedBlob({ config, riskLevel, fadeValue }: { config: BlobConfig; riskLevel: RiskLevel; fadeValue: SharedValue<number> }) {
-  const driftX = useSharedValue(0);
-  const driftY = useSharedValue(0);
-  const pulse = useSharedValue(0);
-
+function AnimatedGlowOrb({ 
+  index, 
+  riskLevel, 
+  animationProgress, 
+  fadeValue 
+}: { 
+  index: number;
+  riskLevel: RiskLevel;
+  animationProgress: SharedValue<number>;
+  fadeValue: SharedValue<number>;
+}) {
   const colors = RISK_COLORS[riskLevel];
-  const baseColor = colors[config.colorKey];
-
-  useEffect(() => {
-    if (riskLevel !== "none") {
-      driftX.value = withDelay(
-        config.delay,
-        withRepeat(
-          withSequence(
-            withTiming(1, { duration: config.duration / 2, easing: Easing.inOut(Easing.sin) }),
-            withTiming(0, { duration: config.duration / 2, easing: Easing.inOut(Easing.sin) })
-          ),
-          -1,
-          true
-        )
-      );
-
-      driftY.value = withDelay(
-        config.delay + 200,
-        withRepeat(
-          withSequence(
-            withTiming(1, { duration: (config.duration * 0.8) / 2, easing: Easing.inOut(Easing.sin) }),
-            withTiming(0, { duration: (config.duration * 0.8) / 2, easing: Easing.inOut(Easing.sin) })
-          ),
-          -1,
-          true
-        )
-      );
-
-      pulse.value = withDelay(
-        config.delay,
-        withRepeat(
-          withSequence(
-            withTiming(1, { duration: 3000, easing: Easing.inOut(Easing.ease) }),
-            withTiming(0, { duration: 3000, easing: Easing.inOut(Easing.ease) })
-          ),
-          -1,
-          true
-        )
-      );
+  const orbOffset = index / 6;
+  
+  const orbStyle = useAnimatedStyle(() => {
+    const progress = (animationProgress.value + orbOffset) % 1;
+    const perimeter = (SCREEN_WIDTH + SCREEN_HEIGHT) * 2;
+    const distance = progress * perimeter;
+    
+    let x = 0, y = 0;
+    
+    if (distance < SCREEN_WIDTH) {
+      x = distance;
+      y = 0;
+    } else if (distance < SCREEN_WIDTH + SCREEN_HEIGHT) {
+      x = SCREEN_WIDTH;
+      y = distance - SCREEN_WIDTH;
+    } else if (distance < SCREEN_WIDTH * 2 + SCREEN_HEIGHT) {
+      x = SCREEN_WIDTH - (distance - SCREEN_WIDTH - SCREEN_HEIGHT);
+      y = SCREEN_HEIGHT;
     } else {
-      cancelAnimation(driftX);
-      cancelAnimation(driftY);
-      cancelAnimation(pulse);
+      x = 0;
+      y = SCREEN_HEIGHT - (distance - SCREEN_WIDTH * 2 - SCREEN_HEIGHT);
     }
-
-    return () => {
-      cancelAnimation(driftX);
-      cancelAnimation(driftY);
-      cancelAnimation(pulse);
-    };
-  }, [riskLevel, config, driftX, driftY, pulse]);
-
-  const blobStyle = useAnimatedStyle(() => {
-    const translateX = interpolate(driftX.value, [0, 1], [-config.driftRangeX / 2, config.driftRangeX / 2]);
-    const translateY = interpolate(driftY.value, [0, 1], [-config.driftRangeY / 2, config.driftRangeY / 2]);
-    const scale = interpolate(pulse.value, [0, 1], [0.95, 1.05]);
-    const opacity = interpolate(pulse.value, [0, 1], [config.alpha * 0.8, config.alpha * 1.2]) * fadeValue.value;
-
+    
+    const pulse = Math.sin(animationProgress.value * Math.PI * 4 + index) * 0.3 + 1;
+    
     return {
-      opacity,
-      transform: [{ translateX }, { translateY }, { scale }],
+      opacity: fadeValue.value * 0.8,
+      transform: [
+        { translateX: x - GLOW_SIZE / 2 },
+        { translateY: y - GLOW_SIZE / 2 },
+        { scale: pulse },
+      ],
     };
   });
 
   return (
-    <Animated.View
-      style={[
-        {
-          position: "absolute",
-          left: config.initialX,
-          top: config.initialY,
-          width: config.size,
-          height: config.size,
-          borderRadius: config.size / 2,
-          backgroundColor: hexToRgba(baseColor, 0.6),
-        },
-        blobStyle,
-      ]}
-    />
+    <Animated.View style={[styles.glowOrb, orbStyle]}>
+      <LinearGradient
+        colors={["transparent", colors.glowColor, colors.glowColor, "transparent"]}
+        style={styles.glowGradient}
+        start={{ x: 0.5, y: 0.5 }}
+        end={{ x: 1, y: 1 }}
+      />
+    </Animated.View>
   );
 }
 
@@ -158,79 +145,99 @@ export function RiskAuraOverlay() {
   const { isVisible, riskLevel } = state;
 
   const fadeValue = useSharedValue(0);
+  const animationProgress = useSharedValue(0);
   const [shouldRender, setShouldRender] = useState(false);
 
   useEffect(() => {
     if (isVisible && riskLevel !== "none") {
       setShouldRender(true);
-      fadeValue.value = withTiming(1, { duration: 500, easing: Easing.out(Easing.ease) });
+      fadeValue.value = withTiming(1, { duration: 400, easing: Easing.out(Easing.ease) });
+      animationProgress.value = withRepeat(
+        withTiming(1, { duration: 4000, easing: Easing.linear }),
+        -1,
+        false
+      );
     } else {
-      fadeValue.value = withTiming(0, { duration: 350, easing: Easing.in(Easing.ease) }, (finished) => {
+      fadeValue.value = withTiming(0, { duration: 300, easing: Easing.in(Easing.ease) }, (finished) => {
         "worklet";
         if (finished) {
           runOnJS(setShouldRender)(false);
         }
       });
     }
-  }, [isVisible, riskLevel, fadeValue]);
+  }, [isVisible, riskLevel, fadeValue, animationProgress]);
 
   const containerStyle = useAnimatedStyle(() => ({
     opacity: fadeValue.value,
   }));
 
-  const colors = RISK_COLORS[riskLevel];
-
   if (!shouldRender) return null;
 
-  const edgeAlpha = riskLevel === "high" ? 0.85 : riskLevel === "medium" ? 0.65 : 0.45;
+  const colors = RISK_COLORS[riskLevel];
 
   return (
     <Animated.View style={[styles.container, containerStyle]} pointerEvents="none">
-      {BLOB_CONFIGS.map((config, index) => (
-        <AnimatedBlob key={index} config={config} riskLevel={riskLevel} fadeValue={fadeValue} />
+      {/* Subtle blur background */}
+      <BlurView intensity={15} tint="dark" style={[StyleSheet.absoluteFill, { opacity: 0.2 }]} />
+      
+      {/* Animated glow orbs traveling around the perimeter */}
+      {[0, 1, 2, 3, 4, 5].map((index) => (
+        <AnimatedGlowOrb
+          key={index}
+          index={index}
+          riskLevel={riskLevel}
+          animationProgress={animationProgress}
+          fadeValue={fadeValue}
+        />
       ))}
-
-      <BlurView intensity={25} tint="dark" style={[StyleSheet.absoluteFill, { opacity: 0.3 }]} />
-
-      <View style={styles.topEdge}>
+      
+      {/* Static edge glows for consistent presence */}
+      <View style={styles.topGlow}>
         <LinearGradient
-          colors={[hexToRgba(colors.primary, edgeAlpha), hexToRgba(colors.secondary, edgeAlpha * 0.5), "transparent"]}
+          colors={[colors.glowColor, "transparent"]}
           style={StyleSheet.absoluteFill}
           start={{ x: 0.5, y: 0 }}
           end={{ x: 0.5, y: 1 }}
         />
       </View>
-
-      <View style={styles.bottomEdge}>
+      
+      <View style={styles.bottomGlow}>
         <LinearGradient
-          colors={["transparent", hexToRgba(colors.secondary, edgeAlpha * 0.5), hexToRgba(colors.primary, edgeAlpha)]}
+          colors={["transparent", colors.glowColor]}
           style={StyleSheet.absoluteFill}
           start={{ x: 0.5, y: 0 }}
           end={{ x: 0.5, y: 1 }}
         />
       </View>
-
-      <View style={styles.leftEdge}>
+      
+      <View style={styles.leftGlow}>
         <LinearGradient
-          colors={[hexToRgba(colors.primary, edgeAlpha * 0.8), hexToRgba(colors.secondary, edgeAlpha * 0.4), "transparent"]}
+          colors={[colors.glowColor, "transparent"]}
+          style={StyleSheet.absoluteFill}
+          start={{ x: 0, y: 0.5 }}
+          end={{ x: 1, y: 0.5 }}
+        />
+      </View>
+      
+      <View style={styles.rightGlow}>
+        <LinearGradient
+          colors={["transparent", colors.glowColor]}
           style={StyleSheet.absoluteFill}
           start={{ x: 0, y: 0.5 }}
           end={{ x: 1, y: 0.5 }}
         />
       </View>
 
-      <View style={styles.rightEdge}>
-        <LinearGradient
-          colors={["transparent", hexToRgba(colors.secondary, edgeAlpha * 0.4), hexToRgba(colors.primary, edgeAlpha * 0.8)]}
-          style={StyleSheet.absoluteFill}
-          start={{ x: 0, y: 0.5 }}
-          end={{ x: 1, y: 0.5 }}
-        />
-      </View>
+      {/* Animated color borders */}
+      <AnimatedBorderSegment position="top" riskLevel={riskLevel} animationProgress={animationProgress} fadeValue={fadeValue} />
+      <AnimatedBorderSegment position="bottom" riskLevel={riskLevel} animationProgress={animationProgress} fadeValue={fadeValue} />
+      <AnimatedBorderSegment position="left" riskLevel={riskLevel} animationProgress={animationProgress} fadeValue={fadeValue} />
+      <AnimatedBorderSegment position="right" riskLevel={riskLevel} animationProgress={animationProgress} fadeValue={fadeValue} />
 
+      {/* Corner accent glows */}
       <View style={styles.cornerTL}>
         <LinearGradient
-          colors={[hexToRgba(colors.primary, edgeAlpha * 1.2), "transparent"]}
+          colors={[colors.glowColor, "transparent"]}
           style={StyleSheet.absoluteFill}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
@@ -238,7 +245,7 @@ export function RiskAuraOverlay() {
       </View>
       <View style={styles.cornerTR}>
         <LinearGradient
-          colors={[hexToRgba(colors.secondary, edgeAlpha), "transparent"]}
+          colors={[colors.glowColor, "transparent"]}
           style={StyleSheet.absoluteFill}
           start={{ x: 1, y: 0 }}
           end={{ x: 0, y: 1 }}
@@ -246,7 +253,7 @@ export function RiskAuraOverlay() {
       </View>
       <View style={styles.cornerBL}>
         <LinearGradient
-          colors={[hexToRgba(colors.secondary, edgeAlpha), "transparent"]}
+          colors={[colors.glowColor, "transparent"]}
           style={StyleSheet.absoluteFill}
           start={{ x: 0, y: 1 }}
           end={{ x: 1, y: 0 }}
@@ -254,7 +261,7 @@ export function RiskAuraOverlay() {
       </View>
       <View style={styles.cornerBR}>
         <LinearGradient
-          colors={[hexToRgba(colors.primary, edgeAlpha * 1.2), "transparent"]}
+          colors={[colors.glowColor, "transparent"]}
           style={StyleSheet.absoluteFill}
           start={{ x: 1, y: 1 }}
           end={{ x: 0, y: 0 }}
@@ -271,60 +278,99 @@ const styles = StyleSheet.create({
     elevation: 9999,
     overflow: "hidden",
   },
-  topEdge: {
+  borderSegment: {
+    position: "absolute",
+    overflow: "hidden",
+  },
+  topBorder: {
+    top: 0,
+    left: 0,
+    right: 0,
+    height: BORDER_WIDTH,
+  },
+  bottomBorder: {
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: BORDER_WIDTH,
+  },
+  leftBorder: {
+    top: 0,
+    left: 0,
+    bottom: 0,
+    width: BORDER_WIDTH,
+  },
+  rightBorder: {
+    top: 0,
+    right: 0,
+    bottom: 0,
+    width: BORDER_WIDTH,
+  },
+  glowOrb: {
+    position: "absolute",
+    width: GLOW_SIZE,
+    height: GLOW_SIZE,
+    borderRadius: GLOW_SIZE / 2,
+  },
+  glowGradient: {
+    width: GLOW_SIZE,
+    height: GLOW_SIZE,
+    borderRadius: GLOW_SIZE / 2,
+  },
+  topGlow: {
     position: "absolute",
     top: 0,
     left: 0,
     right: 0,
-    height: 220,
+    height: 100,
   },
-  bottomEdge: {
+  bottomGlow: {
     position: "absolute",
     bottom: 0,
     left: 0,
     right: 0,
-    height: 220,
+    height: 100,
   },
-  leftEdge: {
+  leftGlow: {
     position: "absolute",
-    top: 120,
+    top: 100,
     left: 0,
-    bottom: 120,
-    width: 120,
+    bottom: 100,
+    width: 60,
   },
-  rightEdge: {
+  rightGlow: {
     position: "absolute",
-    top: 120,
+    top: 100,
     right: 0,
-    bottom: 120,
-    width: 120,
+    bottom: 100,
+    width: 60,
   },
   cornerTL: {
     position: "absolute",
     top: 0,
     left: 0,
-    width: 200,
-    height: 200,
+    width: 150,
+    height: 150,
   },
   cornerTR: {
     position: "absolute",
     top: 0,
     right: 0,
-    width: 200,
-    height: 200,
+    width: 150,
+    height: 150,
   },
   cornerBL: {
     position: "absolute",
     bottom: 0,
     left: 0,
-    width: 200,
-    height: 200,
+    width: 150,
+    height: 150,
   },
   cornerBR: {
     position: "absolute",
     bottom: 0,
     right: 0,
-    width: 200,
-    height: 200,
+    width: 150,
+    height: 150,
   },
 });
