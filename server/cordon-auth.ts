@@ -665,17 +665,18 @@ export function registerCordonAuthRoutes(app: Express) {
     const hostname = forwardedHost.split(":")[0];
     const expressPort = process.env.PORT || "5000";
     
-    // For Replit, add :5000 to route to Express instead of Expo
+    // For Replit development (.replit.dev), add :5000 to route to Express instead of Expo
+    // For production (.replit.app) and custom domains, no port needed
     let baseUrl: string;
-    if (hostname.includes(".replit.dev") || hostname.includes(".replit.app")) {
-      // Replit: use hostname:5000 format
+    if (hostname.includes(".replit.dev")) {
+      // Development: use hostname:5000 format (Expo is on port 80)
       baseUrl = `${protocol}://${hostname}:${expressPort}`;
     } else if (hostname === "localhost" || hostname === "127.0.0.1") {
       // Local development
       baseUrl = `${protocol}://${hostname}:${expressPort}`;
     } else {
-      // Other environments: use host as-is
-      baseUrl = `${protocol}://${forwardedHost}`;
+      // Production (.replit.app) and custom domains: no port needed
+      baseUrl = `${protocol}://${hostname}`;
     }
     
     const authStartUrl = `${baseUrl}/auth/cordon/mobile/start?sessionId=${sessionId}`;
@@ -712,12 +713,15 @@ export function registerCordonAuthRoutes(app: Express) {
     const hostname = forwardedHost.split(":")[0];
     const expressPort = process.env.PORT || "5000";
     
-    // Build base URL - for Replit, ensure we use port 5000
+    // Build base URL - for Replit development (.replit.dev), use port 5000
+    // For production (.replit.app) and custom domains, no port needed
     let baseUrl: string;
-    if (hostname.includes(".replit.dev") || hostname.includes(".replit.app")) {
+    if (hostname.includes(".replit.dev")) {
+      // Development: use hostname:5000 format
       baseUrl = `${protocol}://${hostname}:${expressPort}`;
     } else {
-      baseUrl = `${protocol}://${forwardedHost}`;
+      // Production and custom domains: no port needed
+      baseUrl = `${protocol}://${hostname}`;
     }
     
     const redirectUri = `${baseUrl}/auth/cordon/mobile/callback`;
