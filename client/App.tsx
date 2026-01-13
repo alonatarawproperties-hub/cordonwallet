@@ -20,6 +20,7 @@ import { GlobalOverlayHost } from "@/components/GlobalOverlayHost";
 import { BrowserStoreProvider } from "@/store/browserStore";
 import { ExternalAuthProvider } from "@/context/ExternalAuthContext";
 import { DevSettingsProvider } from "@/context/DevSettingsContext";
+import { AuthDeepLinkHandler } from "@/components/AuthDeepLinkHandler";
 
 import RootStackNavigator from "@/navigation/RootStackNavigator";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
@@ -41,6 +42,7 @@ export default function App() {
                           <GestureHandlerRootView style={styles.root}>
                             <NavigationContainer>
                               <RootStackNavigator />
+                              <AuthDeepLinkHandler />
                             </NavigationContainer>
                             <StatusBar style="auto" />
                             <GlobalOverlayHost />

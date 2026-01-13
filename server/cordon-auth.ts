@@ -311,10 +311,21 @@ export function registerCordonAuthRoutes(app: Express) {
                 transition: transform 0.1s, opacity 0.1s;
               }
               button:active { transform: scale(0.98); }
-              .copy-btn { background: #3b82f6; color: white; }
-              .copy-btn:hover { background: #2563eb; }
-              .copied { background: #10b981 !important; }
-              .open-btn { background: rgba(255,255,255,0.1); color: white; border: 1px solid rgba(255,255,255,0.2); }
+              .copy-btn { background: rgba(255,255,255,0.1); color: white; border: 1px solid rgba(255,255,255,0.2); }
+              .copy-btn:hover { background: rgba(255,255,255,0.2); }
+              .copied { background: #10b981 !important; border-color: #10b981 !important; }
+              .return-btn { 
+                display: block;
+                background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+                color: white;
+                text-decoration: none;
+                text-align: center;
+                padding: 16px 24px;
+                border-radius: 12px;
+                font-size: 16px;
+                font-weight: 600;
+              }
+              .return-btn:hover { opacity: 0.9; }
               .instructions {
                 margin-top: 24px;
                 padding: 16px;
@@ -358,14 +369,13 @@ export function registerCordonAuthRoutes(app: Express) {
               </div>
               
               <div class="buttons">
+                <a href="cordon://auth/callback?code=${authCode}" class="return-btn" id="returnBtn">Return to Cordon</a>
                 <button class="copy-btn" id="copyBtn" onclick="copyCode()">Copy Code</button>
-                <button class="open-btn" onclick="window.close()">Close Window</button>
               </div>
               
               <div class="instructions">
-                <div class="step"><span class="step-num">1</span> Copy the code above</div>
-                <div class="step"><span class="step-num">2</span> Return to Cordon wallet</div>
-                <div class="step"><span class="step-num">3</span> Paste code to verify</div>
+                <div class="step"><span class="step-num">1</span> Tap "Return to Cordon" above</div>
+                <div class="step"><span class="step-num">2</span> Or copy code and paste in app</div>
               </div>
               
               <div id="debug">

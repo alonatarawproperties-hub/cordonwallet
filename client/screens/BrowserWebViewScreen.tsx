@@ -19,6 +19,48 @@ type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 type RouteProps = RouteProp<RootStackParamList, "BrowserWebView">;
 
 const BLOCKED_SCHEMES = ["javascript:", "file:", "data:", "about:"];
+
+const CORDON_INJECTED_SCRIPT = `
+(function() {
+  if (window.cordon) return;
+  
+  window.cordon = {
+    version: '1.0.0',
+    isCordonBrowser: true,
+    walletType: 'cordon',
+    
+    getWalletAddress: function() {
+      return new Promise(function(resolve) {
+        window.ReactNativeWebView.postMessage(JSON.stringify({
+          type: 'cordon_getWalletAddress'
+        }));
+        window.__cordonResolvers = window.__cordonResolvers || {};
+        window.__cordonResolvers.getWalletAddress = resolve;
+      });
+    },
+    
+    requestAuth: function(options) {
+      return new Promise(function(resolve, reject) {
+        window.ReactNativeWebView.postMessage(JSON.stringify({
+          type: 'cordon_requestAuth',
+          options: options || {}
+        }));
+        window.__cordonResolvers = window.__cordonResolvers || {};
+        window.__cordonResolvers.requestAuth = { resolve: resolve, reject: reject };
+      });
+    },
+    
+    onAuthCode: function(callback) {
+      window.__cordonCallbacks = window.__cordonCallbacks || {};
+      window.__cordonCallbacks.onAuthCode = callback;
+    }
+  };
+  
+  console.log('[Cordon] Bridge injected - window.cordon available');
+})();
+true;
+`;
+
 const IGNORED_URL_PATTERNS = [
   /google\.com\/s2\/favicons/,
   /favicon\.ico$/,
@@ -281,6 +323,8 @@ export default function BrowserWebViewScreen() {
         onLoadProgress={handleLoadProgress}
         onLoadEnd={handleLoadEnd}
         onShouldStartLoadWithRequest={handleShouldStartLoad}
+        injectedJavaScript={CORDON_INJECTED_SCRIPT}
+        injectedJavaScriptBeforeContentLoaded={CORDON_INJECTED_SCRIPT}
         javaScriptEnabled
         domStorageEnabled
         startInLoadingState
