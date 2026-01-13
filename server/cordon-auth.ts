@@ -2,7 +2,7 @@ import type { Express, Request, Response, NextFunction } from "express";
 import crypto from "crypto";
 import { db } from "./db";
 import { mobileAuthSessions as mobileAuthSessionsTable } from "../shared/schema";
-import { eq, and, gt } from "drizzle-orm";
+import { eq, and, lt } from "drizzle-orm";
 
 interface AuthCode {
   code: string;
@@ -66,7 +66,7 @@ async function deleteMobileSession(sessionId: string) {
 async function cleanupExpiredMobileSessions() {
   const expiryTime = Date.now() - MOBILE_SESSION_EXPIRY_MS;
   await db.delete(mobileAuthSessionsTable)
-    .where(gt(expiryTime, mobileAuthSessionsTable.createdAt));
+    .where(lt(mobileAuthSessionsTable.createdAt, expiryTime));
 }
 
 const CODE_EXPIRY_MS = 5 * 60 * 1000;
