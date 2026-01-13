@@ -44,6 +44,22 @@ const CORDON_INJECTED_SCRIPT = `
     platform = 'android';
   }
   
+  // Request ID counter for tracking async responses
+  var requestId = 0;
+  window.__cordonResolvers = window.__cordonResolvers || {};
+  
+  // Helper to send message and wait for response
+  function sendRequest(type, data) {
+    return new Promise(function(resolve, reject) {
+      var id = ++requestId;
+      window.__cordonResolvers['req_' + id] = { resolve: resolve, reject: reject };
+      var msg = { type: type, requestId: id };
+      for (var key in data) { if (data.hasOwnProperty(key)) msg[key] = data[key]; }
+      window.ReactNativeWebView.postMessage(JSON.stringify(msg));
+    });
+  }
+  
+  // Cordon core bridge
   window.cordon = {
     version: '1.0.0',
     isCordon: true,
@@ -52,28 +68,18 @@ const CORDON_INJECTED_SCRIPT = `
     walletType: 'cordon',
     
     getWalletAddress: function() {
-      return new Promise(function(resolve) {
-        window.ReactNativeWebView.postMessage(JSON.stringify({
-          type: 'cordon_getWalletAddress'
-        }));
-        window.__cordonResolvers = window.__cordonResolvers || {};
-        window.__cordonResolvers.getWalletAddress = resolve;
-      });
+      return sendRequest('cordon_getWalletAddress', {});
     },
     
     requestAuth: function(options) {
       return new Promise(function(resolve, reject) {
         var opts = options || {};
         opts.provider = opts.provider || 'google';
-        
         console.log('[Cordon] requestAuth called with:', JSON.stringify(opts));
-        
         window.ReactNativeWebView.postMessage(JSON.stringify({
           type: 'cordon_requestAuth',
           options: opts
         }));
-        
-        window.__cordonResolvers = window.__cordonResolvers || {};
         window.__cordonResolvers.requestAuth = { resolve: resolve, reject: reject };
       });
     },
@@ -84,10 +90,331 @@ const CORDON_INJECTED_SCRIPT = `
         window.__cordonResolvers.requestAuth.resolve(result);
         delete window.__cordonResolvers.requestAuth;
       }
+    },
+    
+    _handleResponse: function(requestId, result) {
+      var key = 'req_' + requestId;
+      if (window.__cordonResolvers[key]) {
+        if (result.error) {
+          window.__cordonResolvers[key].reject(new Error(result.error));
+        } else {
+          window.__cordonResolvers[key].resolve(result);
+        }
+        delete window.__cordonResolvers[key];
+      }
     }
   };
   
-  console.log('[Cordon] Bridge v1.0.0 injected - platform:', platform);
+  // ============================================
+  // SOLANA PROVIDER (Phantom-compatible)
+  // ============================================
+  var solanaConnected = false;
+  var solanaPublicKey = null;
+  var solanaEventListeners = {};
+  
+  function SolanaPublicKey(base58) {
+    this._base58 = base58;
+    this._bytes = null;
+    
+    // Base58 decode for Solana public keys (always produces 32 bytes)
+    var ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+    var BASE = 58;
+    var PUBLIC_KEY_LENGTH = 32;
+    try {
+      var bytes = [];
+      for (var i = 0; i < base58.length; i++) {
+        var carry = ALPHABET.indexOf(base58[i]);
+        if (carry < 0) throw new Error('Invalid base58 character');
+        for (var j = 0; j < bytes.length; j++) {
+          carry += bytes[j] * BASE;
+          bytes[j] = carry & 0xff;
+          carry >>= 8;
+        }
+        while (carry > 0) {
+          bytes.push(carry & 0xff);
+          carry >>= 8;
+        }
+      }
+      for (var k = 0; k < base58.length && base58[k] === '1'; k++) {
+        bytes.push(0);
+      }
+      bytes = bytes.reverse();
+      // Pad or trim to exactly 32 bytes
+      var result = new Uint8Array(PUBLIC_KEY_LENGTH);
+      var offset = PUBLIC_KEY_LENGTH - bytes.length;
+      if (offset > 0) {
+        result.set(bytes, offset);
+      } else {
+        result.set(bytes.slice(-PUBLIC_KEY_LENGTH));
+      }
+      this._bytes = result;
+    } catch (e) {
+      this._bytes = new Uint8Array(PUBLIC_KEY_LENGTH);
+    }
+    
+    this.toBase58 = function() { return this._base58; };
+    this.toString = function() { return this._base58; };
+    this.toJSON = function() { return this._base58; };
+    this.toBytes = function() { return this._bytes; };
+    this.equals = function(other) { 
+      if (!other || !other.toBase58) return false;
+      return this._base58 === other.toBase58(); 
+    };
+  }
+  
+  window.solana = {
+    isPhantom: true,
+    isCordon: true,
+    
+    get publicKey() {
+      return solanaPublicKey;
+    },
+    
+    get isConnected() {
+      return solanaConnected;
+    },
+    
+    connect: function(options) {
+      console.log('[Cordon Solana] connect() called');
+      return sendRequest('cordon_solana_connect', { options: options || {} })
+        .then(function(result) {
+          if (result.publicKey) {
+            solanaPublicKey = new SolanaPublicKey(result.publicKey);
+            solanaConnected = true;
+            window.solana._emit('connect', solanaPublicKey);
+            return { publicKey: solanaPublicKey };
+          }
+          throw new Error('Connection rejected');
+        });
+    },
+    
+    disconnect: function() {
+      console.log('[Cordon Solana] disconnect() called');
+      solanaConnected = false;
+      solanaPublicKey = null;
+      window.solana._emit('disconnect');
+      return Promise.resolve();
+    },
+    
+    signMessage: function(message, encoding) {
+      console.log('[Cordon Solana] signMessage() called');
+      if (!solanaConnected) return Promise.reject(new Error('Wallet not connected'));
+      var msgArray = Array.from(message);
+      return sendRequest('cordon_solana_signMessage', { 
+        message: msgArray,
+        encoding: encoding || 'utf8'
+      }).then(function(result) {
+        return { 
+          signature: new Uint8Array(result.signature),
+          publicKey: solanaPublicKey
+        };
+      });
+    },
+    
+    signTransaction: function(transaction) {
+      console.log('[Cordon Solana] signTransaction() called');
+      if (!solanaConnected) return Promise.reject(new Error('Wallet not connected'));
+      var serialized = Array.from(transaction.serialize({ requireAllSignatures: false }));
+      return sendRequest('cordon_solana_signTransaction', { transaction: serialized })
+        .then(function(result) {
+          // Return the signed transaction bytes
+          return result.signedTransaction;
+        });
+    },
+    
+    signAllTransactions: function(transactions) {
+      console.log('[Cordon Solana] signAllTransactions() called');
+      if (!solanaConnected) return Promise.reject(new Error('Wallet not connected'));
+      return Promise.all(transactions.map(function(tx) {
+        return window.solana.signTransaction(tx);
+      }));
+    },
+    
+    signAndSendTransaction: function(transaction, options) {
+      console.log('[Cordon Solana] signAndSendTransaction() called');
+      if (!solanaConnected) return Promise.reject(new Error('Wallet not connected'));
+      var serialized = Array.from(transaction.serialize({ requireAllSignatures: false }));
+      return sendRequest('cordon_solana_signAndSendTransaction', { 
+        transaction: serialized,
+        options: options || {}
+      }).then(function(result) {
+        return { signature: result.signature };
+      });
+    },
+    
+    on: function(event, callback) {
+      if (!solanaEventListeners[event]) solanaEventListeners[event] = [];
+      solanaEventListeners[event].push(callback);
+    },
+    
+    off: function(event, callback) {
+      if (!solanaEventListeners[event]) return;
+      var idx = solanaEventListeners[event].indexOf(callback);
+      if (idx > -1) solanaEventListeners[event].splice(idx, 1);
+    },
+    
+    _emit: function(event, data) {
+      if (!solanaEventListeners[event]) return;
+      solanaEventListeners[event].forEach(function(cb) {
+        try { cb(data); } catch(e) { console.error(e); }
+      });
+    },
+    
+    request: function(args) {
+      var method = args.method;
+      var params = args.params || {};
+      console.log('[Cordon Solana] request:', method);
+      
+      if (method === 'connect') return window.solana.connect(params);
+      if (method === 'disconnect') return window.solana.disconnect();
+      if (method === 'signMessage') return window.solana.signMessage(params.message, params.display);
+      if (method === 'signTransaction') return window.solana.signTransaction(params.transaction);
+      if (method === 'signAndSendTransaction') return window.solana.signAndSendTransaction(params.transaction, params.options);
+      
+      return Promise.reject(new Error('Method not supported: ' + method));
+    }
+  };
+  
+  // Announce Solana wallet availability
+  window.dispatchEvent(new Event('solana#initialized'));
+  
+  // ============================================
+  // EVM PROVIDER (MetaMask-compatible)
+  // ============================================
+  var evmConnected = false;
+  var evmAccounts = [];
+  var evmChainId = '0x1'; // Default to Ethereum mainnet
+  var evmEventListeners = {};
+  
+  window.ethereum = {
+    isMetaMask: true,
+    isCordon: true,
+    
+    get selectedAddress() {
+      return evmAccounts[0] || null;
+    },
+    
+    get chainId() {
+      return evmChainId;
+    },
+    
+    get networkVersion() {
+      return String(parseInt(evmChainId, 16));
+    },
+    
+    isConnected: function() {
+      return evmConnected;
+    },
+    
+    request: function(args) {
+      var method = args.method;
+      var params = args.params || [];
+      console.log('[Cordon EVM] request:', method);
+      
+      if (method === 'eth_requestAccounts' || method === 'eth_accounts') {
+        if (evmConnected && evmAccounts.length > 0) {
+          return Promise.resolve(evmAccounts);
+        }
+        return sendRequest('cordon_evm_connect', {})
+          .then(function(result) {
+            if (result.accounts && result.accounts.length > 0) {
+              evmAccounts = result.accounts;
+              evmChainId = result.chainId || '0x1';
+              evmConnected = true;
+              window.ethereum._emit('connect', { chainId: evmChainId });
+              window.ethereum._emit('accountsChanged', evmAccounts);
+              return evmAccounts;
+            }
+            throw new Error('Connection rejected');
+          });
+      }
+      
+      if (method === 'eth_chainId') {
+        return Promise.resolve(evmChainId);
+      }
+      
+      if (method === 'net_version') {
+        return Promise.resolve(String(parseInt(evmChainId, 16)));
+      }
+      
+      if (method === 'personal_sign' || method === 'eth_sign') {
+        if (!evmConnected) return Promise.reject(new Error('Wallet not connected'));
+        var message = params[0];
+        var address = params[1];
+        return sendRequest('cordon_evm_signMessage', { message: message, address: address });
+      }
+      
+      if (method === 'eth_signTypedData_v4' || method === 'eth_signTypedData') {
+        if (!evmConnected) return Promise.reject(new Error('Wallet not connected'));
+        var address = params[0];
+        var typedData = params[1];
+        return sendRequest('cordon_evm_signTypedData', { address: address, typedData: typedData });
+      }
+      
+      if (method === 'eth_sendTransaction') {
+        if (!evmConnected) return Promise.reject(new Error('Wallet not connected'));
+        var txParams = params[0];
+        return sendRequest('cordon_evm_sendTransaction', { transaction: txParams });
+      }
+      
+      if (method === 'wallet_switchEthereumChain') {
+        var chainId = params[0].chainId;
+        return sendRequest('cordon_evm_switchChain', { chainId: chainId })
+          .then(function(result) {
+            evmChainId = result.chainId;
+            window.ethereum._emit('chainChanged', evmChainId);
+            return null;
+          });
+      }
+      
+      if (method === 'wallet_addEthereumChain') {
+        return Promise.reject(new Error('Adding custom chains not supported'));
+      }
+      
+      console.log('[Cordon EVM] Unsupported method:', method);
+      return Promise.reject(new Error('Method not supported: ' + method));
+    },
+    
+    send: function(methodOrPayload, paramsOrCallback) {
+      if (typeof methodOrPayload === 'string') {
+        return window.ethereum.request({ method: methodOrPayload, params: paramsOrCallback || [] });
+      }
+      return window.ethereum.request(methodOrPayload);
+    },
+    
+    sendAsync: function(payload, callback) {
+      window.ethereum.request(payload)
+        .then(function(result) { callback(null, { id: payload.id, jsonrpc: '2.0', result: result }); })
+        .catch(function(error) { callback(error, null); });
+    },
+    
+    enable: function() {
+      return window.ethereum.request({ method: 'eth_requestAccounts' });
+    },
+    
+    on: function(event, callback) {
+      if (!evmEventListeners[event]) evmEventListeners[event] = [];
+      evmEventListeners[event].push(callback);
+    },
+    
+    removeListener: function(event, callback) {
+      if (!evmEventListeners[event]) return;
+      var idx = evmEventListeners[event].indexOf(callback);
+      if (idx > -1) evmEventListeners[event].splice(idx, 1);
+    },
+    
+    _emit: function(event, data) {
+      if (!evmEventListeners[event]) return;
+      evmEventListeners[event].forEach(function(cb) {
+        try { cb(data); } catch(e) { console.error(e); }
+      });
+    }
+  };
+  
+  // Announce EVM wallet availability
+  window.dispatchEvent(new Event('ethereum#initialized'));
+  
+  console.log('[Cordon] Bridge v1.2.0 injected with Solana + EVM providers - platform:', platform);
 })();
 true;
 `;
@@ -243,11 +570,9 @@ export default function BrowserWebViewScreen() {
       console.log("[BrowserWebView] Message received:", data.type);
 
       if (data.type === "cordon_getWalletAddress") {
-        const response = { type: "cordon_walletAddress", address: walletAddress };
+        const response = { address: walletAddress };
         webViewRef.current?.injectJavaScript(`
-          if (window.__cordonResolvers && window.__cordonResolvers.getWalletAddress) {
-            window.__cordonResolvers.getWalletAddress(${JSON.stringify(response)});
-          }
+          window.cordon._handleResponse(${data.requestId}, ${JSON.stringify(response)});
           true;
         `);
       } else if (data.type === "cordon_requestAuth") {
@@ -396,11 +721,429 @@ export default function BrowserWebViewScreen() {
         } finally {
           setIsAuthInProgress(false);
         }
+      } else if (data.type === "cordon_solana_connect") {
+        console.log("[BrowserWebView] Solana connect request");
+        const solanaAddress = activeWallet?.addresses?.solana;
+        
+        if (!solanaAddress) {
+          const response = { error: "No Solana wallet available" };
+          webViewRef.current?.injectJavaScript(`
+            window.cordon._handleResponse(${data.requestId}, ${JSON.stringify(response)});
+            true;
+          `);
+          return;
+        }
+        
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        
+        const siteName = pageTitle || currentUrl;
+        Alert.alert(
+          "Connect Wallet",
+          `${siteName} wants to connect to your Cordon wallet.`,
+          [
+            {
+              text: "Deny",
+              style: "cancel",
+              onPress: () => {
+                const response = { error: "User rejected connection" };
+                webViewRef.current?.injectJavaScript(`
+                  window.cordon._handleResponse(${data.requestId}, ${JSON.stringify(response)});
+                  true;
+                `);
+              }
+            },
+            {
+              text: "Connect",
+              onPress: () => {
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                const response = { publicKey: solanaAddress };
+                webViewRef.current?.injectJavaScript(`
+                  window.cordon._handleResponse(${data.requestId}, ${JSON.stringify(response)});
+                  true;
+                `);
+              }
+            }
+          ]
+        );
+      } else if (data.type === "cordon_solana_signMessage") {
+        console.log("[BrowserWebView] Solana sign message request");
+        const messageBytes = new Uint8Array(data.message);
+        const messageText = new TextDecoder().decode(messageBytes);
+        const siteName = pageTitle || currentUrl;
+        const walletId = activeWallet?.id;
+        
+        if (!walletId) {
+          const response = { error: "No wallet available" };
+          webViewRef.current?.injectJavaScript(`
+            window.cordon._handleResponse(${data.requestId}, ${JSON.stringify(response)});
+            true;
+          `);
+          return;
+        }
+        
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        
+        Alert.alert(
+          "Sign Message",
+          `${siteName} wants you to sign:\n\n"${messageText.slice(0, 100)}${messageText.length > 100 ? '...' : ''}"`,
+          [
+            {
+              text: "Reject",
+              style: "cancel",
+              onPress: () => {
+                const response = { error: "User rejected signing" };
+                webViewRef.current?.injectJavaScript(`
+                  window.cordon._handleResponse(${data.requestId}, ${JSON.stringify(response)});
+                  true;
+                `);
+              }
+            },
+            {
+              text: "Sign",
+              onPress: async () => {
+                try {
+                  const { signSolanaMessage } = await import("@/lib/blockchain/transactions");
+                  const bs58 = await import("bs58");
+                  const signatureBase58 = await signSolanaMessage({ walletId: walletId!, message: messageText });
+                  const signatureBytes = bs58.default.decode(signatureBase58);
+                  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                  const solanaAddress = activeWallet?.addresses?.solana;
+                  const response = { signature: Array.from(signatureBytes), publicKey: solanaAddress };
+                  webViewRef.current?.injectJavaScript(`
+                    window.cordon._handleResponse(${data.requestId}, ${JSON.stringify(response)});
+                    true;
+                  `);
+                } catch (error: any) {
+                  const response = { error: error.message || "Signing failed" };
+                  webViewRef.current?.injectJavaScript(`
+                    window.cordon._handleResponse(${data.requestId}, ${JSON.stringify(response)});
+                    true;
+                  `);
+                }
+              }
+            }
+          ]
+        );
+      } else if (data.type === "cordon_solana_signTransaction" || data.type === "cordon_solana_signAndSendTransaction") {
+        console.log("[BrowserWebView] Solana sign transaction request");
+        const siteName = pageTitle || currentUrl;
+        const walletId = activeWallet?.id;
+        
+        if (!walletId) {
+          const response = { error: "No wallet available" };
+          webViewRef.current?.injectJavaScript(`
+            window.cordon._handleResponse(${data.requestId}, ${JSON.stringify(response)});
+            true;
+          `);
+          return;
+        }
+        
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        
+        Alert.alert(
+          "Sign Transaction",
+          `${siteName} wants you to sign a Solana transaction.`,
+          [
+            {
+              text: "Reject",
+              style: "cancel",
+              onPress: () => {
+                const response = { error: "User rejected transaction" };
+                webViewRef.current?.injectJavaScript(`
+                  window.cordon._handleResponse(${data.requestId}, ${JSON.stringify(response)});
+                  true;
+                `);
+              }
+            },
+            {
+              text: "Sign",
+              onPress: async () => {
+                try {
+                  const { signSolanaTransaction } = await import("@/lib/blockchain/transactions");
+                  const txBytes = new Uint8Array(data.transaction);
+                  const txBase64 = btoa(String.fromCharCode(...txBytes));
+                  const signedTxBase64 = await signSolanaTransaction({ walletId: walletId!, transaction: txBase64 });
+                  
+                  if (data.type === "cordon_solana_signAndSendTransaction") {
+                    const apiUrl = getApiUrl();
+                    const sendUrl = new URL("/api/solana/send-signed-transaction", apiUrl);
+                    const sendResponse = await fetch(sendUrl.toString(), {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ transactionBase64: signedTxBase64 }),
+                    });
+                    const sendResult = await sendResponse.json();
+                    if (sendResult.error) {
+                      throw new Error(sendResult.error);
+                    }
+                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                    const response = { signature: sendResult.signature };
+                    webViewRef.current?.injectJavaScript(`
+                      window.cordon._handleResponse(${data.requestId}, ${JSON.stringify(response)});
+                      true;
+                    `);
+                  } else {
+                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                    const signedBytes = atob(signedTxBase64).split('').map(c => c.charCodeAt(0));
+                    const response = { signedTransaction: signedBytes };
+                    webViewRef.current?.injectJavaScript(`
+                      window.cordon._handleResponse(${data.requestId}, ${JSON.stringify(response)});
+                      true;
+                    `);
+                  }
+                } catch (error: any) {
+                  const response = { error: error.message || "Transaction failed" };
+                  webViewRef.current?.injectJavaScript(`
+                    window.cordon._handleResponse(${data.requestId}, ${JSON.stringify(response)});
+                    true;
+                  `);
+                }
+              }
+            }
+          ]
+        );
+      } else if (data.type === "cordon_evm_connect") {
+        console.log("[BrowserWebView] EVM connect request");
+        const evmAddress = activeWallet?.addresses?.evm;
+        
+        if (!evmAddress) {
+          const response = { error: "No EVM wallet available" };
+          webViewRef.current?.injectJavaScript(`
+            window.cordon._handleResponse(${data.requestId}, ${JSON.stringify(response)});
+            true;
+          `);
+          return;
+        }
+        
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        const siteName = pageTitle || currentUrl;
+        
+        Alert.alert(
+          "Connect Wallet",
+          `${siteName} wants to connect to your Cordon wallet.`,
+          [
+            {
+              text: "Deny",
+              style: "cancel",
+              onPress: () => {
+                const response = { error: "User rejected connection" };
+                webViewRef.current?.injectJavaScript(`
+                  window.cordon._handleResponse(${data.requestId}, ${JSON.stringify(response)});
+                  true;
+                `);
+              }
+            },
+            {
+              text: "Connect",
+              onPress: () => {
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                const response = { accounts: [evmAddress], chainId: "0x89" };
+                webViewRef.current?.injectJavaScript(`
+                  window.cordon._handleResponse(${data.requestId}, ${JSON.stringify(response)});
+                  true;
+                `);
+              }
+            }
+          ]
+        );
+      } else if (data.type === "cordon_evm_signMessage") {
+        console.log("[BrowserWebView] EVM sign message request");
+        const siteName = pageTitle || currentUrl;
+        const walletId = activeWallet?.id;
+        
+        if (!walletId) {
+          const response = { error: "No wallet available" };
+          webViewRef.current?.injectJavaScript(`
+            window.cordon._handleResponse(${data.requestId}, ${JSON.stringify(response)});
+            true;
+          `);
+          return;
+        }
+        
+        let messageText = data.message;
+        if (messageText.startsWith("0x")) {
+          try {
+            const bytes = [];
+            for (let i = 2; i < messageText.length; i += 2) {
+              bytes.push(parseInt(messageText.substr(i, 2), 16));
+            }
+            messageText = new TextDecoder().decode(new Uint8Array(bytes));
+          } catch { }
+        }
+        
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        
+        Alert.alert(
+          "Sign Message",
+          `${siteName} wants you to sign:\n\n"${messageText.slice(0, 100)}${messageText.length > 100 ? '...' : ''}"`,
+          [
+            {
+              text: "Reject",
+              style: "cancel",
+              onPress: () => {
+                const response = { error: "User rejected signing" };
+                webViewRef.current?.injectJavaScript(`
+                  window.cordon._handleResponse(${data.requestId}, ${JSON.stringify(response)});
+                  true;
+                `);
+              }
+            },
+            {
+              text: "Sign",
+              onPress: async () => {
+                try {
+                  const { signPersonalMessage } = await import("@/lib/blockchain/transactions");
+                  const signature = await signPersonalMessage({ walletId: walletId!, message: data.message });
+                  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                  webViewRef.current?.injectJavaScript(`
+                    window.cordon._handleResponse(${data.requestId}, ${JSON.stringify(signature)});
+                    true;
+                  `);
+                } catch (error: any) {
+                  const response = { error: error.message || "Signing failed" };
+                  webViewRef.current?.injectJavaScript(`
+                    window.cordon._handleResponse(${data.requestId}, ${JSON.stringify(response)});
+                    true;
+                  `);
+                }
+              }
+            }
+          ]
+        );
+      } else if (data.type === "cordon_evm_sendTransaction") {
+        console.log("[BrowserWebView] EVM send transaction request");
+        const siteName = pageTitle || currentUrl;
+        const walletId = activeWallet?.id;
+        
+        if (!walletId) {
+          const response = { error: "No wallet available" };
+          webViewRef.current?.injectJavaScript(`
+            window.cordon._handleResponse(${data.requestId}, ${JSON.stringify(response)});
+            true;
+          `);
+          return;
+        }
+        
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        const tx = data.transaction;
+        
+        Alert.alert(
+          "Send Transaction",
+          `${siteName} wants to send a transaction${tx.value ? ` of ${parseInt(tx.value, 16) / 1e18} ETH` : ''}.`,
+          [
+            {
+              text: "Reject",
+              style: "cancel",
+              onPress: () => {
+                const response = { error: "User rejected transaction" };
+                webViewRef.current?.injectJavaScript(`
+                  window.cordon._handleResponse(${data.requestId}, ${JSON.stringify(response)});
+                  true;
+                `);
+              }
+            },
+            {
+              text: "Send",
+              onPress: async () => {
+                try {
+                  const { sendRawTransaction } = await import("@/lib/blockchain/transactions");
+                  const result = await sendRawTransaction({
+                    walletId: walletId!,
+                    chainId: 137,
+                    to: tx.to,
+                    data: tx.data || "0x",
+                    value: tx.value ? BigInt(tx.value) : 0n,
+                  });
+                  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                  webViewRef.current?.injectJavaScript(`
+                    window.cordon._handleResponse(${data.requestId}, ${JSON.stringify(result.hash)});
+                    true;
+                  `);
+                } catch (error: any) {
+                  const response = { error: error.message || "Transaction failed" };
+                  webViewRef.current?.injectJavaScript(`
+                    window.cordon._handleResponse(${data.requestId}, ${JSON.stringify(response)});
+                    true;
+                  `);
+                }
+              }
+            }
+          ]
+        );
+      } else if (data.type === "cordon_evm_switchChain") {
+        console.log("[BrowserWebView] EVM switch chain request");
+        const response = { chainId: data.chainId };
+        webViewRef.current?.injectJavaScript(`
+          window.cordon._handleResponse(${data.requestId}, ${JSON.stringify(response)});
+          true;
+        `);
+      } else if (data.type === "cordon_evm_signTypedData") {
+        console.log("[BrowserWebView] EVM signTypedData request");
+        const siteName = pageTitle || currentUrl;
+        const walletId = activeWallet?.id;
+        
+        if (!walletId) {
+          const response = { error: "No wallet available" };
+          webViewRef.current?.injectJavaScript(`
+            window.cordon._handleResponse(${data.requestId}, ${JSON.stringify(response)});
+            true;
+          `);
+          return;
+        }
+        
+        let domainName = "Unknown dApp";
+        try {
+          const typedData = JSON.parse(data.typedData);
+          if (typedData.domain?.name) {
+            domainName = typedData.domain.name;
+          }
+        } catch {}
+        
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        
+        Alert.alert(
+          "Sign Typed Data",
+          `${siteName} (${domainName}) wants you to sign structured data.`,
+          [
+            {
+              text: "Reject",
+              style: "cancel",
+              onPress: () => {
+                const response = { error: "User rejected signing" };
+                webViewRef.current?.injectJavaScript(`
+                  window.cordon._handleResponse(${data.requestId}, ${JSON.stringify(response)});
+                  true;
+                `);
+              }
+            },
+            {
+              text: "Sign",
+              onPress: async () => {
+                try {
+                  const { signTypedData } = await import("@/lib/blockchain/transactions");
+                  const typedData = JSON.parse(data.typedData);
+                  const signature = await signTypedData({ walletId: walletId!, typedData });
+                  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                  webViewRef.current?.injectJavaScript(`
+                    window.cordon._handleResponse(${data.requestId}, ${JSON.stringify(signature)});
+                    true;
+                  `);
+                } catch (error: any) {
+                  const response = { error: error.message || "Signing failed" };
+                  webViewRef.current?.injectJavaScript(`
+                    window.cordon._handleResponse(${data.requestId}, ${JSON.stringify(response)});
+                    true;
+                  `);
+                }
+              }
+            }
+          ]
+        );
       }
     } catch (error) {
       console.error("[BrowserWebView] Message parse error:", error);
     }
-  }, [walletAddress, isAuthInProgress]);
+  }, [walletAddress, isAuthInProgress, activeWallet, pageTitle, currentUrl]);
 
   const handleShouldStartLoad = useCallback(
     (request: { url: string }) => {

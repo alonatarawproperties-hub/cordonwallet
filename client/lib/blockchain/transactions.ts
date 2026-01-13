@@ -707,6 +707,46 @@ export async function signPersonalMessage(params: SignMessageParams): Promise<`0
   }
 }
 
+export interface SignTypedDataParams {
+  walletId: string;
+  typedData: {
+    domain: {
+      name?: string;
+      version?: string;
+      chainId?: number;
+      verifyingContract?: `0x${string}`;
+      salt?: `0x${string}`;
+    };
+    types: Record<string, Array<{ name: string; type: string }>>;
+    primaryType: string;
+    message: Record<string, unknown>;
+  };
+}
+
+export async function signTypedData(params: SignTypedDataParams): Promise<`0x${string}`> {
+  const { walletId, typedData } = params;
+  
+  try {
+    const privateKey = await derivePrivateKey(walletId);
+    const account = privateKeyToAccount(privateKey);
+    
+    const signature = await account.signTypedData({
+      domain: typedData.domain,
+      types: typedData.types,
+      primaryType: typedData.primaryType,
+      message: typedData.message,
+    });
+    
+    return signature;
+  } catch (error) {
+    if (error instanceof WalletLockedError) {
+      throw error;
+    }
+    const txError = formatTransactionError(error);
+    throw new TransactionFailedError(txError);
+  }
+}
+
 export interface SendRawTransactionParams {
   chainId: number;
   walletId: string;
