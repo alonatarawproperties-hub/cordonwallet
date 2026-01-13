@@ -282,59 +282,32 @@ export default function BrowserWebViewScreen() {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
         
         try {
-          const clientId = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || "";
-          
-          if (!clientId) {
-            throw new Error("Google OAuth not configured. Please add EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID.");
-          }
-          
-          const redirectUri = AuthSession.makeRedirectUri({ scheme: "cordon" });
-          
-          console.log("[BrowserWebView] ========== OAUTH DEBUG ==========");
-          console.log("[BrowserWebView] Client ID:", clientId.substring(0, 20) + "...");
-          console.log("[BrowserWebView] Redirect URI:", redirectUri);
+          console.log("[BrowserWebView] ========== MOBILE OAUTH DEBUG ==========");
+          console.log("[BrowserWebView] Using backend polling-based OAuth flow");
           console.log("[BrowserWebView] Platform:", Platform.OS);
           console.log("[BrowserWebView] ================================");
           
-          const request = new AuthSession.AuthRequest({
-            clientId,
-            redirectUri,
-            scopes: ["openid", "email", "profile"],
-            responseType: AuthSession.ResponseType.Code,
-            usePKCE: true,
-            extraParams: {
-              access_type: "offline",
-              prompt: "select_account",
-            },
+          const apiBaseUrl = process.env.EXPO_PUBLIC_DOMAIN 
+            ? `https://${process.env.EXPO_PUBLIC_DOMAIN}`
+            : "http://localhost:5000";
+          
+          const startResponse = await fetch(`${apiBaseUrl}/api/auth/cordon/mobile/start`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
           });
           
-          await request.makeAuthUrlAsync(GOOGLE_DISCOVERY);
+          if (!startResponse.ok) {
+            throw new Error("Failed to start mobile auth session");
+          }
           
-          console.log("[BrowserWebView] Starting OAuth with custom scheme redirect...");
-          console.log("[BrowserWebView] Code verifier will be:", request.codeVerifier?.substring(0, 10) + "...");
+          const { sessionId, authUrl } = await startResponse.json();
+          console.log("[BrowserWebView] Session created:", sessionId);
+          console.log("[BrowserWebView] Auth URL:", authUrl);
           
-          const result = await request.promptAsync(GOOGLE_DISCOVERY);
+          const result = await WebBrowser.openAuthSessionAsync(authUrl, "cordon://");
+          console.log("[BrowserWebView] WebBrowser result type:", result.type);
           
-          console.log("[BrowserWebView] OAuth result type:", result.type);
-          
-          if (result.type === "success" && result.params?.code) {
-            const authResult = {
-              ok: true,
-              code: result.params.code,
-              codeVerifier: request.codeVerifier,
-              state: result.params.state || request.state,
-            };
-            
-            console.log("[BrowserWebView] OAuth success, returning code to WebView");
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            
-            webViewRef.current?.injectJavaScript(`
-              if (window.cordon && window.cordon._receiveAuthResult) {
-                window.cordon._receiveAuthResult(${JSON.stringify(authResult)});
-              }
-              true;
-            `);
-          } else if (result.type === "cancel" || result.type === "dismiss") {
+          if (result.type === "cancel" || result.type === "dismiss") {
             console.log("[BrowserWebView] OAuth cancelled by user");
             const authResult = { ok: false, error: "User cancelled" };
             webViewRef.current?.injectJavaScript(`
@@ -343,25 +316,51 @@ export default function BrowserWebViewScreen() {
               }
               true;
             `);
-          } else {
-            console.log("[BrowserWebView] ========== OAUTH ERROR ==========");
-            console.log("[BrowserWebView] Result type:", result.type);
-            console.log("[BrowserWebView] Full result:", JSON.stringify(result, null, 2));
-            if (result.type === "error") {
-              console.log("[BrowserWebView] Error code:", result.error?.code);
-              console.log("[BrowserWebView] Error message:", result.error?.message);
-            }
-            console.log("[BrowserWebView] ================================");
-            
-            const errorMsg = result.type === "error" ? (result.error?.message || "OAuth error") : "Unknown error";
-            const authResult = { ok: false, error: errorMsg };
-            webViewRef.current?.injectJavaScript(`
-              if (window.cordon && window.cordon._receiveAuthResult) {
-                window.cordon._receiveAuthResult(${JSON.stringify(authResult)});
-              }
-              true;
-            `);
+            return;
           }
+          
+          console.log("[BrowserWebView] Polling for auth result...");
+          let attempts = 0;
+          const maxAttempts = 60;
+          
+          while (attempts < maxAttempts) {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            attempts++;
+            
+            const pollResponse = await fetch(`${apiBaseUrl}/api/auth/cordon/mobile/poll?sessionId=${sessionId}`);
+            const pollData = await pollResponse.json();
+            
+            console.log("[BrowserWebView] Poll attempt", attempts, "status:", pollData.status);
+            
+            if (pollData.status === "success") {
+              const authResult = {
+                ok: true,
+                code: pollData.code,
+                codeVerifier: pollData.codeVerifier,
+              };
+              
+              console.log("[BrowserWebView] OAuth success via polling!");
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              
+              webViewRef.current?.injectJavaScript(`
+                if (window.cordon && window.cordon._receiveAuthResult) {
+                  window.cordon._receiveAuthResult(${JSON.stringify(authResult)});
+                }
+                true;
+              `);
+              return;
+            }
+            
+            if (pollData.status === "error") {
+              throw new Error(pollData.error || "Authentication failed");
+            }
+            
+            if (pollData.error) {
+              throw new Error(pollData.error);
+            }
+          }
+          
+          throw new Error("Authentication timed out");
           
         } catch (error: any) {
           console.error("[BrowserWebView] Auth error:", error);

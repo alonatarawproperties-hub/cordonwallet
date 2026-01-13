@@ -21,9 +21,21 @@ interface Session {
   expiresAt: number;
 }
 
+interface MobileAuthSession {
+  sessionId: string;
+  status: "pending" | "success" | "error";
+  code?: string;
+  codeVerifier?: string;
+  error?: string;
+  createdAt: number;
+}
+
 const authCodes = new Map<string, AuthCode>();
 const sessions = new Map<string, Session>();
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
+const mobileAuthSessions = new Map<string, MobileAuthSession>();
+
+const MOBILE_SESSION_EXPIRY_MS = 10 * 60 * 1000;
 
 const CODE_EXPIRY_MS = 5 * 60 * 1000;
 const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
@@ -631,6 +643,175 @@ export function registerCordonAuthRoutes(app: Express) {
     res.json({ success: true, debug: { step: "LOGGED_OUT" } });
   });
 
+  app.post("/api/auth/cordon/mobile/start", (req: Request, res: Response) => {
+    const sessionId = crypto.randomBytes(16).toString("hex");
+    const codeVerifier = crypto.randomBytes(32).toString("base64url");
+    
+    mobileAuthSessions.set(sessionId, {
+      sessionId,
+      status: "pending",
+      codeVerifier,
+      createdAt: Date.now(),
+    });
+    
+    console.log("[Cordon Mobile Auth] Session created:", sessionId);
+    
+    const baseUrl = `${req.protocol}://${req.get("host")}`;
+    const authStartUrl = `${baseUrl}/auth/cordon/mobile/start?sessionId=${sessionId}`;
+    
+    res.json({
+      sessionId,
+      authUrl: authStartUrl,
+    });
+  });
+
+  app.get("/auth/cordon/mobile/start", (req: Request, res: Response) => {
+    const sessionId = req.query.sessionId as string;
+    
+    if (!sessionId) {
+      return res.status(400).send("Missing sessionId");
+    }
+    
+    const session = mobileAuthSessions.get(sessionId);
+    if (!session) {
+      return res.status(400).send("Invalid or expired session");
+    }
+    
+    const clientId = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || process.env.GOOGLE_WEB_CLIENT_ID;
+    
+    if (!clientId) {
+      mobileAuthSessions.set(sessionId, { ...session, status: "error", error: "OAuth not configured" });
+      return res.status(500).send("OAuth not configured");
+    }
+    
+    const redirectUri = `${req.protocol}://${req.get("host")}/auth/cordon/mobile/callback`;
+    const codeChallenge = crypto.createHash("sha256").update(session.codeVerifier || "").digest("base64url");
+    
+    const params = new URLSearchParams({
+      client_id: clientId,
+      redirect_uri: redirectUri,
+      response_type: "code",
+      scope: "openid email profile",
+      state: sessionId,
+      code_challenge: codeChallenge,
+      code_challenge_method: "S256",
+      access_type: "offline",
+      prompt: "select_account",
+    });
+    
+    const googleAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
+    console.log("[Cordon Mobile Auth] Redirecting to Google OAuth:", googleAuthUrl);
+    res.redirect(googleAuthUrl);
+  });
+
+  app.get("/auth/cordon/mobile/callback", (req: Request, res: Response) => {
+    const { code, state, error } = req.query;
+    const sessionId = state as string;
+    
+    console.log("[Cordon Mobile Auth] Callback received:", { code: code ? "present" : "missing", sessionId, error });
+    
+    if (!sessionId) {
+      return res.status(400).send("Missing state/sessionId");
+    }
+    
+    const session = mobileAuthSessions.get(sessionId);
+    if (!session) {
+      return res.status(400).send("Invalid or expired session");
+    }
+    
+    if (error) {
+      mobileAuthSessions.set(sessionId, { ...session, status: "error", error: error as string });
+      return res.send(`
+        <!DOCTYPE html>
+        <html>
+          <head><title>Authentication Failed</title>
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <style>body { font-family: system-ui; padding: 40px; text-align: center; background: #1a1a2e; color: white; }</style>
+          </head>
+          <body>
+            <h1>Authentication Failed</h1>
+            <p>${error}</p>
+            <p>You can close this window and try again.</p>
+          </body>
+        </html>
+      `);
+    }
+    
+    if (!code) {
+      mobileAuthSessions.set(sessionId, { ...session, status: "error", error: "No code received" });
+      return res.status(400).send("Missing authorization code");
+    }
+    
+    mobileAuthSessions.set(sessionId, {
+      ...session,
+      status: "success",
+      code: code as string,
+    });
+    
+    console.log("[Cordon Mobile Auth] Success! Code stored for session:", sessionId);
+    
+    res.send(`
+      <!DOCTYPE html>
+      <html>
+        <head><title>Success - Cordon</title>
+          <meta name="viewport" content="width=device-width, initial-scale=1">
+          <style>
+            body { font-family: -apple-system, system-ui; padding: 40px; text-align: center; background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); color: white; min-height: 100vh; margin: 0; display: flex; align-items: center; justify-content: center; }
+            .container { background: rgba(255,255,255,0.1); backdrop-filter: blur(10px); border-radius: 20px; padding: 40px; max-width: 400px; }
+            .success-icon { width: 80px; height: 80px; background: #10b981; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 24px; font-size: 40px; }
+            h1 { margin: 0 0 16px; }
+            p { color: rgba(255,255,255,0.7); }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="success-icon">✓</div>
+            <h1>Login Successful!</h1>
+            <p>You can now close this window and return to the Cordon app.</p>
+          </div>
+        </body>
+      </html>
+    `);
+  });
+
+  app.get("/api/auth/cordon/mobile/poll", (req: Request, res: Response) => {
+    const sessionId = req.query.sessionId as string;
+    
+    if (!sessionId) {
+      return res.status(400).json({ error: "Missing sessionId" });
+    }
+    
+    const session = mobileAuthSessions.get(sessionId);
+    if (!session) {
+      return res.status(404).json({ error: "Session not found or expired" });
+    }
+    
+    if (Date.now() - session.createdAt > MOBILE_SESSION_EXPIRY_MS) {
+      mobileAuthSessions.delete(sessionId);
+      return res.status(410).json({ error: "Session expired" });
+    }
+    
+    if (session.status === "pending") {
+      return res.json({ status: "pending" });
+    }
+    
+    if (session.status === "error") {
+      mobileAuthSessions.delete(sessionId);
+      return res.json({ status: "error", error: session.error });
+    }
+    
+    if (session.status === "success") {
+      mobileAuthSessions.delete(sessionId);
+      return res.json({
+        status: "success",
+        code: session.code,
+        codeVerifier: session.codeVerifier,
+      });
+    }
+    
+    res.json({ status: "unknown" });
+  });
+
   app.get("/api/auth/cordon/debug", (req: Request, res: Response) => {
     const activeCodes = Array.from(authCodes.entries())
       .filter(([, c]) => !c.used && Date.now() - c.createdAt < CODE_EXPIRY_MS)
@@ -664,5 +845,9 @@ export function registerCordonAuthRoutes(app: Express) {
   console.log("  POST /api/auth/cordon/exchange-code");
   console.log("  GET  /api/auth/cordon/session");
   console.log("  POST /api/auth/cordon/logout");
+  console.log("  POST /api/auth/cordon/mobile/start");
+  console.log("  GET  /auth/cordon/mobile/start");
+  console.log("  GET  /auth/cordon/mobile/callback");
+  console.log("  GET  /api/auth/cordon/mobile/poll");
   console.log("  GET  /api/auth/cordon/debug");
 }
