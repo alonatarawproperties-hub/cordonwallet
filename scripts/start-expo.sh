@@ -10,8 +10,8 @@ echo "╚═══════════════════════�
 echo ""
 
 # Set environment variables for Replit
-# Port 5000 is included for development to route to Express backend
-export EXPO_PUBLIC_DOMAIN="${REPLIT_DEV_DOMAIN}:5000"
+# Raw domain without port - getApiUrl() adds :5000 for dev environments
+export EXPO_PUBLIC_DOMAIN="${REPLIT_DEV_DOMAIN}"
 
 # EXPO_TOKEN is required for tunnel mode authentication
 # Get one from: https://expo.dev/accounts/[your-username]/settings/access-tokens
