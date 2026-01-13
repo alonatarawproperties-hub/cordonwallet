@@ -163,7 +163,7 @@ const CORDON_INJECTED_SCRIPT = `
   }
   
   window.solana = {
-    isPhantom: true,
+    isPhantom: false,
     isCordon: true,
     
     get publicKey() {
