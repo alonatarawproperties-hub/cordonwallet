@@ -7,7 +7,10 @@ import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import * as AuthSession from "expo-auth-session";
+import * as WebBrowser from "expo-web-browser";
 import Animated, { useSharedValue, useAnimatedStyle, withTiming } from "react-native-reanimated";
+
+WebBrowser.maybeCompleteAuthSession();
 
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius } from "@/constants/theme";
@@ -285,7 +288,7 @@ export default function BrowserWebViewScreen() {
             throw new Error("Google OAuth not configured. Please add EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID.");
           }
           
-          const redirectUri = "https://auth.expo.io/@cordonwallet/cordon";
+          const redirectUri = AuthSession.makeRedirectUri({ scheme: "cordon" });
           
           console.log("[BrowserWebView] ========== OAUTH DEBUG ==========");
           console.log("[BrowserWebView] Client ID:", clientId.substring(0, 20) + "...");
@@ -305,11 +308,10 @@ export default function BrowserWebViewScreen() {
             },
           });
           
-          const authUrl = await request.makeAuthUrlAsync(GOOGLE_DISCOVERY);
+          await request.makeAuthUrlAsync(GOOGLE_DISCOVERY);
           
-          console.log("[BrowserWebView] Full Auth URL (check redirect_uri param):");
-          console.log("[BrowserWebView]", authUrl);
-          console.log("[BrowserWebView] Starting OAuth prompt...");
+          console.log("[BrowserWebView] Starting OAuth with custom scheme redirect...");
+          console.log("[BrowserWebView] Code verifier will be:", request.codeVerifier?.substring(0, 10) + "...");
           
           const result = await request.promptAsync(GOOGLE_DISCOVERY);
           
@@ -319,11 +321,11 @@ export default function BrowserWebViewScreen() {
             const authResult = {
               ok: true,
               code: result.params.code,
+              codeVerifier: request.codeVerifier,
               state: result.params.state || request.state,
             };
             
             console.log("[BrowserWebView] OAuth success, returning code to WebView");
-            
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             
             webViewRef.current?.injectJavaScript(`
@@ -348,10 +350,6 @@ export default function BrowserWebViewScreen() {
             if (result.type === "error") {
               console.log("[BrowserWebView] Error code:", result.error?.code);
               console.log("[BrowserWebView] Error message:", result.error?.message);
-              console.log("[BrowserWebView] Error description:", result.error?.description);
-            }
-            if ("params" in result && result.params) {
-              console.log("[BrowserWebView] Params:", JSON.stringify(result.params));
             }
             console.log("[BrowserWebView] ================================");
             
