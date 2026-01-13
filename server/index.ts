@@ -293,9 +293,11 @@ function setupErrorHandler(app: express.Application) {
   setupBodyParsing(app);
   setupRequestLogging(app);
 
-  configureExpoAndLanding(app);
-  
+  // Auth routes must be registered BEFORE static file serving
+  // to prevent Expo SPA from intercepting /auth/* paths
   registerCordonAuthRoutes(app);
+  
+  configureExpoAndLanding(app);
 
   const server = await registerRoutes(app);
 
