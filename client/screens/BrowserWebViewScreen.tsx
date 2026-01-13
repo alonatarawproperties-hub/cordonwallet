@@ -324,23 +324,32 @@ export default function BrowserWebViewScreen() {
             console.log("[BrowserWebView] Poll attempt", attempts, "status:", pollData.status);
             
             if (pollData.status === "success") {
-              // If we have idToken, Cordon already exchanged the code - only return tokens
-              // If we don't have idToken, return code for fallback (Roachy exchanges it)
-              const authResult = pollData.idToken 
-                ? {
-                    ok: true,
-                    idToken: pollData.idToken,
-                    accessToken: pollData.accessToken,
-                  }
-                : {
-                    ok: true,
-                    code: pollData.code,
-                    codeVerifier: pollData.codeVerifier,
-                  };
+              // Return all available data. If idToken is present, Cordon already exchanged.
+              // Roachy should check for idToken and use it directly instead of re-exchanging.
+              // We include code for backward compatibility (Roachy checks if code exists).
+              const authResult: Record<string, unknown> = {
+                ok: true,
+                provider: 'google',
+              };
+              
+              // Always include code if available (Roachy checks for its existence)
+              if (pollData.code) {
+                authResult.code = pollData.code;
+              }
+              if (pollData.codeVerifier) {
+                authResult.codeVerifier = pollData.codeVerifier;
+              }
+              
+              // If Cordon exchanged the code, include the tokens and set exchangeComplete flag
+              if (pollData.idToken) {
+                authResult.idToken = pollData.idToken;
+                authResult.accessToken = pollData.accessToken;
+                authResult.exchangeComplete = true; // Signal: don't exchange code, use idToken
+              }
               
               console.log("[BrowserWebView] OAuth success via polling!");
               console.log("[BrowserWebView] Has idToken:", !!pollData.idToken);
-              console.log("[BrowserWebView] Returning:", pollData.idToken ? "tokens only" : "code for exchange");
+              console.log("[BrowserWebView] Response keys:", Object.keys(authResult).join(', '));
               Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
               
               webViewRef.current?.injectJavaScript(`
