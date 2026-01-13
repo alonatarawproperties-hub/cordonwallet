@@ -707,21 +707,27 @@ export function registerCordonAuthRoutes(app: Express) {
       return res.status(500).send("OAuth not configured");
     }
     
-    // Construct redirect URI with explicit port 5000 for Replit
-    const protocol = req.get("x-forwarded-proto") || req.protocol || "https";
-    const forwardedHost = req.get("x-forwarded-host") || req.get("host") || "";
-    const hostname = forwardedHost.split(":")[0];
+    // Use environment variables to construct the redirect URI reliably
+    // REPLIT_DEV_DOMAIN is set in development, REPLIT_INTERNAL_APP_DOMAIN in production
+    const replitDevDomain = process.env.REPLIT_DEV_DOMAIN;
+    const replitAppDomain = process.env.REPLIT_INTERNAL_APP_DOMAIN;
     const expressPort = process.env.PORT || "5000";
     
-    // Build base URL - for Replit development (.replit.dev), use port 5000
-    // For production (.replit.app) and custom domains, no port needed
     let baseUrl: string;
-    if (hostname.includes(".replit.dev")) {
-      // Development: use hostname:5000 format
-      baseUrl = `${protocol}://${hostname}:${expressPort}`;
+    if (replitDevDomain) {
+      // Development on Replit: always use port 5000
+      baseUrl = `https://${replitDevDomain}:${expressPort}`;
+      console.log("[Cordon Mobile Auth] Using dev domain with port:", baseUrl);
+    } else if (replitAppDomain) {
+      // Production on Replit: no port needed
+      baseUrl = `https://${replitAppDomain}`;
+      console.log("[Cordon Mobile Auth] Using production domain:", baseUrl);
     } else {
-      // Production and custom domains: no port needed
-      baseUrl = `${protocol}://${hostname}`;
+      // Fallback to request headers
+      const protocol = req.get("x-forwarded-proto") || req.protocol || "https";
+      const forwardedHost = req.get("x-forwarded-host") || req.get("host") || "";
+      baseUrl = `${protocol}://${forwardedHost}`;
+      console.log("[Cordon Mobile Auth] Using fallback host:", baseUrl);
     }
     
     const redirectUri = `${baseUrl}/auth/cordon/mobile/callback`;
