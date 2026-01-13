@@ -369,9 +369,11 @@ export function registerCordonAuthRoutes(app: Express) {
               </div>
               
               <div class="buttons">
-                <a href="cordon://auth/callback?code=${authCode}" class="return-btn" id="returnBtn">Return to Cordon</a>
+                <button class="return-btn" id="returnBtn" onclick="returnToCordon()">Return to Cordon</button>
                 <button class="copy-btn" id="copyBtn" onclick="copyCode()">Copy Code</button>
               </div>
+              
+              <div id="return-status" style="margin-top: 12px; font-size: 13px; color: rgba(255,255,255,0.6);"></div>
               
               <div class="instructions">
                 <div class="step"><span class="step-num">1</span> Tap "Return to Cordon" above</div>
@@ -387,6 +389,30 @@ export function registerCordonAuthRoutes(app: Express) {
             </div>
             
             <script>
+              const deepLink = 'cordon://auth/callback?code=${authCode}';
+              
+              function returnToCordon() {
+                const status = document.getElementById('return-status');
+                status.textContent = 'Opening Cordon...';
+                
+                // Method 1: Direct location change
+                window.location.href = deepLink;
+                
+                // Method 2: Fallback with timeout
+                setTimeout(function() {
+                  // If we're still here, try iframe method
+                  var iframe = document.createElement('iframe');
+                  iframe.style.display = 'none';
+                  iframe.src = deepLink;
+                  document.body.appendChild(iframe);
+                  
+                  setTimeout(function() {
+                    document.body.removeChild(iframe);
+                    status.textContent = 'If Cordon did not open, copy the code manually.';
+                  }, 1000);
+                }, 500);
+              }
+              
               function copyCode() {
                 const code = document.getElementById('code').textContent;
                 navigator.clipboard.writeText(code).then(() => {
@@ -399,6 +425,11 @@ export function registerCordonAuthRoutes(app: Express) {
                   }, 2000);
                 });
               }
+              
+              // Auto-redirect after short delay
+              setTimeout(function() {
+                returnToCordon();
+              }, 1500);
             </script>
           </body>
         </html>
