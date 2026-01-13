@@ -656,7 +656,8 @@ export function registerCordonAuthRoutes(app: Express) {
     
     console.log("[Cordon Mobile Auth] Session created:", sessionId);
     
-    const baseUrl = `${req.protocol}://${req.get("host")}`;
+    const protocol = req.get("x-forwarded-proto") || req.protocol || "https";
+    const baseUrl = `${protocol}://${req.get("host")}`;
     const authStartUrl = `${baseUrl}/auth/cordon/mobile/start?sessionId=${sessionId}`;
     
     res.json({
@@ -684,7 +685,8 @@ export function registerCordonAuthRoutes(app: Express) {
       return res.status(500).send("OAuth not configured");
     }
     
-    const redirectUri = `${req.protocol}://${req.get("host")}/auth/cordon/mobile/callback`;
+    const protocol = req.get("x-forwarded-proto") || req.protocol || "https";
+    const redirectUri = `${protocol}://${req.get("host")}/auth/cordon/mobile/callback`;
     const codeChallenge = crypto.createHash("sha256").update(session.codeVerifier || "").digest("base64url");
     
     const params = new URLSearchParams({
