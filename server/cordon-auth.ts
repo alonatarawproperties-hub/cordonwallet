@@ -656,9 +656,30 @@ export function registerCordonAuthRoutes(app: Express) {
     
     console.log("[Cordon Mobile Auth] Session created:", sessionId);
     
+    // Replit routes external port 80 to Expo (8081), but Express is on port 5000
+    // We need to construct a URL that explicitly targets the Express backend using :5000
     const protocol = req.get("x-forwarded-proto") || req.protocol || "https";
-    const baseUrl = `${protocol}://${req.get("host")}`;
+    const forwardedHost = req.get("x-forwarded-host") || req.get("host") || "";
+    
+    // Extract hostname without port
+    const hostname = forwardedHost.split(":")[0];
+    const expressPort = process.env.PORT || "5000";
+    
+    // For Replit, add :5000 to route to Express instead of Expo
+    let baseUrl: string;
+    if (hostname.includes(".replit.dev") || hostname.includes(".replit.app")) {
+      // Replit: use hostname:5000 format
+      baseUrl = `${protocol}://${hostname}:${expressPort}`;
+    } else if (hostname === "localhost" || hostname === "127.0.0.1") {
+      // Local development
+      baseUrl = `${protocol}://${hostname}:${expressPort}`;
+    } else {
+      // Other environments: use host as-is
+      baseUrl = `${protocol}://${forwardedHost}`;
+    }
+    
     const authStartUrl = `${baseUrl}/auth/cordon/mobile/start?sessionId=${sessionId}`;
+    console.log("[Cordon Mobile Auth] Auth URL with backend port:", authStartUrl);
     
     res.json({
       sessionId,
@@ -685,8 +706,22 @@ export function registerCordonAuthRoutes(app: Express) {
       return res.status(500).send("OAuth not configured");
     }
     
+    // Construct redirect URI with explicit port 5000 for Replit
     const protocol = req.get("x-forwarded-proto") || req.protocol || "https";
-    const redirectUri = `${protocol}://${req.get("host")}/auth/cordon/mobile/callback`;
+    const forwardedHost = req.get("x-forwarded-host") || req.get("host") || "";
+    const hostname = forwardedHost.split(":")[0];
+    const expressPort = process.env.PORT || "5000";
+    
+    // Build base URL - for Replit, ensure we use port 5000
+    let baseUrl: string;
+    if (hostname.includes(".replit.dev") || hostname.includes(".replit.app")) {
+      baseUrl = `${protocol}://${hostname}:${expressPort}`;
+    } else {
+      baseUrl = `${protocol}://${forwardedHost}`;
+    }
+    
+    const redirectUri = `${baseUrl}/auth/cordon/mobile/callback`;
+    console.log("[Cordon Mobile Auth] Redirect URI:", redirectUri);
     const codeChallenge = crypto.createHash("sha256").update(session.codeVerifier || "").digest("base64url");
     
     const params = new URLSearchParams({
