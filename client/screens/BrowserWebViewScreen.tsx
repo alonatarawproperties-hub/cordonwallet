@@ -324,16 +324,23 @@ export default function BrowserWebViewScreen() {
             console.log("[BrowserWebView] Poll attempt", attempts, "status:", pollData.status);
             
             if (pollData.status === "success") {
-              const authResult = {
-                ok: true,
-                code: pollData.code,
-                codeVerifier: pollData.codeVerifier,
-                idToken: pollData.idToken,
-                accessToken: pollData.accessToken,
-              };
+              // If we have idToken, Cordon already exchanged the code - only return tokens
+              // If we don't have idToken, return code for fallback (Roachy exchanges it)
+              const authResult = pollData.idToken 
+                ? {
+                    ok: true,
+                    idToken: pollData.idToken,
+                    accessToken: pollData.accessToken,
+                  }
+                : {
+                    ok: true,
+                    code: pollData.code,
+                    codeVerifier: pollData.codeVerifier,
+                  };
               
               console.log("[BrowserWebView] OAuth success via polling!");
               console.log("[BrowserWebView] Has idToken:", !!pollData.idToken);
+              console.log("[BrowserWebView] Returning:", pollData.idToken ? "tokens only" : "code for exchange");
               Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
               
               webViewRef.current?.injectJavaScript(`
