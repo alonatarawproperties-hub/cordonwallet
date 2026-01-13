@@ -876,11 +876,21 @@ export function registerCordonAuthRoutes(app: Express) {
         expiresIn: Math.floor((s.expiresAt - Date.now()) / 1000 / 60) + "m",
       }));
 
+    const activeMobileSessions = Array.from(mobileAuthSessions.entries())
+      .filter(([, s]) => Date.now() - s.createdAt < MOBILE_SESSION_EXPIRY_MS)
+      .map(([id, s]) => ({
+        id: id.slice(0, 8) + "...",
+        status: s.status,
+        age: Math.floor((Date.now() - s.createdAt) / 1000) + "s",
+      }));
+
     res.json({
       activeCodes,
       activeCodeCount: activeCodes.length,
       activeSessions,
       activeSessionCount: activeSessions.length,
+      activeMobileSessions,
+      activeMobileSessionCount: activeMobileSessions.length,
       timestamp: new Date().toISOString(),
     });
   });
