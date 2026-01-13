@@ -791,86 +791,80 @@ export function registerCordonAuthRoutes(app: Express) {
       return res.status(400).send("Missing authorization code");
     }
     
-    try {
-      const clientId = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
-      const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-      
-      const replitDevDomain = process.env.REPLIT_DEV_DOMAIN;
-      const replitAppDomain = process.env.REPLIT_APP_DOMAIN;
-      const expressPort = process.env.EXPRESS_PORT || "5000";
-      
-      let baseUrl: string;
-      if (replitDevDomain) {
-        baseUrl = `https://${replitDevDomain}:${expressPort}`;
-      } else if (replitAppDomain) {
-        baseUrl = `https://${replitAppDomain}`;
-      } else {
-        const protocol = req.get("x-forwarded-proto") || req.protocol || "https";
-        const forwardedHost = req.get("x-forwarded-host") || req.get("host") || "";
-        baseUrl = `${protocol}://${forwardedHost}`;
-      }
-      
-      const redirectUri = `${baseUrl}/auth/cordon/mobile/callback`;
-      
-      console.log("[Cordon Mobile Auth] Exchanging code for tokens...");
-      console.log("[Cordon Mobile Auth] Using redirect_uri:", redirectUri);
-      
-      const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          code: code as string,
-          client_id: clientId || "",
-          client_secret: clientSecret || "",
-          redirect_uri: redirectUri,
-          grant_type: "authorization_code",
-          code_verifier: session.codeVerifier || "",
-        }),
+    const clientId = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
+    const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+    
+    const replitDevDomain = process.env.REPLIT_DEV_DOMAIN;
+    const replitAppDomain = process.env.REPLIT_APP_DOMAIN;
+    const expressPort = process.env.EXPRESS_PORT || "5000";
+    
+    let baseUrl: string;
+    if (replitDevDomain) {
+      baseUrl = `https://${replitDevDomain}:${expressPort}`;
+    } else if (replitAppDomain) {
+      baseUrl = `https://${replitAppDomain}`;
+    } else {
+      const protocol = req.get("x-forwarded-proto") || req.protocol || "https";
+      const forwardedHost = req.get("x-forwarded-host") || req.get("host") || "";
+      baseUrl = `${protocol}://${forwardedHost}`;
+    }
+    
+    const redirectUri = `${baseUrl}/auth/cordon/mobile/callback`;
+    
+    if (!clientSecret) {
+      console.log("[Cordon Mobile Auth] No GOOGLE_CLIENT_SECRET available, returning code only");
+      mobileAuthSessions.set(sessionId, {
+        ...session,
+        status: "success",
+        code: code as string,
       });
-      
-      const tokenData = await tokenResponse.json() as any;
-      
-      if (tokenData.error) {
-        console.error("[Cordon Mobile Auth] Token exchange error:", tokenData);
-        mobileAuthSessions.set(sessionId, { 
-          ...session, 
-          status: "error", 
-          error: tokenData.error_description || tokenData.error 
+    } else {
+      try {
+        console.log("[Cordon Mobile Auth] Exchanging code for tokens...");
+        console.log("[Cordon Mobile Auth] Using redirect_uri:", redirectUri);
+        
+        const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({
+            code: code as string,
+            client_id: clientId || "",
+            client_secret: clientSecret,
+            redirect_uri: redirectUri,
+            grant_type: "authorization_code",
+            code_verifier: session.codeVerifier || "",
+          }),
         });
-        return res.send(`
-          <!DOCTYPE html>
-          <html>
-            <head><title>Authentication Failed</title>
-              <meta name="viewport" content="width=device-width, initial-scale=1">
-              <style>body { font-family: system-ui; padding: 40px; text-align: center; background: #1a1a2e; color: white; }</style>
-            </head>
-            <body>
-              <h1>Authentication Failed</h1>
-              <p>Failed to complete sign-in. Please try again.</p>
-            </body>
-          </html>
-        `);
+        
+        const tokenData = await tokenResponse.json() as any;
+        
+        if (tokenData.error) {
+          console.error("[Cordon Mobile Auth] Token exchange error:", tokenData);
+          console.log("[Cordon Mobile Auth] Falling back to code-only mode");
+          mobileAuthSessions.set(sessionId, {
+            ...session,
+            status: "success",
+            code: code as string,
+          });
+        } else {
+          console.log("[Cordon Mobile Auth] Token exchange successful, id_token received");
+          mobileAuthSessions.set(sessionId, {
+            ...session,
+            status: "success",
+            code: code as string,
+            idToken: tokenData.id_token,
+            accessToken: tokenData.access_token,
+          });
+          console.log("[Cordon Mobile Auth] Success! Tokens stored for session:", sessionId);
+        }
+      } catch (err: any) {
+        console.error("[Cordon Mobile Auth] Token exchange failed:", err);
+        mobileAuthSessions.set(sessionId, {
+          ...session,
+          status: "success",
+          code: code as string,
+        });
       }
-      
-      console.log("[Cordon Mobile Auth] Token exchange successful, id_token received");
-      
-      mobileAuthSessions.set(sessionId, {
-        ...session,
-        status: "success",
-        code: code as string,
-        idToken: tokenData.id_token,
-        accessToken: tokenData.access_token,
-      });
-      
-      console.log("[Cordon Mobile Auth] Success! Tokens stored for session:", sessionId);
-      
-    } catch (err: any) {
-      console.error("[Cordon Mobile Auth] Token exchange failed:", err);
-      mobileAuthSessions.set(sessionId, {
-        ...session,
-        status: "success",
-        code: code as string,
-      });
     }
     
     res.send(`
