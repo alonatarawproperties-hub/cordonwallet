@@ -10,6 +10,7 @@ echo "╚═══════════════════════�
 echo ""
 
 # Set environment variables for Replit
+# Port 5000 is included for development to route to Express backend
 export EXPO_PUBLIC_DOMAIN="${REPLIT_DEV_DOMAIN}:5000"
 
 # EXPO_TOKEN is required for tunnel mode authentication
