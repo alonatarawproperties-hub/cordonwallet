@@ -285,9 +285,7 @@ export default function BrowserWebViewScreen() {
             throw new Error("Google OAuth not configured. Please add EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID.");
           }
           
-          const redirectUri = AuthSession.makeRedirectUri({
-            native: "cordon://auth/callback",
-          });
+          const redirectUri = "https://auth.expo.io/@cordonwallet/cordon";
           
           console.log("[BrowserWebView] ========== OAUTH DEBUG ==========");
           console.log("[BrowserWebView] Client ID:", clientId.substring(0, 20) + "...");
