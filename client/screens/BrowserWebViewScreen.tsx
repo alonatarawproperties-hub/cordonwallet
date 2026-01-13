@@ -19,6 +19,7 @@ import { useBrowserStore, getFaviconUrl, normalizeUrl } from "@/store/browserSto
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { useExternalAuth, AuthStatus } from "@/context/ExternalAuthContext";
 import { useWallet } from "@/lib/wallet-context";
+import { getApiUrl } from "@/lib/query-client";
 
 const GOOGLE_DISCOVERY = {
   authorizationEndpoint: "https://accounts.google.com/o/oauth2/v2/auth",
@@ -287,9 +288,9 @@ export default function BrowserWebViewScreen() {
           console.log("[BrowserWebView] Platform:", Platform.OS);
           console.log("[BrowserWebView] ================================");
           
-          const apiBaseUrl = process.env.EXPO_PUBLIC_DOMAIN 
-            ? `https://${process.env.EXPO_PUBLIC_DOMAIN}`
-            : "http://localhost:5000";
+          // Use the centralized getApiUrl which handles dev vs production routing
+          const apiBaseUrl = getApiUrl();
+          console.log("[BrowserWebView] API Base URL:", apiBaseUrl);
           
           const startResponse = await fetch(`${apiBaseUrl}/api/auth/cordon/mobile/start`, {
             method: "POST",
