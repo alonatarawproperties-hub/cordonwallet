@@ -1,5 +1,8 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import crypto from "crypto";
+import { db } from "./db";
+import { mobileAuthSessions as mobileAuthSessionsTable } from "../shared/schema";
+import { eq, and, gt } from "drizzle-orm";
 
 interface AuthCode {
   code: string;
@@ -21,23 +24,50 @@ interface Session {
   expiresAt: number;
 }
 
-interface MobileAuthSession {
-  sessionId: string;
-  status: "pending" | "success" | "error";
-  code?: string;
-  codeVerifier?: string;
-  idToken?: string;
-  accessToken?: string;
-  error?: string;
-  createdAt: number;
-}
-
 const authCodes = new Map<string, AuthCode>();
 const sessions = new Map<string, Session>();
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
-const mobileAuthSessions = new Map<string, MobileAuthSession>();
 
 const MOBILE_SESSION_EXPIRY_MS = 10 * 60 * 1000;
+
+async function createMobileSession(sessionId: string, codeVerifier: string) {
+  await db.insert(mobileAuthSessionsTable).values({
+    sessionId,
+    status: "pending",
+    codeVerifier,
+    createdAt: Date.now(),
+  });
+}
+
+async function getMobileSession(sessionId: string) {
+  const result = await db.select().from(mobileAuthSessionsTable)
+    .where(eq(mobileAuthSessionsTable.sessionId, sessionId))
+    .limit(1);
+  return result[0] || null;
+}
+
+async function updateMobileSession(sessionId: string, data: {
+  status?: string;
+  code?: string;
+  idToken?: string;
+  accessToken?: string;
+  error?: string;
+}) {
+  await db.update(mobileAuthSessionsTable)
+    .set(data)
+    .where(eq(mobileAuthSessionsTable.sessionId, sessionId));
+}
+
+async function deleteMobileSession(sessionId: string) {
+  await db.delete(mobileAuthSessionsTable)
+    .where(eq(mobileAuthSessionsTable.sessionId, sessionId));
+}
+
+async function cleanupExpiredMobileSessions() {
+  const expiryTime = Date.now() - MOBILE_SESSION_EXPIRY_MS;
+  await db.delete(mobileAuthSessionsTable)
+    .where(gt(expiryTime, mobileAuthSessionsTable.createdAt));
+}
 
 const CODE_EXPIRY_MS = 5 * 60 * 1000;
 const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
@@ -645,18 +675,17 @@ export function registerCordonAuthRoutes(app: Express) {
     res.json({ success: true, debug: { step: "LOGGED_OUT" } });
   });
 
-  app.post("/api/auth/cordon/mobile/start", (req: Request, res: Response) => {
+  app.post("/api/auth/cordon/mobile/start", async (req: Request, res: Response) => {
     const sessionId = crypto.randomBytes(16).toString("hex");
     const codeVerifier = crypto.randomBytes(32).toString("base64url");
     
-    mobileAuthSessions.set(sessionId, {
-      sessionId,
-      status: "pending",
-      codeVerifier,
-      createdAt: Date.now(),
-    });
-    
-    console.log("[Cordon Mobile Auth] Session created:", sessionId);
+    try {
+      await createMobileSession(sessionId, codeVerifier);
+      console.log("[Cordon Mobile Auth] Session created in DB:", sessionId);
+    } catch (err) {
+      console.error("[Cordon Mobile Auth] Failed to create session:", err);
+      return res.status(500).json({ error: "Failed to create session" });
+    }
     
     // Replit routes external port 80 to Expo (8081), but Express is on port 5000
     // We need to construct a URL that explicitly targets the Express backend using :5000
@@ -690,22 +719,27 @@ export function registerCordonAuthRoutes(app: Express) {
     });
   });
 
-  app.get("/auth/cordon/mobile/start", (req: Request, res: Response) => {
+  app.get("/auth/cordon/mobile/start", async (req: Request, res: Response) => {
     const sessionId = req.query.sessionId as string;
     
     if (!sessionId) {
       return res.status(400).send("Missing sessionId");
     }
     
-    const session = mobileAuthSessions.get(sessionId);
+    const session = await getMobileSession(sessionId);
     if (!session) {
       return res.status(400).send("Invalid or expired session");
+    }
+    
+    if (Date.now() - session.createdAt > MOBILE_SESSION_EXPIRY_MS) {
+      await deleteMobileSession(sessionId);
+      return res.status(400).send("Session expired");
     }
     
     const clientId = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || process.env.GOOGLE_WEB_CLIENT_ID;
     
     if (!clientId) {
-      mobileAuthSessions.set(sessionId, { ...session, status: "error", error: "OAuth not configured" });
+      await updateMobileSession(sessionId, { status: "error", error: "OAuth not configured" });
       return res.status(500).send("OAuth not configured");
     }
     
@@ -763,13 +797,13 @@ export function registerCordonAuthRoutes(app: Express) {
       return res.status(400).send("Missing state/sessionId");
     }
     
-    const session = mobileAuthSessions.get(sessionId);
+    const session = await getMobileSession(sessionId);
     if (!session) {
       return res.status(400).send("Invalid or expired session");
     }
     
     if (error) {
-      mobileAuthSessions.set(sessionId, { ...session, status: "error", error: error as string });
+      await updateMobileSession(sessionId, { status: "error", error: error as string });
       return res.send(`
         <!DOCTYPE html>
         <html>
@@ -787,7 +821,7 @@ export function registerCordonAuthRoutes(app: Express) {
     }
     
     if (!code) {
-      mobileAuthSessions.set(sessionId, { ...session, status: "error", error: "No code received" });
+      await updateMobileSession(sessionId, { status: "error", error: "No code received" });
       return res.status(400).send("Missing authorization code");
     }
     
@@ -813,8 +847,7 @@ export function registerCordonAuthRoutes(app: Express) {
     
     if (!clientSecret) {
       console.log("[Cordon Mobile Auth] No GOOGLE_CLIENT_SECRET available, returning code only");
-      mobileAuthSessions.set(sessionId, {
-        ...session,
+      await updateMobileSession(sessionId, {
         status: "success",
         code: code as string,
       });
@@ -841,15 +874,13 @@ export function registerCordonAuthRoutes(app: Express) {
         if (tokenData.error) {
           console.error("[Cordon Mobile Auth] Token exchange error:", tokenData);
           console.log("[Cordon Mobile Auth] Falling back to code-only mode");
-          mobileAuthSessions.set(sessionId, {
-            ...session,
+          await updateMobileSession(sessionId, {
             status: "success",
             code: code as string,
           });
         } else {
           console.log("[Cordon Mobile Auth] Token exchange successful, id_token received");
-          mobileAuthSessions.set(sessionId, {
-            ...session,
+          await updateMobileSession(sessionId, {
             status: "success",
             code: code as string,
             idToken: tokenData.id_token,
@@ -859,8 +890,7 @@ export function registerCordonAuthRoutes(app: Express) {
         }
       } catch (err: any) {
         console.error("[Cordon Mobile Auth] Token exchange failed:", err);
-        mobileAuthSessions.set(sessionId, {
-          ...session,
+        await updateMobileSession(sessionId, {
           status: "success",
           code: code as string,
         });
@@ -891,47 +921,52 @@ export function registerCordonAuthRoutes(app: Express) {
     `);
   });
 
-  app.get("/api/auth/cordon/mobile/poll", (req: Request, res: Response) => {
+  app.get("/api/auth/cordon/mobile/poll", async (req: Request, res: Response) => {
     const sessionId = req.query.sessionId as string;
     
     if (!sessionId) {
       return res.status(400).json({ error: "Missing sessionId" });
     }
     
-    const session = mobileAuthSessions.get(sessionId);
-    if (!session) {
-      return res.status(404).json({ error: "Session not found or expired" });
+    try {
+      const session = await getMobileSession(sessionId);
+      if (!session) {
+        return res.status(404).json({ error: "Session not found or expired" });
+      }
+      
+      if (Date.now() - session.createdAt > MOBILE_SESSION_EXPIRY_MS) {
+        await deleteMobileSession(sessionId);
+        return res.status(410).json({ error: "Session expired" });
+      }
+      
+      if (session.status === "pending") {
+        return res.json({ status: "pending" });
+      }
+      
+      if (session.status === "error") {
+        await deleteMobileSession(sessionId);
+        return res.json({ status: "error", error: session.error });
+      }
+      
+      if (session.status === "success") {
+        await deleteMobileSession(sessionId);
+        return res.json({
+          status: "success",
+          code: session.code,
+          codeVerifier: session.codeVerifier,
+          idToken: session.idToken,
+          accessToken: session.accessToken,
+        });
+      }
+      
+      res.json({ status: "unknown" });
+    } catch (err) {
+      console.error("[Cordon Mobile Auth] Poll error:", err);
+      res.status(500).json({ error: "Internal server error" });
     }
-    
-    if (Date.now() - session.createdAt > MOBILE_SESSION_EXPIRY_MS) {
-      mobileAuthSessions.delete(sessionId);
-      return res.status(410).json({ error: "Session expired" });
-    }
-    
-    if (session.status === "pending") {
-      return res.json({ status: "pending" });
-    }
-    
-    if (session.status === "error") {
-      mobileAuthSessions.delete(sessionId);
-      return res.json({ status: "error", error: session.error });
-    }
-    
-    if (session.status === "success") {
-      mobileAuthSessions.delete(sessionId);
-      return res.json({
-        status: "success",
-        code: session.code,
-        codeVerifier: session.codeVerifier,
-        idToken: session.idToken,
-        accessToken: session.accessToken,
-      });
-    }
-    
-    res.json({ status: "unknown" });
   });
 
-  app.get("/api/auth/cordon/debug", (req: Request, res: Response) => {
+  app.get("/api/auth/cordon/debug", async (req: Request, res: Response) => {
     const activeCodes = Array.from(authCodes.entries())
       .filter(([, c]) => !c.used && Date.now() - c.createdAt < CODE_EXPIRY_MS)
       .map(([code, c]) => ({
@@ -948,13 +983,19 @@ export function registerCordonAuthRoutes(app: Express) {
         expiresIn: Math.floor((s.expiresAt - Date.now()) / 1000 / 60) + "m",
       }));
 
-    const activeMobileSessions = Array.from(mobileAuthSessions.entries())
-      .filter(([, s]) => Date.now() - s.createdAt < MOBILE_SESSION_EXPIRY_MS)
-      .map(([id, s]) => ({
-        id: id.slice(0, 8) + "...",
-        status: s.status,
-        age: Math.floor((Date.now() - s.createdAt) / 1000) + "s",
-      }));
+    let activeMobileSessions: any[] = [];
+    try {
+      const dbSessions = await db.select().from(mobileAuthSessionsTable);
+      activeMobileSessions = dbSessions
+        .filter(s => Date.now() - s.createdAt < MOBILE_SESSION_EXPIRY_MS)
+        .map(s => ({
+          id: s.sessionId.slice(0, 8) + "...",
+          status: s.status,
+          age: Math.floor((Date.now() - s.createdAt) / 1000) + "s",
+        }));
+    } catch (err) {
+      console.error("[Cordon Auth Debug] Failed to fetch mobile sessions:", err);
+    }
 
     res.json({
       activeCodes,
