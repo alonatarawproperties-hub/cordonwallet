@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { View, StyleSheet, ScrollView, Pressable, Alert, Switch } from "react-native";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
@@ -13,6 +13,7 @@ import { ThemedText } from "@/components/ThemedText";
 import { ListRow } from "@/components/ListRow";
 import { useWallet } from "@/lib/wallet-context";
 import { useDemo } from "@/lib/demo/context";
+import { useDevSettings } from "@/context/DevSettingsContext";
 import { NETWORKS } from "@/lib/types";
 import { getChainById } from "@/lib/blockchain/chains";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
@@ -27,9 +28,14 @@ export default function SettingsScreen() {
   const navigation = useNavigation<Navigation>();
   const { activeWallet, logout, selectedNetwork } = useWallet();
   const { isDemoMode, toggleDemoMode } = useDemo();
+  const { settings, updateSetting, loadSettings } = useDevSettings();
   const [showDebug, setShowDebug] = useState(false);
   const tapCountRef = useRef(0);
   const lastTapRef = useRef(0);
+
+  useEffect(() => {
+    loadSettings();
+  }, [loadSettings]);
 
   const handleVersionTap = () => {
     const now = Date.now();
@@ -115,11 +121,11 @@ export default function SettingsScreen() {
               }
               showChevron
               onPress={item.onPress}
-              style={[
-                index === 0 && styles.firstItem,
-                index === securityItems.length - 1 && styles.lastItem,
-                index > 0 && { marginTop: 1 },
-              ]}
+              style={{
+                ...(index === 0 ? styles.firstItem : {}),
+                ...(index === securityItems.length - 1 ? styles.lastItem : {}),
+                ...(index > 0 ? { marginTop: 1 } : {}),
+              }}
             />
           ))}
         </View>
@@ -142,11 +148,11 @@ export default function SettingsScreen() {
               }
               showChevron
               onPress={item.onPress}
-              style={[
-                index === 0 && styles.firstItem,
-                index === walletItems.length - 1 && styles.lastItem,
-                index > 0 && { marginTop: 1 },
-              ]}
+              style={{
+                ...(index === 0 ? styles.firstItem : {}),
+                ...(index === walletItems.length - 1 ? styles.lastItem : {}),
+                ...(index > 0 ? { marginTop: 1 } : {}),
+              }}
             />
           ))}
         </View>
@@ -169,11 +175,11 @@ export default function SettingsScreen() {
               }
               showChevron={item.title !== "Version"}
               onPress={item.onPress}
-              style={[
-                index === 0 && styles.firstItem,
-                index === aboutItems.length - 1 && styles.lastItem,
-                index > 0 && { marginTop: 1 },
-              ]}
+              style={{
+                ...(index === 0 ? styles.firstItem : {}),
+                ...(index === aboutItems.length - 1 ? styles.lastItem : {}),
+                ...(index > 0 ? { marginTop: 1 } : {}),
+              }}
             />
           ))}
         </View>
@@ -221,6 +227,20 @@ export default function SettingsScreen() {
           </ThemedText>
           <View style={[styles.debugPanel, { backgroundColor: theme.backgroundDefault }]}>
             <View style={styles.debugRow}>
+              <View style={{ flex: 1 }}>
+                <ThemedText type="body" style={{ fontWeight: "500" }}>Simulate Cordon Browser</ThemedText>
+                <ThemedText type="caption" style={{ color: theme.textSecondary }}>
+                  Force isCordonBrowser=true
+                </ThemedText>
+              </View>
+              <Switch
+                value={settings.simulateCordonBrowser}
+                onValueChange={(val) => updateSetting("simulateCordonBrowser", val)}
+                trackColor={{ false: theme.border, true: theme.warning }}
+                thumbColor="#fff"
+              />
+            </View>
+            <View style={[styles.debugRow, { borderTopWidth: 1, borderTopColor: theme.border, marginTop: Spacing.sm, paddingTop: Spacing.sm }]}>
               <ThemedText type="caption" style={{ color: theme.textSecondary }}>Chain ID</ThemedText>
               <ThemedText type="small" style={{ fontFamily: "monospace" }}>{chainId}</ThemedText>
             </View>

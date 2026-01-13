@@ -1,6 +1,8 @@
 import express from "express";
 import type { Request, Response, NextFunction } from "express";
+import cookieParser from "cookie-parser";
 import { registerRoutes } from "./routes";
+import { registerCordonAuthRoutes } from "./cordon-auth";
 import * as fs from "fs";
 import * as path from "path";
 
@@ -48,6 +50,8 @@ function setupCors(app: express.Application) {
 }
 
 function setupBodyParsing(app: express.Application) {
+  app.use(cookieParser());
+  
   app.use(
     express.json({
       verify: (req, _res, buf) => {
@@ -290,6 +294,8 @@ function setupErrorHandler(app: express.Application) {
   setupRequestLogging(app);
 
   configureExpoAndLanding(app);
+  
+  registerCordonAuthRoutes(app);
 
   const server = await registerRoutes(app);
 

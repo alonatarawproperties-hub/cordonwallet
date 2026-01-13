@@ -19,6 +19,7 @@ import { SecurityOverlayProvider } from "@/context/SecurityOverlayContext";
 import { GlobalOverlayHost } from "@/components/GlobalOverlayHost";
 import { BrowserStoreProvider } from "@/store/browserStore";
 import { ExternalAuthProvider } from "@/context/ExternalAuthContext";
+import { DevSettingsProvider } from "@/context/DevSettingsContext";
 
 import RootStackNavigator from "@/navigation/RootStackNavigator";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
@@ -29,7 +30,8 @@ export default function App() {
       <QueryClientProvider client={queryClient}>
         <WalletProvider>
           <DemoProvider>
-            <SafeAreaProvider>
+            <DevSettingsProvider>
+              <SafeAreaProvider>
               <CapAllowanceProvider>
                 <WalletConnectProvider>
                   <WalletConnectHandler>
@@ -50,7 +52,8 @@ export default function App() {
                 </WalletConnectProvider>
               </CapAllowanceProvider>
             </SafeAreaProvider>
-          </DemoProvider>
+              </DevSettingsProvider>
+            </DemoProvider>
         </WalletProvider>
       </QueryClientProvider>
     </ErrorBoundary>
