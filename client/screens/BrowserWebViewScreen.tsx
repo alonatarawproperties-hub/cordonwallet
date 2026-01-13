@@ -1,11 +1,12 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { View, StyleSheet, Pressable, TextInput, Share, Alert, Platform, Linking, Modal, ActivityIndicator } from "react-native";
-import { WebView, WebViewNavigation } from "react-native-webview";
+import { WebView, WebViewNavigation, WebViewMessageEvent } from "react-native-webview";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
+import * as WebBrowser from "expo-web-browser";
 import Animated, { useSharedValue, useAnimatedStyle, withTiming } from "react-native-reanimated";
 
 import { useTheme } from "@/hooks/useTheme";
@@ -14,6 +15,8 @@ import { ThemedText } from "@/components/ThemedText";
 import { useBrowserStore, getFaviconUrl, normalizeUrl } from "@/store/browserStore";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { useExternalAuth, AuthStatus } from "@/context/ExternalAuthContext";
+import { useWallet } from "@/lib/wallet-context";
+import { getApiUrl } from "@/lib/query-client";
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 type RouteProps = RouteProp<RootStackParamList, "BrowserWebView">;
@@ -93,7 +96,11 @@ export default function BrowserWebViewScreen() {
   const { addRecent } = useBrowserStore();
   const webViewRef = useRef<WebView>(null);
   const externalAuth = useExternalAuth();
+  const { activeWallet } = useWallet();
   const [showAuthModal, setShowAuthModal] = useState(false);
+  const [isAuthInProgress, setIsAuthInProgress] = useState(false);
+
+  const walletAddress = activeWallet?.addresses?.evm || activeWallet?.address || null;
 
   const [currentUrl, setCurrentUrl] = useState(route.params.url);
   const [pageTitle, setPageTitle] = useState(route.params.title || "");
@@ -201,6 +208,59 @@ export default function BrowserWebViewScreen() {
       Alert.alert("Invalid URL", error.message);
     }
   }, [urlInput]);
+
+  const handleWebViewMessage = useCallback(async (event: WebViewMessageEvent) => {
+    try {
+      const data = JSON.parse(event.nativeEvent.data);
+      console.log("[BrowserWebView] Message received:", data.type);
+
+      if (data.type === "cordon_getWalletAddress") {
+        const response = { type: "cordon_walletAddress", address: walletAddress };
+        webViewRef.current?.injectJavaScript(`
+          if (window.__cordonResolvers && window.__cordonResolvers.getWalletAddress) {
+            window.__cordonResolvers.getWalletAddress(${JSON.stringify(response)});
+          }
+          true;
+        `);
+      } else if (data.type === "cordon_requestAuth") {
+        if (isAuthInProgress) {
+          console.log("[BrowserWebView] Auth already in progress, ignoring");
+          return;
+        }
+        
+        setIsAuthInProgress(true);
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        
+        try {
+          const returnUrl = encodeURIComponent(currentUrl);
+          const authUrl = `${getApiUrl()}/api/auth/cordon/start?returnUrl=${returnUrl}`;
+          
+          console.log("[BrowserWebView] Opening auth in Safari:", authUrl);
+          
+          await WebBrowser.openBrowserAsync(authUrl, {
+            presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN,
+            dismissButtonStyle: "done",
+          });
+          
+          console.log("[BrowserWebView] Safari closed, reloading WebView");
+          webViewRef.current?.reload();
+          
+        } catch (error: any) {
+          console.error("[BrowserWebView] Auth error:", error);
+          webViewRef.current?.injectJavaScript(`
+            if (window.__cordonResolvers && window.__cordonResolvers.requestAuth) {
+              window.__cordonResolvers.requestAuth.reject(new Error(${JSON.stringify(error.message || "Auth failed")}));
+            }
+            true;
+          `);
+        } finally {
+          setIsAuthInProgress(false);
+        }
+      }
+    } catch (error) {
+      console.error("[BrowserWebView] Message parse error:", error);
+    }
+  }, [walletAddress, currentUrl, isAuthInProgress]);
 
   const handleShouldStartLoad = useCallback(
     (request: { url: string }) => {
@@ -323,6 +383,7 @@ export default function BrowserWebViewScreen() {
         onLoadProgress={handleLoadProgress}
         onLoadEnd={handleLoadEnd}
         onShouldStartLoadWithRequest={handleShouldStartLoad}
+        onMessage={handleWebViewMessage}
         injectedJavaScript={CORDON_INJECTED_SCRIPT}
         injectedJavaScriptBeforeContentLoaded={CORDON_INJECTED_SCRIPT}
         javaScriptEnabled
