@@ -328,9 +328,12 @@ export default function BrowserWebViewScreen() {
                 ok: true,
                 code: pollData.code,
                 codeVerifier: pollData.codeVerifier,
+                idToken: pollData.idToken,
+                accessToken: pollData.accessToken,
               };
               
               console.log("[BrowserWebView] OAuth success via polling!");
+              console.log("[BrowserWebView] Has idToken:", !!pollData.idToken);
               Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
               
               webViewRef.current?.injectJavaScript(`
