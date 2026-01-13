@@ -6,7 +6,7 @@ import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import * as WebBrowser from "expo-web-browser";
+import * as AuthSession from "expo-auth-session";
 import Animated, { useSharedValue, useAnimatedStyle, withTiming } from "react-native-reanimated";
 
 import { useTheme } from "@/hooks/useTheme";
@@ -16,7 +16,12 @@ import { useBrowserStore, getFaviconUrl, normalizeUrl } from "@/store/browserSto
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { useExternalAuth, AuthStatus } from "@/context/ExternalAuthContext";
 import { useWallet } from "@/lib/wallet-context";
-import { getApiUrl } from "@/lib/query-client";
+
+const GOOGLE_DISCOVERY = {
+  authorizationEndpoint: "https://accounts.google.com/o/oauth2/v2/auth",
+  tokenEndpoint: "https://oauth2.googleapis.com/token",
+  revocationEndpoint: "https://oauth2.googleapis.com/revoke",
+};
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 type RouteProps = RouteProp<RootStackParamList, "BrowserWebView">;
@@ -25,11 +30,21 @@ const BLOCKED_SCHEMES = ["javascript:", "file:", "data:", "about:"];
 
 const CORDON_INJECTED_SCRIPT = `
 (function() {
-  if (window.cordon) return;
+  if (window.cordon && window.cordon.isCordon) return;
+  
+  var platform = 'unknown';
+  var ua = navigator.userAgent.toLowerCase();
+  if (ua.indexOf('iphone') > -1 || ua.indexOf('ipad') > -1) {
+    platform = 'ios';
+  } else if (ua.indexOf('android') > -1) {
+    platform = 'android';
+  }
   
   window.cordon = {
     version: '1.0.0',
+    isCordon: true,
     isCordonBrowser: true,
+    platform: platform,
     walletType: 'cordon',
     
     getWalletAddress: function() {
@@ -44,22 +59,31 @@ const CORDON_INJECTED_SCRIPT = `
     
     requestAuth: function(options) {
       return new Promise(function(resolve, reject) {
+        var opts = options || {};
+        opts.provider = opts.provider || 'google';
+        
+        console.log('[Cordon] requestAuth called with:', JSON.stringify(opts));
+        
         window.ReactNativeWebView.postMessage(JSON.stringify({
           type: 'cordon_requestAuth',
-          options: options || {}
+          options: opts
         }));
+        
         window.__cordonResolvers = window.__cordonResolvers || {};
         window.__cordonResolvers.requestAuth = { resolve: resolve, reject: reject };
       });
     },
     
-    onAuthCode: function(callback) {
-      window.__cordonCallbacks = window.__cordonCallbacks || {};
-      window.__cordonCallbacks.onAuthCode = callback;
+    _receiveAuthResult: function(result) {
+      console.log('[Cordon] Auth result received:', JSON.stringify(result));
+      if (window.__cordonResolvers && window.__cordonResolvers.requestAuth) {
+        window.__cordonResolvers.requestAuth.resolve(result);
+        delete window.__cordonResolvers.requestAuth;
+      }
     }
   };
   
-  console.log('[Cordon] Bridge injected - window.cordon available');
+  console.log('[Cordon] Bridge v1.0.0 injected - platform:', platform);
 })();
 true;
 `;
@@ -225,6 +249,29 @@ export default function BrowserWebViewScreen() {
       } else if (data.type === "cordon_requestAuth") {
         if (isAuthInProgress) {
           console.log("[BrowserWebView] Auth already in progress, ignoring");
+          const errorResult = { ok: false, error: "Auth already in progress" };
+          webViewRef.current?.injectJavaScript(`
+            if (window.cordon && window.cordon._receiveAuthResult) {
+              window.cordon._receiveAuthResult(${JSON.stringify(errorResult)});
+            }
+            true;
+          `);
+          return;
+        }
+        
+        const options = data.options || {};
+        const provider = options.provider || "google";
+        
+        console.log("[BrowserWebView] requestAuth for provider:", provider);
+        
+        if (provider !== "google") {
+          const errorResult = { ok: false, error: `Provider '${provider}' not supported` };
+          webViewRef.current?.injectJavaScript(`
+            if (window.cordon && window.cordon._receiveAuthResult) {
+              window.cordon._receiveAuthResult(${JSON.stringify(errorResult)});
+            }
+            true;
+          `);
           return;
         }
         
@@ -232,24 +279,84 @@ export default function BrowserWebViewScreen() {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
         
         try {
-          const returnUrl = encodeURIComponent(currentUrl);
-          const authUrl = `${getApiUrl()}/api/auth/cordon/start?returnUrl=${returnUrl}`;
+          const clientId = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || "";
           
-          console.log("[BrowserWebView] Opening auth in Safari:", authUrl);
+          if (!clientId) {
+            throw new Error("Google OAuth not configured");
+          }
           
-          await WebBrowser.openBrowserAsync(authUrl, {
-            presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN,
-            dismissButtonStyle: "done",
+          const redirectUri = AuthSession.makeRedirectUri({
+            scheme: "cordon",
+            path: "auth/callback",
           });
           
-          console.log("[BrowserWebView] Safari closed, reloading WebView");
-          webViewRef.current?.reload();
+          console.log("[BrowserWebView] OAuth redirectUri:", redirectUri);
+          
+          const request = new AuthSession.AuthRequest({
+            clientId,
+            redirectUri,
+            scopes: ["openid", "email", "profile"],
+            responseType: AuthSession.ResponseType.Code,
+            usePKCE: true,
+            extraParams: {
+              access_type: "offline",
+              prompt: "select_account",
+            },
+          });
+          
+          await request.makeAuthUrlAsync(GOOGLE_DISCOVERY);
+          
+          console.log("[BrowserWebView] Starting OAuth prompt...");
+          
+          const result = await request.promptAsync(GOOGLE_DISCOVERY);
+          
+          console.log("[BrowserWebView] OAuth result type:", result.type);
+          
+          if (result.type === "success" && result.params?.code) {
+            const authResult = {
+              ok: true,
+              code: result.params.code,
+              state: result.params.state || request.state,
+            };
+            
+            console.log("[BrowserWebView] OAuth success, returning code to WebView");
+            
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            
+            webViewRef.current?.injectJavaScript(`
+              if (window.cordon && window.cordon._receiveAuthResult) {
+                window.cordon._receiveAuthResult(${JSON.stringify(authResult)});
+              }
+              true;
+            `);
+          } else if (result.type === "cancel" || result.type === "dismiss") {
+            const authResult = { ok: false, error: "User cancelled" };
+            webViewRef.current?.injectJavaScript(`
+              if (window.cordon && window.cordon._receiveAuthResult) {
+                window.cordon._receiveAuthResult(${JSON.stringify(authResult)});
+              }
+              true;
+            `);
+          } else {
+            const errorMsg = result.type === "error" ? (result.error?.message || "OAuth error") : "Unknown error";
+            const authResult = { ok: false, error: errorMsg };
+            webViewRef.current?.injectJavaScript(`
+              if (window.cordon && window.cordon._receiveAuthResult) {
+                window.cordon._receiveAuthResult(${JSON.stringify(authResult)});
+              }
+              true;
+            `);
+          }
           
         } catch (error: any) {
           console.error("[BrowserWebView] Auth error:", error);
+          
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+          
+          const authResult = { ok: false, error: error.message || "Authentication failed" };
           webViewRef.current?.injectJavaScript(`
-            if (window.__cordonResolvers && window.__cordonResolvers.requestAuth) {
-              window.__cordonResolvers.requestAuth.reject(new Error(${JSON.stringify(error.message || "Auth failed")}));
+            if (window.cordon && window.cordon._receiveAuthResult) {
+              window.cordon._receiveAuthResult(${JSON.stringify(authResult)});
             }
             true;
           `);
@@ -260,7 +367,7 @@ export default function BrowserWebViewScreen() {
     } catch (error) {
       console.error("[BrowserWebView] Message parse error:", error);
     }
-  }, [walletAddress, currentUrl, isAuthInProgress]);
+  }, [walletAddress, isAuthInProgress]);
 
   const handleShouldStartLoad = useCallback(
     (request: { url: string }) => {
