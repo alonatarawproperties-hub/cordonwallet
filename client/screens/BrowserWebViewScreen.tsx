@@ -282,15 +282,18 @@ export default function BrowserWebViewScreen() {
           const clientId = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || "";
           
           if (!clientId) {
-            throw new Error("Google OAuth not configured");
+            throw new Error("Google OAuth not configured. Please add EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID.");
           }
           
           const redirectUri = AuthSession.makeRedirectUri({
-            scheme: "cordon",
-            path: "auth/callback",
+            native: "cordon://auth/callback",
           });
           
-          console.log("[BrowserWebView] OAuth redirectUri:", redirectUri);
+          console.log("[BrowserWebView] ========== OAUTH DEBUG ==========");
+          console.log("[BrowserWebView] Client ID:", clientId.substring(0, 20) + "...");
+          console.log("[BrowserWebView] Redirect URI:", redirectUri);
+          console.log("[BrowserWebView] Platform:", Platform.OS);
+          console.log("[BrowserWebView] ================================");
           
           const request = new AuthSession.AuthRequest({
             clientId,
@@ -304,8 +307,10 @@ export default function BrowserWebViewScreen() {
             },
           });
           
-          await request.makeAuthUrlAsync(GOOGLE_DISCOVERY);
+          const authUrl = await request.makeAuthUrlAsync(GOOGLE_DISCOVERY);
           
+          console.log("[BrowserWebView] Full Auth URL (check redirect_uri param):");
+          console.log("[BrowserWebView]", authUrl);
           console.log("[BrowserWebView] Starting OAuth prompt...");
           
           const result = await request.promptAsync(GOOGLE_DISCOVERY);
@@ -330,6 +335,7 @@ export default function BrowserWebViewScreen() {
               true;
             `);
           } else if (result.type === "cancel" || result.type === "dismiss") {
+            console.log("[BrowserWebView] OAuth cancelled by user");
             const authResult = { ok: false, error: "User cancelled" };
             webViewRef.current?.injectJavaScript(`
               if (window.cordon && window.cordon._receiveAuthResult) {
@@ -338,6 +344,19 @@ export default function BrowserWebViewScreen() {
               true;
             `);
           } else {
+            console.log("[BrowserWebView] ========== OAUTH ERROR ==========");
+            console.log("[BrowserWebView] Result type:", result.type);
+            console.log("[BrowserWebView] Full result:", JSON.stringify(result, null, 2));
+            if (result.type === "error") {
+              console.log("[BrowserWebView] Error code:", result.error?.code);
+              console.log("[BrowserWebView] Error message:", result.error?.message);
+              console.log("[BrowserWebView] Error description:", result.error?.description);
+            }
+            if ("params" in result && result.params) {
+              console.log("[BrowserWebView] Params:", JSON.stringify(result.params));
+            }
+            console.log("[BrowserWebView] ================================");
+            
             const errorMsg = result.type === "error" ? (result.error?.message || "OAuth error") : "Unknown error";
             const authResult = { ok: false, error: errorMsg };
             webViewRef.current?.injectJavaScript(`
