@@ -307,21 +307,11 @@ export default function BrowserWebViewScreen() {
           const result = await WebBrowser.openAuthSessionAsync(authUrl, "cordon://");
           console.log("[BrowserWebView] WebBrowser result type:", result.type);
           
-          if (result.type === "cancel" || result.type === "dismiss") {
-            console.log("[BrowserWebView] OAuth cancelled by user");
-            const authResult = { ok: false, error: "User cancelled" };
-            webViewRef.current?.injectJavaScript(`
-              if (window.cordon && window.cordon._receiveAuthResult) {
-                window.cordon._receiveAuthResult(${JSON.stringify(authResult)});
-              }
-              true;
-            `);
-            return;
-          }
-          
-          console.log("[BrowserWebView] Polling for auth result...");
+          // With polling-based OAuth, the browser will always return "cancel" or "dismiss"
+          // when user closes it. We need to poll the backend to check if auth succeeded.
+          console.log("[BrowserWebView] Browser closed, polling for auth result...");
           let attempts = 0;
-          const maxAttempts = 60;
+          const maxAttempts = 10; // Quick poll for 10 seconds since user already saw "Login Successful"
           
           while (attempts < maxAttempts) {
             await new Promise(resolve => setTimeout(resolve, 1000));
@@ -360,7 +350,16 @@ export default function BrowserWebViewScreen() {
             }
           }
           
-          throw new Error("Authentication timed out");
+          // Only report "User cancelled" if polling found no success after all attempts
+          console.log("[BrowserWebView] OAuth timed out or cancelled");
+          const authResult = { ok: false, error: "User cancelled" };
+          webViewRef.current?.injectJavaScript(`
+            if (window.cordon && window.cordon._receiveAuthResult) {
+              window.cordon._receiveAuthResult(${JSON.stringify(authResult)});
+            }
+            true;
+          `);
+          return;
           
         } catch (error: any) {
           console.error("[BrowserWebView] Auth error:", error);
