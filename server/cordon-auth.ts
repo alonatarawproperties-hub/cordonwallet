@@ -232,7 +232,7 @@ export function registerCordonAuthRoutes(app: Express) {
       const returnUrl = Buffer.from(returnUrlBase64 || "", "base64url").toString() || "https://roachy.games";
       
       const clientId = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || process.env.GOOGLE_WEB_CLIENT_ID;
-      const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+      const clientSecret = process.env.GOOGLE_CLIENT_SECRET_CORDON || process.env.GOOGLE_CLIENT_SECRET;
       
       if (!clientId) {
         throw new Error("Missing client ID");
@@ -826,7 +826,7 @@ export function registerCordonAuthRoutes(app: Express) {
     }
     
     const clientId = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
-    const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+    const clientSecret = process.env.GOOGLE_CLIENT_SECRET_CORDON || process.env.GOOGLE_CLIENT_SECRET;
     
     const replitDevDomain = process.env.REPLIT_DEV_DOMAIN;
     const replitAppDomain = process.env.REPLIT_APP_DOMAIN;
@@ -846,7 +846,7 @@ export function registerCordonAuthRoutes(app: Express) {
     const redirectUri = `${baseUrl}/auth/cordon/mobile/callback`;
     
     if (!clientSecret) {
-      console.log("[Cordon Mobile Auth] No GOOGLE_CLIENT_SECRET available, returning code only");
+      console.log("[Cordon Mobile Auth] No GOOGLE_CLIENT_SECRET_CORDON or GOOGLE_CLIENT_SECRET available, returning code only");
       await updateMobileSession(sessionId, {
         status: "success",
         code: code as string,
