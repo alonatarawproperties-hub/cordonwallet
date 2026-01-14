@@ -25,7 +25,10 @@
         "distribution": "store",
         "autoIncrement": true
       },
-      "channel": "production"
+      "channel": "production",
+      "env": {
+        "EXPO_PUBLIC_DOMAIN": "https://app.cordonwallet.com"
+      }
     }
   }
 }
