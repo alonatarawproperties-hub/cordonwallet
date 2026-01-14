@@ -31,8 +31,9 @@ const TIME_RANGES: { label: TimeRange; days: string }[] = [
 export function PriceChart({ symbol, currentPrice, width: propWidth, height = 200 }: PriceChartProps) {
   const { theme } = useTheme();
   const screenWidth = Dimensions.get("window").width;
-  const width = propWidth || screenWidth - Spacing.lg * 2;
-  const padding = { top: 30, right: 15, bottom: 50, left: 15 };
+  // Account for all parent padding: scrollContent (Spacing.sm * 2) + container padding (Spacing.md * 2)
+  const width = propWidth || screenWidth - (Spacing.sm * 2) - (Spacing.md * 2);
+  const padding = { top: 30, right: 10, bottom: 50, left: 10 };
   const chartWidth = width - padding.left - padding.right;
   const chartHeight = height - padding.top - padding.bottom;
 
