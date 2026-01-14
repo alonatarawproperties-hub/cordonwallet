@@ -69,9 +69,21 @@ export function PriceChart({ symbol, currentPrice, width: propWidth, height = 20
       }
       
       const data = await response.json();
-      const prices: [number, number][] = data.prices || [];
+      const rawPrices: [number, number][] = data.prices || [];
       
-      const sampledData = sampleData(prices, 60);
+      // Filter out any null/undefined/NaN price values that cause gaps in the chart
+      const validPrices = rawPrices.filter(([timestamp, price]) => 
+        typeof price === 'number' && Number.isFinite(price) && 
+        typeof timestamp === 'number' && Number.isFinite(timestamp)
+      );
+      
+      if (validPrices.length < 2) {
+        setError("Not enough data");
+        setChartData([]);
+        return;
+      }
+      
+      const sampledData = sampleData(validPrices, 60);
       setChartData(sampledData.map(([timestamp, price]) => ({ timestamp, price })));
     } catch (err) {
       console.error("Chart fetch error:", err);
@@ -85,7 +97,13 @@ export function PriceChart({ symbol, currentPrice, width: propWidth, height = 20
   const sampleData = (data: [number, number][], maxPoints: number): [number, number][] => {
     if (data.length <= maxPoints) return data;
     const step = Math.floor(data.length / maxPoints);
-    return data.filter((_, index) => index % step === 0);
+    const sampled = data.filter((_, index) => index % step === 0);
+    // Always include the last data point for continuity
+    const lastPoint = data[data.length - 1];
+    if (sampled[sampled.length - 1] !== lastPoint) {
+      sampled.push(lastPoint);
+    }
+    return sampled;
   };
 
   if (isLoading) {
