@@ -66,10 +66,13 @@ async function deriveKeyFromPinNative(pin: string, salt: Uint8Array): Promise<Ui
     ["deriveBits"]
   );
   
+  // Create a new ArrayBuffer copy to satisfy TypeScript's BufferSource type
+  const saltBuffer = new Uint8Array(salt).buffer;
+  
   const derivedBits = await globalThis.crypto.subtle.deriveBits(
     {
       name: "PBKDF2",
-      salt: salt,
+      salt: saltBuffer,
       iterations: PBKDF2_ITERATIONS,
       hash: "SHA-256",
     },
@@ -106,7 +109,7 @@ async function encryptSecrets(secrets: DecryptedSecrets, pin: string): Promise<E
   const salt = randomBytes(16);
   const iv = randomBytes(12);
   
-  const key = await runAsync(() => deriveKeyFromPin(pin, salt));
+  const key = await deriveKeyFromPin(pin, salt);
   
   const plaintext = new TextEncoder().encode(JSON.stringify(secrets));
   const cipher = gcm(key, iv);
@@ -126,7 +129,7 @@ async function decryptSecrets(vault: EncryptedVault, pin: string): Promise<Decry
     const iv = hexToBytes(vault.iv);
     const ciphertext = hexToBytes(vault.ciphertext);
     
-    const key = await runAsync(() => deriveKeyFromPin(pin, salt));
+    const key = await deriveKeyFromPin(pin, salt);
     
     const cipher = gcm(key, iv);
     const plaintext = cipher.decrypt(ciphertext);
