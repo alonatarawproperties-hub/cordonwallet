@@ -76,6 +76,12 @@
     "experiments": {
       "reactCompiler": true
     },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/73617114-5956-4f38-bfc1-d643e57b6947"
+    },
     "extra": {
       "eas": {
         "projectId": "73617114-5956-4f38-bfc1-d643e57b6947"
