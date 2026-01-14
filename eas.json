@@ -3,6 +3,14 @@
     "version": ">= 3.0.0",
     "appVersionSource": "remote"
   },
+  "submit": {
+    "production": {
+      "ios": {
+        "appleId": "ncarl.sigalat@icloud.com",
+        "ascAppId": "6740627178"
+      }
+    }
+  },
   "build": {
     "development": {
       "developmentClient": true,
