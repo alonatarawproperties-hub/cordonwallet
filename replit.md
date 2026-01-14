@@ -90,6 +90,7 @@ The project is organized into `/client` (frontend), `/server` (backend), and `/s
 
 ### Blockchain Infrastructure
 
+- **Solana RPC**: Paid Helius RPC (configured via `SOLANA_RPC_URL` secret) with automatic fallback to public Solana RPC on rate limit/access errors.
 - **CoinGecko API**: Primary source for major token prices.
 - **DexScreener API**: Fallback for long-tail token prices via DEX liquidity pools.
 
