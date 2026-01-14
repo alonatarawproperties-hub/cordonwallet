@@ -29,8 +29,8 @@ export function PnlChart({ data, width: propWidth, height = 160 }: PnlChartProps
   
   const handleLayout = (event: LayoutChangeEvent) => {
     const { width: measuredWidth } = event.nativeEvent.layout;
-    // Subtract container padding from measured width
-    setContainerWidth(measuredWidth - (Spacing.sm * 2));
+    // Use the full measured width - padding is already accounted for in the container
+    setContainerWidth(measuredWidth);
   };
 
   if (data.length < 2 || containerWidth === 0) {

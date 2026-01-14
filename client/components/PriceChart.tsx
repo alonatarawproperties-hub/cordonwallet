@@ -30,13 +30,13 @@ const TIME_RANGES: { label: TimeRange; days: string }[] = [
 
 export function PriceChart({ symbol, currentPrice, width: propWidth, height = 200 }: PriceChartProps) {
   const { theme } = useTheme();
-  const [containerWidth, setContainerWidth] = useState<number>(0);
+  const [chartAreaWidth, setChartAreaWidth] = useState<number>(0);
   
-  // Use measured container width, or prop width if provided
-  const width = propWidth || containerWidth;
-  const padding = { top: 30, right: 15, bottom: 50, left: 15 };
-  const chartWidth = Math.max(0, width - padding.left - padding.right);
-  const chartHeight = height - padding.top - padding.bottom;
+  // Use measured chart area width (inner content area), or prop width if provided
+  const svgWidth = propWidth || chartAreaWidth;
+  const padding = { top: 20, right: 5, bottom: 40, left: 5 };
+  const chartWidth = Math.max(0, svgWidth - padding.left - padding.right);
+  const chartHeight = height - padding.top - padding.bottom - 40; // Account for price header
 
   const [selectedRange, setSelectedRange] = useState<TimeRange>("1W");
   const [chartData, setChartData] = useState<ChartData[]>([]);
@@ -44,10 +44,11 @@ export function PriceChart({ symbol, currentPrice, width: propWidth, height = 20
   const [error, setError] = useState<string | null>(null);
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   
-  const handleLayout = (event: LayoutChangeEvent) => {
+  const handleChartAreaLayout = (event: LayoutChangeEvent) => {
     const { width: measuredWidth } = event.nativeEvent.layout;
-    // Subtract container padding from measured width
-    setContainerWidth(measuredWidth - (Spacing.md * 2));
+    if (measuredWidth > 0 && measuredWidth !== chartAreaWidth) {
+      setChartAreaWidth(measuredWidth);
+    }
   };
 
   useEffect(() => {
@@ -113,9 +114,9 @@ export function PriceChart({ symbol, currentPrice, width: propWidth, height = 20
     return sampled;
   };
 
-  if (isLoading || containerWidth === 0) {
+  if (isLoading || chartAreaWidth === 0) {
     return (
-      <View style={[styles.container, { height, backgroundColor: theme.backgroundDefault }]} onLayout={handleLayout}>
+      <View style={[styles.container, { height, backgroundColor: theme.backgroundDefault }]} onLayout={handleChartAreaLayout}>
         <ActivityIndicator size="small" color={theme.accent} />
       </View>
     );
@@ -123,7 +124,7 @@ export function PriceChart({ symbol, currentPrice, width: propWidth, height = 20
 
   if (error || chartData.length < 2) {
     return (
-      <View style={[styles.container, { height, backgroundColor: theme.backgroundDefault }]} onLayout={handleLayout}>
+      <View style={[styles.container, { height, backgroundColor: theme.backgroundDefault }]} onLayout={handleChartAreaLayout}>
         <ThemedText type="caption" style={{ color: theme.textSecondary, textAlign: "center" }}>
           {error || "Not enough data for chart"}
         </ThemedText>
@@ -188,7 +189,7 @@ export function PriceChart({ symbol, currentPrice, width: propWidth, height = 20
     : priceChange;
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.backgroundDefault }]} onLayout={handleLayout}>
+    <View style={[styles.container, { backgroundColor: theme.backgroundDefault }]} onLayout={handleChartAreaLayout}>
       <View style={styles.priceHeader}>
         <ThemedText type="h2" style={{ fontWeight: "700" }}>
           {formatPrice(displayPrice)}
@@ -201,7 +202,7 @@ export function PriceChart({ symbol, currentPrice, width: propWidth, height = 20
         </ThemedText>
       </View>
 
-      <Svg width={width} height={height - 80}>
+      <Svg width={svgWidth} height={height - 80}>
         <Defs>
           <LinearGradient id="priceGradient" x1="0" y1="0" x2="0" y2="1">
             <Stop offset="0%" stopColor={lineColor} stopOpacity={0.25} />
