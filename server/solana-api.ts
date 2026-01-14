@@ -16,8 +16,13 @@ import {
   TokenAccountNotFoundError,
 } from "@solana/spl-token";
 
-const SOLANA_RPC_URL = process.env.SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com";
-const connection = new Connection(SOLANA_RPC_URL, "confirmed");
+const PRIMARY_RPC_URL = process.env.SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com";
+const FALLBACK_RPC_URL = "https://api.mainnet-beta.solana.com";
+
+let currentRpcUrl = PRIMARY_RPC_URL;
+let connection = new Connection(currentRpcUrl, "confirmed");
+let usingFallback = false;
+let fallbackUntil: number | null = null;
 
 const getRpcProviderName = (url: string): string => {
   if (url.includes("helius")) return "Helius";
@@ -27,7 +32,32 @@ const getRpcProviderName = (url: string): string => {
   return "Custom RPC";
 };
 
-console.log("[Solana API] Using RPC:", getRpcProviderName(SOLANA_RPC_URL));
+function switchToFallback() {
+  if (!usingFallback && PRIMARY_RPC_URL !== FALLBACK_RPC_URL) {
+    console.log("[Solana API] Rate limited! Switching to fallback Public RPC for 5 minutes...");
+    currentRpcUrl = FALLBACK_RPC_URL;
+    connection = new Connection(currentRpcUrl, "confirmed");
+    usingFallback = true;
+    fallbackUntil = Date.now() + 5 * 60 * 1000;
+  }
+}
+
+function checkFallbackExpiry() {
+  if (usingFallback && fallbackUntil && Date.now() > fallbackUntil) {
+    console.log("[Solana API] Fallback period expired, switching back to primary RPC...");
+    currentRpcUrl = PRIMARY_RPC_URL;
+    connection = new Connection(currentRpcUrl, "confirmed");
+    usingFallback = false;
+    fallbackUntil = null;
+  }
+}
+
+function isRateLimitError(error: any): boolean {
+  const errorStr = String(error);
+  return errorStr.includes("429") || errorStr.includes("Too Many Requests") || errorStr.includes("max usage reached");
+}
+
+console.log("[Solana API] Using RPC:", getRpcProviderName(PRIMARY_RPC_URL));
 
 export interface SolBalance {
   lamports: number;
@@ -58,20 +88,47 @@ export interface SolanaPortfolio {
 }
 
 export async function getSolanaBalance(address: string): Promise<SolBalance> {
+  checkFallbackExpiry();
   const pubkey = new PublicKey(address);
-  const lamports = await connection.getBalance(pubkey);
-  return {
-    lamports,
-    sol: (lamports / LAMPORTS_PER_SOL).toFixed(9),
-  };
+  
+  try {
+    const lamports = await connection.getBalance(pubkey);
+    return {
+      lamports,
+      sol: (lamports / LAMPORTS_PER_SOL).toFixed(9),
+    };
+  } catch (error) {
+    if (isRateLimitError(error)) {
+      switchToFallback();
+      const lamports = await connection.getBalance(pubkey);
+      return {
+        lamports,
+        sol: (lamports / LAMPORTS_PER_SOL).toFixed(9),
+      };
+    }
+    throw error;
+  }
 }
 
 export async function getSolanaTokenBalances(address: string): Promise<SplTokenBalance[]> {
+  checkFallbackExpiry();
   const pubkey = new PublicKey(address);
   
-  const tokenAccounts = await connection.getTokenAccountsByOwner(pubkey, {
-    programId: TOKEN_PROGRAM_ID,
-  });
+  let tokenAccounts;
+  try {
+    tokenAccounts = await connection.getTokenAccountsByOwner(pubkey, {
+      programId: TOKEN_PROGRAM_ID,
+    });
+  } catch (error) {
+    if (isRateLimitError(error)) {
+      switchToFallback();
+      tokenAccounts = await connection.getTokenAccountsByOwner(pubkey, {
+        programId: TOKEN_PROGRAM_ID,
+      });
+    } else {
+      throw error;
+    }
+  }
   
   const balances: SplTokenBalance[] = [];
   
