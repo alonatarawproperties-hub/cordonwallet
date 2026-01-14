@@ -34,7 +34,7 @@ const getRpcProviderName = (url: string): string => {
 
 function switchToFallback() {
   if (!usingFallback && PRIMARY_RPC_URL !== FALLBACK_RPC_URL) {
-    console.log("[Solana API] Rate limited! Switching to fallback Public RPC for 5 minutes...");
+    console.log("[Solana API] RPC error (rate limit or access issue)! Switching to fallback Public RPC for 5 minutes...");
     currentRpcUrl = FALLBACK_RPC_URL;
     connection = new Connection(currentRpcUrl, "confirmed");
     usingFallback = true;
@@ -54,7 +54,11 @@ function checkFallbackExpiry() {
 
 function isRateLimitError(error: any): boolean {
   const errorStr = String(error);
-  return errorStr.includes("429") || errorStr.includes("Too Many Requests") || errorStr.includes("max usage reached");
+  return errorStr.includes("429") || 
+         errorStr.includes("Too Many Requests") || 
+         errorStr.includes("max usage reached") ||
+         errorStr.includes("403") ||
+         errorStr.includes("Access forbidden");
 }
 
 console.log("[Solana API] Using RPC:", getRpcProviderName(PRIMARY_RPC_URL));
