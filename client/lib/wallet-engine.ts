@@ -11,6 +11,9 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform } from "react-native";
 import { deriveSolanaAddress } from "./solana/keys";
 
+// Check if native crypto is available (Web Crypto API)
+const hasNativeCrypto = typeof globalThis.crypto?.subtle?.deriveBits === "function";
+
 export interface MultiChainAddresses {
   evm: `0x${string}`;
   solana: string;
@@ -50,15 +53,48 @@ const PBKDF2_ITERATIONS = 100000;
 let cachedSecrets: DecryptedSecrets | null = null;
 let isVaultUnlocked = false;
 
-function deriveKeyFromPin(pin: string, salt: Uint8Array): Uint8Array {
+// Fast native PBKDF2 using Web Crypto API
+async function deriveKeyFromPinNative(pin: string, salt: Uint8Array): Promise<Uint8Array> {
+  const encoder = new TextEncoder();
+  const pinBytes = encoder.encode(pin);
+  
+  const keyMaterial = await globalThis.crypto.subtle.importKey(
+    "raw",
+    pinBytes,
+    "PBKDF2",
+    false,
+    ["deriveBits"]
+  );
+  
+  const derivedBits = await globalThis.crypto.subtle.deriveBits(
+    {
+      name: "PBKDF2",
+      salt: salt,
+      iterations: PBKDF2_ITERATIONS,
+      hash: "SHA-256",
+    },
+    keyMaterial,
+    256 // 32 bytes * 8 bits
+  );
+  
+  return new Uint8Array(derivedBits);
+}
+
+// Fallback to JS implementation (slower)
+function deriveKeyFromPinJS(pin: string, salt: Uint8Array): Uint8Array {
   return pbkdf2(sha256, pin, salt, { c: PBKDF2_ITERATIONS, dkLen: 32 });
 }
 
-function runAsync<T>(fn: () => T): Promise<T> {
+// Use native crypto when available for speed
+async function deriveKeyFromPin(pin: string, salt: Uint8Array): Promise<Uint8Array> {
+  if (hasNativeCrypto) {
+    return deriveKeyFromPinNative(pin, salt);
+  }
+  // Fallback to JS (wrapped in setTimeout to not block UI completely)
   return new Promise((resolve, reject) => {
     setTimeout(() => {
       try {
-        resolve(fn());
+        resolve(deriveKeyFromPinJS(pin, salt));
       } catch (e) {
         reject(e);
       }
