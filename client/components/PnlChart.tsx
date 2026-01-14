@@ -19,9 +19,9 @@ interface PnlChartProps {
 export function PnlChart({ data, width: propWidth, height = 160 }: PnlChartProps) {
   const { theme } = useTheme();
   const screenWidth = Dimensions.get("window").width;
-  // Account for all parent padding: scrollContent (Spacing.sm * 2) + container padding (Spacing.sm * 2)
-  const width = propWidth || screenWidth - (Spacing.sm * 2) - (Spacing.sm * 2);
-  const padding = { top: 20, right: 8, bottom: 30, left: 8 };
+  // Account for all parent padding: scrollContent (Spacing.sm * 2) + container padding (Spacing.sm * 2) + extra buffer
+  const width = propWidth || screenWidth - (Spacing.sm * 2) - (Spacing.sm * 2) - Spacing.md;
+  const padding = { top: 20, right: 15, bottom: 30, left: 20 };
   const chartWidth = width - padding.left - padding.right;
   const chartHeight = height - padding.top - padding.bottom;
 
