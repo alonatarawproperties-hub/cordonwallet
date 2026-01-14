@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { View, StyleSheet, Dimensions, Pressable, ActivityIndicator } from "react-native";
+import { View, StyleSheet, Pressable, ActivityIndicator, LayoutChangeEvent } from "react-native";
 import Svg, { Path, Circle, Defs, LinearGradient, Stop, Line } from "react-native-svg";
 import { useTheme } from "@/hooks/useTheme";
 import { ThemedText } from "@/components/ThemedText";
@@ -30,11 +30,12 @@ const TIME_RANGES: { label: TimeRange; days: string }[] = [
 
 export function PriceChart({ symbol, currentPrice, width: propWidth, height = 200 }: PriceChartProps) {
   const { theme } = useTheme();
-  const screenWidth = Dimensions.get("window").width;
-  // Account for all parent padding: scrollContent (Spacing.sm * 2) + container padding (Spacing.md * 2) + extra buffer
-  const width = propWidth || screenWidth - (Spacing.sm * 2) - (Spacing.md * 2) - Spacing.md;
-  const padding = { top: 30, right: 20, bottom: 50, left: 25 };
-  const chartWidth = width - padding.left - padding.right;
+  const [containerWidth, setContainerWidth] = useState<number>(0);
+  
+  // Use measured container width, or prop width if provided
+  const width = propWidth || containerWidth;
+  const padding = { top: 30, right: 15, bottom: 50, left: 15 };
+  const chartWidth = Math.max(0, width - padding.left - padding.right);
   const chartHeight = height - padding.top - padding.bottom;
 
   const [selectedRange, setSelectedRange] = useState<TimeRange>("1W");
@@ -42,6 +43,12 @@ export function PriceChart({ symbol, currentPrice, width: propWidth, height = 20
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+  
+  const handleLayout = (event: LayoutChangeEvent) => {
+    const { width: measuredWidth } = event.nativeEvent.layout;
+    // Subtract container padding from measured width
+    setContainerWidth(measuredWidth - (Spacing.md * 2));
+  };
 
   useEffect(() => {
     fetchChartData();
@@ -106,9 +113,9 @@ export function PriceChart({ symbol, currentPrice, width: propWidth, height = 20
     return sampled;
   };
 
-  if (isLoading) {
+  if (isLoading || containerWidth === 0) {
     return (
-      <View style={[styles.container, { height, backgroundColor: theme.backgroundDefault }]}>
+      <View style={[styles.container, { height, backgroundColor: theme.backgroundDefault }]} onLayout={handleLayout}>
         <ActivityIndicator size="small" color={theme.accent} />
       </View>
     );
@@ -116,7 +123,7 @@ export function PriceChart({ symbol, currentPrice, width: propWidth, height = 20
 
   if (error || chartData.length < 2) {
     return (
-      <View style={[styles.container, { height, backgroundColor: theme.backgroundDefault }]}>
+      <View style={[styles.container, { height, backgroundColor: theme.backgroundDefault }]} onLayout={handleLayout}>
         <ThemedText type="caption" style={{ color: theme.textSecondary, textAlign: "center" }}>
           {error || "Not enough data for chart"}
         </ThemedText>
@@ -181,7 +188,7 @@ export function PriceChart({ symbol, currentPrice, width: propWidth, height = 20
     : priceChange;
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.backgroundDefault }]}>
+    <View style={[styles.container, { backgroundColor: theme.backgroundDefault }]} onLayout={handleLayout}>
       <View style={styles.priceHeader}>
         <ThemedText type="h2" style={{ fontWeight: "700" }}>
           {formatPrice(displayPrice)}
@@ -281,6 +288,9 @@ const styles = StyleSheet.create({
     padding: Spacing.md,
     alignItems: "center",
     justifyContent: "center",
+    width: "100%",
+    alignSelf: "stretch",
+    overflow: "hidden",
   },
   priceHeader: {
     flexDirection: "row",

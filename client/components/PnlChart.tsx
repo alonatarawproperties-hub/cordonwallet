@@ -1,5 +1,6 @@
-import { View, StyleSheet, Dimensions } from "react-native";
-import Svg, { Path, Circle, Defs, LinearGradient, Stop, Rect } from "react-native-svg";
+import { useState } from "react";
+import { View, StyleSheet, LayoutChangeEvent } from "react-native";
+import Svg, { Path, Circle, Defs, LinearGradient, Stop } from "react-native-svg";
 import { useTheme } from "@/hooks/useTheme";
 import { ThemedText } from "@/components/ThemedText";
 import { Spacing } from "@/constants/theme";
@@ -18,19 +19,28 @@ interface PnlChartProps {
 
 export function PnlChart({ data, width: propWidth, height = 160 }: PnlChartProps) {
   const { theme } = useTheme();
-  const screenWidth = Dimensions.get("window").width;
-  // Account for all parent padding: scrollContent (Spacing.sm * 2) + container padding (Spacing.sm * 2) + extra buffer
-  const width = propWidth || screenWidth - (Spacing.sm * 2) - (Spacing.sm * 2) - Spacing.md;
-  const padding = { top: 20, right: 15, bottom: 30, left: 20 };
-  const chartWidth = width - padding.left - padding.right;
+  const [containerWidth, setContainerWidth] = useState<number>(0);
+  
+  // Use measured container width, or prop width if provided
+  const width = propWidth || containerWidth;
+  const padding = { top: 20, right: 10, bottom: 30, left: 10 };
+  const chartWidth = Math.max(0, width - padding.left - padding.right);
   const chartHeight = height - padding.top - padding.bottom;
+  
+  const handleLayout = (event: LayoutChangeEvent) => {
+    const { width: measuredWidth } = event.nativeEvent.layout;
+    // Subtract container padding from measured width
+    setContainerWidth(measuredWidth - (Spacing.sm * 2));
+  };
 
-  if (data.length < 2) {
+  if (data.length < 2 || containerWidth === 0) {
     return (
-      <View style={[styles.container, { height, backgroundColor: theme.backgroundDefault }]}>
-        <ThemedText type="caption" style={{ color: theme.textSecondary, textAlign: "center" }}>
-          Not enough data for chart
-        </ThemedText>
+      <View style={[styles.container, { height, backgroundColor: theme.backgroundDefault }]} onLayout={handleLayout}>
+        {data.length < 2 ? (
+          <ThemedText type="caption" style={{ color: theme.textSecondary, textAlign: "center" }}>
+            Not enough data for chart
+          </ThemedText>
+        ) : null}
       </View>
     );
   }
@@ -58,7 +68,7 @@ export function PnlChart({ data, width: propWidth, height = 160 }: PnlChartProps
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.backgroundDefault }]}>
+    <View style={[styles.container, { backgroundColor: theme.backgroundDefault }]} onLayout={handleLayout}>
       <Svg width={width} height={height}>
         <Defs>
           <LinearGradient id="areaGradient" x1="0" y1="0" x2="0" y2="1">
@@ -96,6 +106,9 @@ const styles = StyleSheet.create({
     padding: Spacing.sm,
     alignItems: "center",
     justifyContent: "center",
+    width: "100%",
+    alignSelf: "stretch",
+    overflow: "hidden",
   },
   xLabels: {
     flexDirection: "row",
