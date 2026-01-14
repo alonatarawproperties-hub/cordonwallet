@@ -217,8 +217,15 @@ const CORDON_INJECTED_SCRIPT = `
       var serialized = Array.from(transaction.serialize({ requireAllSignatures: false }));
       return sendRequest('cordon_solana_signTransaction', { transaction: serialized })
         .then(function(result) {
-          // Return the signed transaction bytes
-          return result.signedTransaction;
+          // Return an object that looks like a signed Transaction with serialize() method
+          var signedBytes = new Uint8Array(result.signedTransaction);
+          return {
+            serialize: function(config) {
+              return signedBytes;
+            },
+            signatures: result.signatures || [],
+            _signedBytes: signedBytes
+          };
         });
     },
     
