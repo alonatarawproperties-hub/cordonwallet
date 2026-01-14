@@ -1,5 +1,11 @@
 import { Transaction, VersionedTransaction } from "@solana/web3.js";
 
+export interface DrainerDetection {
+  isBlocked: boolean;
+  attackType: "SetAuthority" | "Assign" | null;
+  description: string;
+}
+
 export interface DecodedSolanaTransaction {
   instructionCount: number;
   programIds: string[];
@@ -12,9 +18,16 @@ export interface DecodedSolanaTransaction {
   unknownProgramIds: string[];
   hasLookupTables: boolean;
   unresolvedLookupPrograms: number;
-  riskLevel: "Low" | "Medium" | "High";
+  riskLevel: "Low" | "Medium" | "High" | "Blocked";
   riskReason: string;
+  drainerDetection: DrainerDetection;
 }
+
+const SYSTEM_PROGRAM_ID = "11111111111111111111111111111111";
+const TOKEN_PROGRAM_ID = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
+
+const SYSTEM_INSTRUCTION_ASSIGN = 1;
+const TOKEN_INSTRUCTION_SET_AUTHORITY = 6;
 
 const KNOWN_PROGRAMS: Record<string, string> = {
   "11111111111111111111111111111111": "System Program",
@@ -37,6 +50,43 @@ const KNOWN_PROGRAMS: Record<string, string> = {
   "TSWAPaqyCSx2KABk68Shruf4rp7CxcNi8hAsbdwmHbN": "Tensor Swap",
   "M2mx93ekt1fmXSVkTrUL9xVFHkmME8HTUi5Cyc5aF7K": "Magic Eden",
 };
+
+interface InstructionData {
+  programId: string;
+  data: Uint8Array;
+}
+
+function detectDrainerInstructions(instructions: InstructionData[]): DrainerDetection {
+  for (const ix of instructions) {
+    if (ix.programId === SYSTEM_PROGRAM_ID && ix.data.length >= 4) {
+      const instructionType = ix.data[0] | (ix.data[1] << 8) | (ix.data[2] << 16) | (ix.data[3] << 24);
+      if (instructionType === SYSTEM_INSTRUCTION_ASSIGN) {
+        return {
+          isBlocked: true,
+          attackType: "Assign",
+          description: "BLOCKED: This transaction attempts to change your wallet's owner. This is a known wallet drainer attack that would give an attacker permanent control of your funds.",
+        };
+      }
+    }
+    
+    if (ix.programId === TOKEN_PROGRAM_ID && ix.data.length >= 1) {
+      const instructionType = ix.data[0];
+      if (instructionType === TOKEN_INSTRUCTION_SET_AUTHORITY) {
+        return {
+          isBlocked: true,
+          attackType: "SetAuthority",
+          description: "BLOCKED: This transaction attempts to change ownership of your token account. This is a known wallet drainer attack that would give an attacker control of your tokens.",
+        };
+      }
+    }
+  }
+  
+  return {
+    isBlocked: false,
+    attackType: null,
+    description: "",
+  };
+}
 
 function base64ToBytes(base64: string): Uint8Array {
   const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -70,6 +120,7 @@ export function decodeSolanaTransaction(txBase64: string): DecodedSolanaTransact
   try {
     const txBytes = base64ToBytes(txBase64);
     const programIds: string[] = [];
+    const instructionsData: InstructionData[] = [];
     let instructionCount = 0;
     let hasLookupTables = false;
     let unresolvedLookupPrograms = 0;
@@ -88,6 +139,10 @@ export function decodeSolanaTransaction(txBase64: string): DecodedSolanaTransact
           if (!programIds.includes(programId)) {
             programIds.push(programId);
           }
+          instructionsData.push({
+            programId,
+            data: ix.data,
+          });
         } else {
           unresolvedLookupPrograms++;
         }
@@ -111,18 +166,34 @@ export function decodeSolanaTransaction(txBase64: string): DecodedSolanaTransact
           if (!programIds.includes(programId)) {
             programIds.push(programId);
           }
+          instructionsData.push({
+            programId,
+            data: ix.data,
+          });
         }
       } catch {
         return createFallbackResult("Transaction format not recognized. Review with caution.", "High");
       }
     }
     
+    const drainerDetection = detectDrainerInstructions(instructionsData);
+    if (drainerDetection.isBlocked) {
+      return createBlockedResult(drainerDetection);
+    }
+    
     if (programIds.length === 0) {
       if (hasLookupTables) {
-        return createFallbackResult(
-          `Complex v0 transaction with ${instructionCount} instructions using address lookups. Cannot fully verify programs.`,
-          "High"
-        );
+        return {
+          ...createFallbackResult(
+            `Complex v0 transaction with ${instructionCount} instructions using address lookups. Cannot verify if this transaction contains dangerous instructions like SetAuthority. DO NOT sign transactions from untrusted sources.`,
+            "High"
+          ),
+          drainerDetection: {
+            isBlocked: false,
+            attackType: null,
+            description: "Transaction uses lookup tables that cannot be fully verified. Exercise extreme caution - drainer attacks may be hidden in unresolved instructions.",
+          },
+        };
       }
       return createFallbackResult("No programs identified. Review carefully.", "High");
     }
@@ -143,6 +214,10 @@ export function decodeSolanaTransactions(txBase64Array: string[]): DecodedSolana
   
   for (const txBase64 of txBase64Array) {
     const decoded = decodeSolanaTransaction(txBase64);
+    
+    if (decoded.riskLevel === "Blocked") {
+      return decoded;
+    }
     
     if (decoded.hasLookupTables) {
       hasAnyLookupTables = true;
@@ -189,6 +264,25 @@ export function decodeSolanaTransactions(txBase64Array: string[]): DecodedSolana
   return result;
 }
 
+function createBlockedResult(drainerDetection: DrainerDetection): DecodedSolanaTransaction {
+  return {
+    instructionCount: 1,
+    programIds: [],
+    programLabels: ["WALLET DRAINER DETECTED"],
+    isSimpleTransfer: false,
+    usesSystemProgram: false,
+    usesTokenProgram: false,
+    usesATAProgram: false,
+    hasUnknownPrograms: true,
+    unknownProgramIds: [],
+    hasLookupTables: false,
+    unresolvedLookupPrograms: 0,
+    riskLevel: "Blocked",
+    riskReason: drainerDetection.description,
+    drainerDetection,
+  };
+}
+
 function createFallbackResult(reason: string, riskLevel: "Low" | "Medium" | "High" = "Medium"): DecodedSolanaTransaction {
   return {
     instructionCount: 1,
@@ -204,6 +298,7 @@ function createFallbackResult(reason: string, riskLevel: "Low" | "Medium" | "Hig
     unresolvedLookupPrograms: 0,
     riskLevel,
     riskReason: reason,
+    drainerDetection: { isBlocked: false, attackType: null, description: "" },
   };
 }
 
@@ -287,6 +382,7 @@ function analyzeTransaction(
     unresolvedLookupPrograms,
     riskLevel,
     riskReason,
+    drainerDetection: { isBlocked: false, attackType: null, description: "" },
   };
 }
 

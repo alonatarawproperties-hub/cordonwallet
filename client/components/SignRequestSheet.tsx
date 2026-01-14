@@ -53,6 +53,7 @@ interface Props {
   dappIcon?: string;
   isSigning: boolean;
   isApprovalBlocked: boolean;
+  isDrainerBlocked?: boolean;
   onSign: () => void;
   onReject: () => void;
   onCapAllowance: () => void;
@@ -82,6 +83,7 @@ export function SignRequestSheet({
   dappIcon,
   isSigning,
   isApprovalBlocked,
+  isDrainerBlocked = false,
   onSign,
   onReject,
   onCapAllowance,
@@ -251,9 +253,18 @@ export function SignRequestSheet({
                 { backgroundColor: theme.backgroundDefault, borderColor: theme.border, flex: 1, marginRight: Spacing.sm }
               ]}
             >
-              <ThemedText type="body" style={{ fontWeight: "600" }}>Reject</ThemedText>
+              <ThemedText type="body" style={{ fontWeight: "600" }}>
+                {isDrainerBlocked ? "Dismiss" : "Reject"}
+              </ThemedText>
             </Pressable>
-            {isApprovalBlocked ? (
+            {isDrainerBlocked ? (
+              <View style={[styles.blockedButton, { backgroundColor: theme.danger + "30", flex: 1, marginLeft: Spacing.sm }]}>
+                <Feather name="shield-off" size={18} color={theme.danger} />
+                <ThemedText type="body" style={{ fontWeight: "600", color: theme.danger, marginLeft: Spacing.xs }}>
+                  Blocked
+                </ThemedText>
+              </View>
+            ) : isApprovalBlocked ? (
               <Button
                 onPress={handleCapAllowance}
                 style={{ flex: 1, marginLeft: Spacing.sm }}
@@ -501,11 +512,15 @@ function SolanaTransactionContent({
     }
   };
   
-  const riskColor = decoded?.riskLevel === "Low" 
-    ? theme.success 
-    : decoded?.riskLevel === "Medium" 
-      ? theme.warning 
-      : theme.danger;
+  const riskColor = decoded?.riskLevel === "Blocked"
+    ? theme.danger
+    : decoded?.riskLevel === "Low" 
+      ? theme.success 
+      : decoded?.riskLevel === "Medium" 
+        ? theme.warning 
+        : theme.danger;
+  
+  const isBlocked = decoded?.drainerDetection?.isBlocked === true;
   
   return (
     <View>
@@ -543,7 +558,27 @@ function SolanaTransactionContent({
         </View>
       </View>
       
-      {decoded ? (
+      {isBlocked ? (
+        <View style={[styles.riskCard, { backgroundColor: theme.danger + "20", borderColor: theme.danger, borderWidth: 2 }]}>
+          <Feather name="shield-off" size={24} color={theme.danger} />
+          <View style={{ flex: 1, marginLeft: Spacing.sm }}>
+            <ThemedText type="body" style={{ fontWeight: "700", color: theme.danger }}>
+              WALLET DRAINER DETECTED
+            </ThemedText>
+            <ThemedText type="small" style={{ color: theme.textSecondary, marginTop: 4 }}>
+              {decoded?.drainerDetection?.attackType === "SetAuthority" 
+                ? "This transaction tries to change your token account ownership. If signed, an attacker would gain permanent control of your tokens."
+                : "This transaction tries to reassign your wallet to a malicious program. If signed, you would permanently lose access to your funds."}
+            </ThemedText>
+            <View style={{ flexDirection: "row", alignItems: "center", marginTop: Spacing.sm }}>
+              <Feather name="x-circle" size={14} color={theme.danger} />
+              <ThemedText type="small" style={{ marginLeft: Spacing.xs, color: theme.danger, fontWeight: "600" }}>
+                Signing is blocked for your protection
+              </ThemedText>
+            </View>
+          </View>
+        </View>
+      ) : decoded ? (
         <View style={[styles.riskCard, { backgroundColor: riskColor + "15", borderColor: riskColor }]}>
           <Feather 
             name={decoded.riskLevel === "Low" ? "check-circle" : decoded.riskLevel === "Medium" ? "alert-circle" : "alert-triangle"} 
@@ -632,11 +667,15 @@ function SolanaBatchTransactionContent({
     return decodeSolanaTransactions(transactions);
   }, [transactions]);
   
-  const riskColor = decoded?.riskLevel === "Low" 
-    ? theme.success 
-    : decoded?.riskLevel === "Medium" 
-      ? theme.warning 
-      : theme.danger;
+  const riskColor = decoded?.riskLevel === "Blocked"
+    ? theme.danger
+    : decoded?.riskLevel === "Low" 
+      ? theme.success 
+      : decoded?.riskLevel === "Medium" 
+        ? theme.warning 
+        : theme.danger;
+  
+  const isBlocked = decoded?.drainerDetection?.isBlocked === true;
   
   return (
     <View>
@@ -671,7 +710,27 @@ function SolanaBatchTransactionContent({
         </View>
       </View>
       
-      {decoded ? (
+      {isBlocked ? (
+        <View style={[styles.riskCard, { backgroundColor: theme.danger + "20", borderColor: theme.danger, borderWidth: 2 }]}>
+          <Feather name="shield-off" size={24} color={theme.danger} />
+          <View style={{ flex: 1, marginLeft: Spacing.sm }}>
+            <ThemedText type="body" style={{ fontWeight: "700", color: theme.danger }}>
+              WALLET DRAINER DETECTED
+            </ThemedText>
+            <ThemedText type="small" style={{ color: theme.textSecondary, marginTop: 4 }}>
+              {decoded?.drainerDetection?.attackType === "SetAuthority" 
+                ? "One or more transactions in this batch try to change your token account ownership. If signed, an attacker would gain permanent control of your tokens."
+                : "One or more transactions in this batch try to reassign your wallet to a malicious program. If signed, you would permanently lose access to your funds."}
+            </ThemedText>
+            <View style={{ flexDirection: "row", alignItems: "center", marginTop: Spacing.sm }}>
+              <Feather name="x-circle" size={14} color={theme.danger} />
+              <ThemedText type="small" style={{ marginLeft: Spacing.xs, color: theme.danger, fontWeight: "600" }}>
+                Signing is blocked for your protection
+              </ThemedText>
+            </View>
+          </View>
+        </View>
+      ) : decoded ? (
         <View style={[styles.riskCard, { backgroundColor: riskColor + "15", borderColor: riskColor }]}>
           <Feather 
             name={decoded.riskLevel === "Low" ? "check-circle" : decoded.riskLevel === "Medium" ? "alert-circle" : "alert-triangle"} 
@@ -930,6 +989,13 @@ const styles = StyleSheet.create({
     padding: Spacing.md,
     borderRadius: 12,
     borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  blockedButton: {
+    flexDirection: "row",
+    padding: Spacing.md,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
   },

@@ -56,6 +56,7 @@ The project is organized into `/client` (frontend), `/server` (backend), and `/s
 - **EVM Approvals**: Tracks ERC-20 token approvals with risk assessment (unlimited, high-value, stale permissions) and provides revoke/cap allowance functionalities.
 - **Solana Permissions**: Manages WalletConnect sessions and SPL token delegates.
 - **Approval Policies**: Enforces denylist/allowlist and blocks unlimited approvals, with a UI for capping allowances when blocked.
+- **Wallet Drainer Protection**: Automatic detection and hard-blocking of Solana SetAuthority and Assign instruction attacks. These attacks attempt to change wallet/token account ownership to steal funds permanently. The decoder (`client/lib/solana/decoder.ts`) scans all Solana transactions before signing and blocks them if drainer instructions are detected. Protection is enforced in both WalletConnect handler and in-app browser dApp connections.
 
 ### WalletConnect v2 Integration
 

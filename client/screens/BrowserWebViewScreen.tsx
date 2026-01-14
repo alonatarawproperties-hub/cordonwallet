@@ -845,6 +845,30 @@ export default function BrowserWebViewScreen() {
           return;
         }
         
+        const txBytes = new Uint8Array(data.transaction);
+        const txBase64 = btoa(String.fromCharCode(...txBytes));
+        
+        const { decodeSolanaTransaction } = await import("@/lib/solana/decoder");
+        const decoded = decodeSolanaTransaction(txBase64);
+        
+        if (decoded.drainerDetection?.isBlocked) {
+          console.warn("[BrowserWebView] DRAINER BLOCKED:", decoded.drainerDetection.attackType);
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+          Alert.alert(
+            "Wallet Drainer Blocked",
+            decoded.drainerDetection.attackType === "SetAuthority"
+              ? "This transaction tries to change your token account ownership. If signed, an attacker would gain permanent control of your tokens.\n\nCordon has blocked this transaction for your protection."
+              : "This transaction tries to reassign your wallet to a malicious program. If signed, you would permanently lose access to your funds.\n\nCordon has blocked this transaction for your protection.",
+            [{ text: "OK", style: "cancel" }]
+          );
+          const response = { error: "Transaction blocked: Wallet drainer detected" };
+          webViewRef.current?.injectJavaScript(`
+            window.cordon._handleResponse(${data.requestId}, ${JSON.stringify(response)});
+            true;
+          `);
+          return;
+        }
+        
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
         
         Alert.alert(

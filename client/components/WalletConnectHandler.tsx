@@ -22,6 +22,7 @@ import {
 } from "@/lib/blockchain/transactions";
 import { getERC20Decimals, getERC20Symbol } from "@/lib/blockchain/balances";
 import { checkTransactionFirewall } from "@/lib/approvals/firewall";
+import { decodeSolanaTransaction, decodeSolanaTransactions } from "@/lib/solana/decoder";
 
 export function WalletConnectHandler({ children }: { children: React.ReactNode }) {
   const {
@@ -41,6 +42,7 @@ export function WalletConnectHandler({ children }: { children: React.ReactNode }
   const [isSigning, setIsSigning] = useState(false);
   const [isApproving, setIsApproving] = useState(false);
   const [isApprovalBlocked, setIsApprovalBlocked] = useState(false);
+  const [isDrainerBlocked, setIsDrainerBlocked] = useState(false);
   const [pendingApprovalData, setPendingApprovalData] = useState<{
     tokenAddress: `0x${string}`;
     spender: `0x${string}`;
@@ -51,10 +53,36 @@ export function WalletConnectHandler({ children }: { children: React.ReactNode }
 
   useEffect(() => {
     if (!currentRequest || isCapSheetVisible) {
+      setIsDrainerBlocked(false);
       return;
     }
 
     const { parsed } = currentRequest;
+    
+    if (parsed.method === "solana_signTransaction") {
+      const solanaReq = parsed as SolanaSignTransactionRequest;
+      if (solanaReq.transaction) {
+        const decoded = decodeSolanaTransaction(solanaReq.transaction);
+        if (decoded.drainerDetection?.isBlocked) {
+          console.warn("[WC] DRAINER BLOCKED:", decoded.drainerDetection.attackType);
+          setIsDrainerBlocked(true);
+          return;
+        }
+      }
+    } else if (parsed.method === "solana_signAllTransactions") {
+      const solanaReq = parsed as SolanaSignAllTransactionsRequest;
+      if (solanaReq.transactions?.length > 0) {
+        const decoded = decodeSolanaTransactions(solanaReq.transactions);
+        if (decoded.drainerDetection?.isBlocked) {
+          console.warn("[WC] DRAINER BLOCKED in batch:", decoded.drainerDetection.attackType);
+          setIsDrainerBlocked(true);
+          return;
+        }
+      }
+    }
+    
+    setIsDrainerBlocked(false);
+    
     if (parsed.method === "eth_sendTransaction") {
       const txRequest = parsed as SendTransactionRequest;
       
@@ -140,6 +168,12 @@ export function WalletConnectHandler({ children }: { children: React.ReactNode }
       return;
     }
 
+    if (isDrainerBlocked) {
+      console.error("[WC] Attempted to sign blocked drainer transaction - aborting");
+      await respondError("Transaction blocked: Wallet drainer detected");
+      return;
+    }
+
     setIsSigning(true);
 
     try {
@@ -198,7 +232,7 @@ export function WalletConnectHandler({ children }: { children: React.ReactNode }
     } finally {
       setIsSigning(false);
     }
-  }, [currentRequest, currentProposal, activeWallet, isUnlocked, respondSuccess, respondError]);
+  }, [currentRequest, currentProposal, activeWallet, isUnlocked, isDrainerBlocked, respondSuccess, respondError]);
 
   const handleRejectRequest = useCallback(async () => {
     try {
@@ -281,6 +315,7 @@ export function WalletConnectHandler({ children }: { children: React.ReactNode }
         dappIcon={dappInfo.icons[0]}
         isSigning={isSigning}
         isApprovalBlocked={isApprovalBlocked}
+        isDrainerBlocked={isDrainerBlocked}
         onSign={handleSign}
         onReject={handleRejectRequest}
         onCapAllowance={handleCapAllowance}
