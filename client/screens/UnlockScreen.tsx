@@ -72,11 +72,12 @@ export default function UnlockScreen({ navigation }: Props) {
         if (success) {
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
           unlock();
-          await refreshWallets();
+          // Navigate immediately, refresh wallets in background
           navigation.reset({
             index: 0,
             routes: [{ name: "Main" }],
           });
+          refreshWallets();
         } else {
           setIsUnlocking(false);
         }
@@ -105,17 +106,18 @@ export default function UnlockScreen({ navigation }: Props) {
       
       if (success) {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        
-        const hasBiometric = await hasBiometricPinEnabled();
-        if (!hasBiometric) {
-          await savePinForBiometrics(enteredPin);
-        }
-        
         unlock();
-        await refreshWallets();
+        // Navigate immediately for instant response
         navigation.reset({
           index: 0,
           routes: [{ name: "Main" }],
+        });
+        // Background tasks - don't block navigation
+        refreshWallets();
+        hasBiometricPinEnabled().then(hasBiometric => {
+          if (!hasBiometric) {
+            savePinForBiometrics(enteredPin);
+          }
         });
       } else {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
