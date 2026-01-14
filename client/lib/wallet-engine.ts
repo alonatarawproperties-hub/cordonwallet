@@ -46,12 +46,60 @@ const STORAGE_KEYS = {
   PIN_HASH: "cordon_pin_hash",
   VAULT_META: "@cordon/vault_meta",
   BIOMETRIC_PIN: "cordon_biometric_pin",
+  CACHED_VAULT_KEY: "cordon_cached_vault_key",
 };
 
 const PBKDF2_ITERATIONS = 100000;
 
 let cachedSecrets: DecryptedSecrets | null = null;
 let isVaultUnlocked = false;
+
+// Cache the vault key in SecureStore for fast subsequent unlocks
+async function cacheVaultKey(key: Uint8Array): Promise<void> {
+  try {
+    await setSecureItem(STORAGE_KEYS.CACHED_VAULT_KEY, bytesToHex(key));
+  } catch (err) {
+    console.warn("[WalletEngine] Failed to cache vault key:", err);
+  }
+}
+
+// Retrieve cached vault key for fast unlock
+async function getCachedVaultKey(): Promise<Uint8Array | null> {
+  try {
+    const keyHex = await getSecureItem(STORAGE_KEYS.CACHED_VAULT_KEY);
+    if (keyHex) {
+      return hexToBytes(keyHex);
+    }
+  } catch (err) {
+    console.warn("[WalletEngine] Failed to get cached vault key:", err);
+  }
+  return null;
+}
+
+// Clear cached vault key (on logout/lock)
+async function clearCachedVaultKey(): Promise<void> {
+  try {
+    await deleteSecureItem(STORAGE_KEYS.CACHED_VAULT_KEY);
+  } catch (err) {
+    console.warn("[WalletEngine] Failed to clear cached vault key:", err);
+  }
+}
+
+// Fast decrypt using cached key (no PBKDF2)
+async function decryptSecretsWithKey(vault: EncryptedVault, key: Uint8Array): Promise<DecryptedSecrets | null> {
+  try {
+    const iv = hexToBytes(vault.iv);
+    const ciphertext = hexToBytes(vault.ciphertext);
+    
+    const cipher = gcm(key, iv);
+    const plaintext = cipher.decrypt(ciphertext);
+    const json = new TextDecoder().decode(plaintext);
+    
+    return JSON.parse(json);
+  } catch {
+    return null;
+  }
+}
 
 // Fast native PBKDF2 using Web Crypto API
 async function deriveKeyFromPinNative(pin: string, salt: Uint8Array): Promise<Uint8Array> {
@@ -114,6 +162,9 @@ async function encryptSecrets(secrets: DecryptedSecrets, pin: string): Promise<E
   const plaintext = new TextEncoder().encode(JSON.stringify(secrets));
   const cipher = gcm(key, iv);
   const ciphertext = cipher.encrypt(plaintext);
+  
+  // Cache the new key for fast unlocks
+  await cacheVaultKey(key);
   
   return {
     version: 1,
@@ -437,6 +488,15 @@ export class VaultCorruptedError extends Error {
 }
 
 export async function unlockWithPin(pin: string): Promise<boolean> {
+  // Step 1: Verify PIN hash first (fast - just SHA-256)
+  const pinValid = await verifyPin(pin);
+  if (!pinValid) {
+    if (__DEV__) {
+      console.log("[WalletEngine] unlockWithPin: PIN verification failed");
+    }
+    return false;
+  }
+  
   const vaultJson = await getSecureItem(STORAGE_KEYS.VAULT);
   if (!vaultJson) {
     if (__DEV__) {
@@ -462,7 +522,31 @@ export async function unlockWithPin(pin: string): Promise<boolean> {
     throw new VaultCorruptedError();
   }
   
-  const secrets = await decryptSecrets(vault, pin);
+  // Step 2: Try fast path with cached vault key
+  const cachedKey = await getCachedVaultKey();
+  if (cachedKey) {
+    const secrets = await decryptSecretsWithKey(vault, cachedKey);
+    if (secrets) {
+      if (__DEV__) {
+        console.log("[WalletEngine] unlockWithPin: Fast unlock with cached key", {
+          walletCount: Object.keys(secrets.mnemonics).length,
+        });
+      }
+      cachedSecrets = secrets;
+      isVaultUnlocked = true;
+      return true;
+    }
+    // Cached key didn't work (maybe vault was re-encrypted), clear it
+    await clearCachedVaultKey();
+  }
+  
+  // Step 3: Slow path - derive key with PBKDF2
+  if (__DEV__) {
+    console.log("[WalletEngine] unlockWithPin: Slow path - deriving key with PBKDF2");
+  }
+  const salt = hexToBytes(vault.salt);
+  const key = await deriveKeyFromPin(pin, salt);
+  const secrets = await decryptSecretsWithKey(vault, key);
   
   if (secrets) {
     if (__DEV__) {
@@ -472,11 +556,13 @@ export async function unlockWithPin(pin: string): Promise<boolean> {
     }
     cachedSecrets = secrets;
     isVaultUnlocked = true;
+    // Cache the key for fast unlocks next time
+    await cacheVaultKey(key);
     return true;
   }
   
   if (__DEV__) {
-    console.log("[WalletEngine] unlockWithPin: Failed to decrypt (wrong PIN?)");
+    console.log("[WalletEngine] unlockWithPin: Failed to decrypt");
   }
   return false;
 }
@@ -562,6 +648,7 @@ export async function deleteVault(): Promise<void> {
   await deleteSecureItem(STORAGE_KEYS.VAULT);
   await deleteSecureItem(STORAGE_KEYS.PIN_HASH);
   await deleteSecureItem(STORAGE_KEYS.BIOMETRIC_PIN);
+  await deleteSecureItem(STORAGE_KEYS.CACHED_VAULT_KEY);
   await AsyncStorage.removeItem(STORAGE_KEYS.VAULT_META);
   cachedSecrets = null;
   isVaultUnlocked = false;
