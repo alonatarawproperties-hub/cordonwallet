@@ -1,6 +1,9 @@
-import { useState, useEffect } from "react";
-import { View, StyleSheet, Pressable, ActivityIndicator, LayoutChangeEvent } from "react-native";
-import Svg, { Path, Circle, Defs, LinearGradient, Stop, Line } from "react-native-svg";
+import { useState, useEffect, useCallback } from "react";
+import { View, StyleSheet, Pressable, ActivityIndicator, LayoutChangeEvent, Platform } from "react-native";
+import Svg, { Path, Circle, Defs, LinearGradient, Stop, RadialGradient, Rect } from "react-native-svg";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming, runOnJS } from "react-native-reanimated";
+import * as Haptics from "expo-haptics";
 import { useTheme } from "@/hooks/useTheme";
 import { ThemedText } from "@/components/ThemedText";
 import { Spacing, BorderRadius } from "@/constants/theme";
@@ -34,17 +37,22 @@ export function PriceChart({ symbol, currentPrice, width: propWidth, height = 20
   const { theme } = useTheme();
   const [chartAreaWidth, setChartAreaWidth] = useState<number>(0);
   
-  // Use measured chart area width (inner content area), or prop width if provided
   const svgWidth = propWidth || chartAreaWidth;
   const padding = { top: 20, right: 5, bottom: 40, left: 5 };
   const chartWidth = Math.max(0, svgWidth - padding.left - padding.right);
-  const chartHeight = height - padding.top - padding.bottom - 40; // Account for price header
+  const chartHeight = height - padding.top - padding.bottom - 40;
 
   const [selectedRange, setSelectedRange] = useState<TimeRange>("1W");
   const [chartData, setChartData] = useState<ChartData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  
+  const indicatorX = useSharedValue(0);
+  const indicatorY = useSharedValue(0);
+  const indicatorOpacity = useSharedValue(0);
+  const infoBarOpacity = useSharedValue(0);
   
   const handleChartAreaLayout = (event: LayoutChangeEvent) => {
     const { width: measuredWidth } = event.nativeEvent.layout;
@@ -88,7 +96,6 @@ export function PriceChart({ symbol, currentPrice, width: propWidth, height = 20
       const data = await response.json();
       const rawPrices: [number, number][] = data.prices || [];
       
-      // Filter out any null/undefined/NaN price values that cause gaps in the chart
       const validPrices = rawPrices.filter(([timestamp, price]) => 
         typeof price === 'number' && Number.isFinite(price) && 
         typeof timestamp === 'number' && Number.isFinite(timestamp)
@@ -115,13 +122,89 @@ export function PriceChart({ symbol, currentPrice, width: propWidth, height = 20
     if (data.length <= maxPoints) return data;
     const step = Math.floor(data.length / maxPoints);
     const sampled = data.filter((_, index) => index % step === 0);
-    // Always include the last data point for continuity
     const lastPoint = data[data.length - 1];
     if (sampled[sampled.length - 1] !== lastPoint) {
       sampled.push(lastPoint);
     }
     return sampled;
   };
+
+  const triggerHaptic = useCallback(() => {
+    if (Platform.OS !== "web") {
+      Haptics.selectionAsync();
+    }
+  }, []);
+
+  const updateActiveIndex = useCallback((index: number | null) => {
+    setActiveIndex(index);
+  }, []);
+
+  const updateDragging = useCallback((dragging: boolean) => {
+    setIsDragging(dragging);
+  }, []);
+
+  const getX = useCallback((index: number) => padding.left + (index / (chartData.length - 1)) * chartWidth, [chartData.length, chartWidth, padding.left]);
+  const getY = useCallback((price: number, minPrice: number, priceRange: number) => padding.top + chartHeight - ((price - minPrice) / priceRange) * chartHeight, [chartHeight, padding.top]);
+
+  const panGesture = Gesture.Pan()
+    .onStart((event) => {
+      if (chartData.length < 2) return;
+      
+      const x = event.x - padding.left;
+      const index = Math.round((x / chartWidth) * (chartData.length - 1));
+      const clampedIndex = Math.max(0, Math.min(chartData.length - 1, index));
+      
+      const prices = chartData.map(d => d.price);
+      const minPrice = Math.min(...prices);
+      const maxPrice = Math.max(...prices);
+      const priceRange = maxPrice - minPrice || 1;
+      
+      indicatorX.value = getX(clampedIndex);
+      indicatorY.value = getY(chartData[clampedIndex].price, minPrice, priceRange);
+      indicatorOpacity.value = withSpring(1);
+      infoBarOpacity.value = withSpring(1);
+      
+      runOnJS(updateActiveIndex)(clampedIndex);
+      runOnJS(updateDragging)(true);
+      runOnJS(triggerHaptic)();
+    })
+    .onUpdate((event) => {
+      if (chartData.length < 2) return;
+      
+      const x = event.x - padding.left;
+      const index = Math.round((x / chartWidth) * (chartData.length - 1));
+      const clampedIndex = Math.max(0, Math.min(chartData.length - 1, index));
+      
+      const prices = chartData.map(d => d.price);
+      const minPrice = Math.min(...prices);
+      const maxPrice = Math.max(...prices);
+      const priceRange = maxPrice - minPrice || 1;
+      
+      const newX = getX(clampedIndex);
+      const newY = getY(chartData[clampedIndex].price, minPrice, priceRange);
+      
+      indicatorX.value = newX;
+      indicatorY.value = newY;
+      
+      runOnJS(updateActiveIndex)(clampedIndex);
+    })
+    .onEnd(() => {
+      indicatorOpacity.value = withTiming(0, { duration: 200 });
+      infoBarOpacity.value = withTiming(0, { duration: 200 });
+      runOnJS(updateActiveIndex)(null);
+      runOnJS(updateDragging)(false);
+    });
+
+  const indicatorStyle = useAnimatedStyle(() => ({
+    position: "absolute" as const,
+    left: indicatorX.value - 12,
+    top: indicatorY.value - 12,
+    opacity: indicatorOpacity.value,
+  }));
+
+  const infoBarStyle = useAnimatedStyle(() => ({
+    opacity: infoBarOpacity.value,
+  }));
 
   if (isLoading || chartAreaWidth === 0) {
     return (
@@ -165,10 +248,7 @@ export function PriceChart({ symbol, currentPrice, width: propWidth, height = 20
   const maxPrice = Math.max(...prices);
   const priceRange = maxPrice - minPrice || 1;
 
-  const getX = (index: number) => padding.left + (index / (chartData.length - 1)) * chartWidth;
-  const getY = (price: number) => padding.top + chartHeight - ((price - minPrice) / priceRange) * chartHeight;
-
-  const pathPoints = chartData.map((d, i) => `${i === 0 ? "M" : "L"} ${getX(i)} ${getY(d.price)}`).join(" ");
+  const pathPoints = chartData.map((d, i) => `${i === 0 ? "M" : "L"} ${getX(i)} ${getY(d.price, minPrice, priceRange)}`).join(" ");
   const areaPath = `${pathPoints} L ${getX(chartData.length - 1)} ${padding.top + chartHeight} L ${getX(0)} ${padding.top + chartHeight} Z`;
 
   const lastPrice = chartData[chartData.length - 1].price;
@@ -192,10 +272,21 @@ export function PriceChart({ symbol, currentPrice, width: propWidth, height = 20
     return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
   };
 
-  const displayPrice = hoveredIndex !== null ? chartData[hoveredIndex].price : lastPrice;
-  const displayChange = hoveredIndex !== null
-    ? ((chartData[hoveredIndex].price - firstPrice) / firstPrice) * 100
+  const formatFullTime = (timestamp: number): string => {
+    const date = new Date(timestamp);
+    if (selectedRange === "1D") {
+      return date.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+    }
+    return date.toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  };
+
+  const displayPrice = activeIndex !== null ? chartData[activeIndex].price : lastPrice;
+  const displayChange = activeIndex !== null
+    ? ((chartData[activeIndex].price - firstPrice) / firstPrice) * 100
     : priceChange;
+  const displayChangeAmount = activeIndex !== null
+    ? chartData[activeIndex].price - firstPrice
+    : lastPrice - firstPrice;
 
   return (
     <View style={[styles.container, { backgroundColor: theme.backgroundDefault }]} onLayout={handleChartAreaLayout}>
@@ -211,51 +302,77 @@ export function PriceChart({ symbol, currentPrice, width: propWidth, height = 20
         </ThemedText>
       </View>
 
-      <Svg width={svgWidth} height={height - 80}>
-        <Defs>
-          <LinearGradient id="priceGradient" x1="0" y1="0" x2="0" y2="1">
-            <Stop offset="0%" stopColor={lineColor} stopOpacity={0.25} />
-            <Stop offset="100%" stopColor={lineColor} stopOpacity={0} />
-          </LinearGradient>
-        </Defs>
+      <GestureDetector gesture={panGesture}>
+        <View style={{ width: svgWidth, height: height - 80 }}>
+          <Svg width={svgWidth} height={height - 80}>
+            <Defs>
+              <LinearGradient id="priceGradient" x1="0" y1="0" x2="0" y2="1">
+                <Stop offset="0%" stopColor={lineColor} stopOpacity={0.25} />
+                <Stop offset="100%" stopColor={lineColor} stopOpacity={0} />
+              </LinearGradient>
+              <RadialGradient id="glowGradient" cx="50%" cy="50%" r="50%">
+                <Stop offset="0%" stopColor={lineColor} stopOpacity={0.8} />
+                <Stop offset="50%" stopColor={lineColor} stopOpacity={0.3} />
+                <Stop offset="100%" stopColor={lineColor} stopOpacity={0} />
+              </RadialGradient>
+            </Defs>
 
-        <Path d={areaPath} fill="url(#priceGradient)" />
-        <Path
-          d={pathPoints}
-          stroke={lineColor}
-          strokeWidth={2}
-          fill="none"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
+            <Path d={areaPath} fill="url(#priceGradient)" />
+            <Path
+              d={pathPoints}
+              stroke={lineColor}
+              strokeWidth={2}
+              fill="none"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
 
-        {hoveredIndex !== null ? (
-          <>
-            <Line
-              x1={getX(hoveredIndex)}
-              y1={padding.top}
-              x2={getX(hoveredIndex)}
-              y2={padding.top + chartHeight}
-              stroke={theme.textSecondary}
-              strokeWidth={1}
-              strokeDasharray="4,4"
-            />
-            <Circle
-              cx={getX(hoveredIndex)}
-              cy={getY(chartData[hoveredIndex].price)}
-              r={6}
-              fill={lineColor}
-            />
-          </>
-        ) : (
-          <Circle
-            cx={getX(chartData.length - 1)}
-            cy={getY(lastPrice)}
-            r={4}
-            fill={lineColor}
-          />
-        )}
-      </Svg>
+            {!isDragging && (
+              <Circle
+                cx={getX(chartData.length - 1)}
+                cy={getY(lastPrice, minPrice, priceRange)}
+                r={4}
+                fill={lineColor}
+              />
+            )}
+          </Svg>
+
+          <Animated.View style={indicatorStyle}>
+            <View style={[styles.glowIndicator, { backgroundColor: lineColor }]}>
+              <View style={[styles.glowInner, { backgroundColor: "#fff" }]} />
+            </View>
+          </Animated.View>
+        </View>
+      </GestureDetector>
+
+      {isDragging && activeIndex !== null && (
+        <Animated.View style={[styles.infoBar, { backgroundColor: theme.backgroundSecondary + "F0" }, infoBarStyle]}>
+          <View style={styles.infoBarContent}>
+            <View style={styles.infoBarLeft}>
+              <ThemedText type="caption" style={{ color: theme.textSecondary, fontSize: 11 }}>
+                {formatFullTime(chartData[activeIndex].timestamp)}
+              </ThemedText>
+            </View>
+            <View style={styles.infoBarCenter}>
+              <ThemedText type="body" style={{ fontWeight: "600", fontSize: 15 }}>
+                {formatPrice(chartData[activeIndex].price)}
+              </ThemedText>
+            </View>
+            <View style={styles.infoBarRight}>
+              <ThemedText 
+                type="caption" 
+                style={{ 
+                  color: displayChange >= 0 ? "#22C55E" : "#EF4444",
+                  fontSize: 11,
+                  fontWeight: "500"
+                }}
+              >
+                {displayChange >= 0 ? "+" : ""}{formatPrice(Math.abs(displayChangeAmount)).replace("$", "")} ({displayChange >= 0 ? "+" : ""}{displayChange.toFixed(2)}%)
+              </ThemedText>
+            </View>
+          </View>
+        </Animated.View>
+      )}
 
       <View style={styles.timeLabels}>
         <ThemedText type="caption" style={{ color: theme.textSecondary, fontSize: 10 }}>
@@ -326,5 +443,48 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.sm,
     borderRadius: BorderRadius.md,
+  },
+  glowIndicator: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.5,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  glowInner: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  infoBar: {
+    position: "absolute",
+    bottom: 90,
+    left: Spacing.md,
+    right: Spacing.md,
+    borderRadius: BorderRadius.md,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+  },
+  infoBarContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  infoBarLeft: {
+    flex: 1,
+    alignItems: "flex-start",
+  },
+  infoBarCenter: {
+    flex: 1,
+    alignItems: "center",
+  },
+  infoBarRight: {
+    flex: 1,
+    alignItems: "flex-end",
   },
 });
