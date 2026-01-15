@@ -34,6 +34,50 @@ const NETWORK_TO_CHAIN_ID: Record<NetworkId, number> = {
   solana: 0,
 };
 
+const ACTIVITY_CACHE_KEY = "@cordon/activity_cache";
+const PRICES_CACHE_KEY = "@cordon/activity_prices_cache";
+
+interface ActivityCache {
+  transactions: TxRecord[];
+  timestamp: number;
+  walletId: string;
+}
+
+async function getCachedActivity(walletId: string): Promise<{ transactions: TxRecord[]; prices: Record<string, number> } | null> {
+  try {
+    const [activityData, pricesData] = await Promise.all([
+      AsyncStorage.getItem(ACTIVITY_CACHE_KEY),
+      AsyncStorage.getItem(PRICES_CACHE_KEY),
+    ]);
+    
+    if (!activityData) return null;
+    
+    const cache: ActivityCache = JSON.parse(activityData);
+    if (cache.walletId !== walletId) return null;
+    
+    const prices = pricesData ? JSON.parse(pricesData) : {};
+    return { transactions: cache.transactions, prices };
+  } catch {
+    return null;
+  }
+}
+
+async function setCachedActivity(walletId: string, transactions: TxRecord[], prices: Record<string, number>): Promise<void> {
+  try {
+    const cache: ActivityCache = {
+      transactions,
+      timestamp: Date.now(),
+      walletId,
+    };
+    await Promise.all([
+      AsyncStorage.setItem(ACTIVITY_CACHE_KEY, JSON.stringify(cache)),
+      AsyncStorage.setItem(PRICES_CACHE_KEY, JSON.stringify(prices)),
+    ]);
+  } catch {
+    // Ignore cache errors
+  }
+}
+
 interface SolanaApiTransaction {
   signature: string;
   blockTime: number | null;
@@ -176,7 +220,7 @@ export default function ActivityScreen() {
   const [prices, setPrices] = useState<Record<string, number>>({});
   const [customTokens, setCustomTokens] = useState<CustomToken[]>([]);
 
-  const loadTransactions = useCallback(async () => {
+  const loadTransactions = useCallback(async (skipCache = false) => {
     if (!activeWallet) {
       console.log("[Activity] No active wallet");
       setTransactions([]);
@@ -184,7 +228,18 @@ export default function ActivityScreen() {
       return;
     }
 
-    // One-time cleanup of corrupted Solana transaction records (v1)
+    const walletId = activeWallet.id || activeWallet.address;
+
+    if (!skipCache) {
+      const cached = await getCachedActivity(walletId);
+      if (cached && cached.transactions.length > 0) {
+        console.log("[Activity] Showing cached data:", cached.transactions.length, "txs");
+        setTransactions(cached.transactions);
+        setPrices(cached.prices);
+        setLoading(false);
+      }
+    }
+
     const CLEANUP_KEY = "@cordon/solana_tx_cleanup_v1";
     try {
       const alreadyCleaned = await AsyncStorage.getItem(CLEANUP_KEY);
@@ -275,7 +330,8 @@ export default function ActivityScreen() {
       allTxs.sort((a, b) => b.createdAt - a.createdAt);
 
       console.log("[Activity] Total transactions:", allTxs.length);
-      setTransactions(allTxs.slice(0, 100));
+      const finalTxs = allTxs.slice(0, 100);
+      setTransactions(finalTxs);
       
       const uniqueMints = new Set<string>();
       [...solanaTxs, ...localSolanaTxs].forEach(tx => {
@@ -283,7 +339,11 @@ export default function ActivityScreen() {
       });
       
       const tokenPrices = await fetchTokenPrices(Array.from(uniqueMints), tokens);
-      setPrices({ ...priceData, ...tokenPrices });
+      const finalPrices = { ...priceData, ...tokenPrices };
+      setPrices(finalPrices);
+      
+      const walletId = activeWallet.id || activeWallet.address;
+      setCachedActivity(walletId, finalTxs, finalPrices);
     } catch (error) {
       console.error("[Activity] Failed to load transactions:", error);
       const evmAddr = activeWallet.addresses?.evm || activeWallet.address || "";
@@ -307,7 +367,7 @@ export default function ActivityScreen() {
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await loadTransactions();
+    await loadTransactions(true);
     setRefreshing(false);
   }, [loadTransactions]);
 
