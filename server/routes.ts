@@ -225,7 +225,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const cacheKey = `chart_${geckoId}_${days}`;
       const cached = historicalPriceCache[cacheKey];
       const now = Date.now();
-      const cacheDuration = parseInt(days) <= 1 ? 300000 : 1800000;
+      const cacheDuration = parseInt(days) <= 1 ? 900000 : 3600000;
+      const staleDuration = 86400000;
       
       if (cached && now - cached.timestamp < cacheDuration) {
         return res.json({ prices: cached.price, cached: true });
@@ -234,25 +235,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`[Market Chart] Fetching ${geckoId} for ${days} days`);
       
       const url = `${COINGECKO_API}/coins/${geckoId}/market_chart?vs_currency=usd&days=${days}`;
-      const response = await fetch(url, {
-        headers: { "Accept": "application/json" },
-      });
+      
+      try {
+        const response = await fetch(url, {
+          headers: { "Accept": "application/json" },
+        });
 
-      if (!response.ok) {
-        console.error("[Market Chart] CoinGecko error:", response.status);
-        if (cached) {
+        if (!response.ok) {
+          console.error("[Market Chart] CoinGecko error:", response.status);
+          if (cached && now - cached.timestamp < staleDuration) {
+            console.log("[Market Chart] Returning stale cached data");
+            return res.json({ prices: cached.price, cached: true, stale: true });
+          }
+          return res.status(502).json({ error: "Failed to fetch chart data" });
+        }
+
+        const data = await response.json();
+        const prices = data.prices || [];
+        
+        historicalPriceCache[cacheKey] = { price: prices, timestamp: now };
+        
+        console.log(`[Market Chart] Fetched ${prices.length} data points`);
+        return res.json({ prices, cached: false });
+      } catch (fetchError) {
+        console.error("[Market Chart] Fetch error:", fetchError);
+        if (cached && now - cached.timestamp < staleDuration) {
           return res.json({ prices: cached.price, cached: true, stale: true });
         }
         return res.status(502).json({ error: "Failed to fetch chart data" });
       }
-
-      const data = await response.json();
-      const prices = data.prices || [];
-      
-      historicalPriceCache[cacheKey] = { price: prices, timestamp: now };
-      
-      console.log(`[Market Chart] Fetched ${prices.length} data points`);
-      res.json({ prices, cached: false });
     } catch (error) {
       console.error("[Market Chart] Error:", error);
       res.status(500).json({ error: "Failed to fetch chart data" });
