@@ -50,7 +50,7 @@ interface PriceCache {
 }
 
 interface HistoricalPriceCache {
-  [key: string]: { price: number; timestamp: number };
+  [key: string]: { price: number | [number, number][]; timestamp: number };
 }
 
 let priceCache: PriceCache = { data: {}, timestamp: 0 };
@@ -193,10 +193,72 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  async function fetchDexScreenerChart(chainId: string, address: string): Promise<[number, number][] | null> {
+    try {
+      const dexChainId = DEXSCREENER_CHAIN_IDS[chainId] || chainId;
+      const url = `${DEXSCREENER_API}/token-pairs/v1/${dexChainId}/${address}`;
+      console.log(`[DexScreener Chart] Fetching pairs for ${address} on ${dexChainId}`);
+      
+      const response = await fetch(url, { headers: { "Accept": "application/json" } });
+      if (!response.ok) return null;
+      
+      const pairs = await response.json();
+      if (!Array.isArray(pairs) || pairs.length === 0) return null;
+      
+      const bestPair = pairs.reduce((best: any, pair: any) => 
+        (pair.liquidity?.usd || 0) > (best?.liquidity?.usd || 0) ? pair : best
+      , pairs[0]);
+      
+      if (!bestPair?.priceUsd) return null;
+      
+      const currentPrice = parseFloat(bestPair.priceUsd);
+      const priceChange24h = parseFloat(bestPair.priceChange?.h24 || "0") / 100;
+      const priceChange6h = parseFloat(bestPair.priceChange?.h6 || "0") / 100;
+      const priceChange1h = parseFloat(bestPair.priceChange?.h1 || "0") / 100;
+      const priceChange5m = parseFloat(bestPair.priceChange?.m5 || "0") / 100;
+      
+      const now = Date.now();
+      const prices: [number, number][] = [];
+      
+      const price24hAgo = currentPrice / (1 + priceChange24h);
+      const price6hAgo = currentPrice / (1 + priceChange6h);
+      const price1hAgo = currentPrice / (1 + priceChange1h);
+      const price5mAgo = currentPrice / (1 + priceChange5m);
+      
+      const points = [
+        { time: now - 24 * 60 * 60 * 1000, price: price24hAgo },
+        { time: now - 6 * 60 * 60 * 1000, price: price6hAgo },
+        { time: now - 1 * 60 * 60 * 1000, price: price1hAgo },
+        { time: now - 5 * 60 * 1000, price: price5mAgo },
+        { time: now, price: currentPrice },
+      ];
+      
+      for (let i = 0; i < points.length - 1; i++) {
+        const start = points[i];
+        const end = points[i + 1];
+        const steps = 10;
+        for (let j = 0; j <= steps; j++) {
+          const t = j / steps;
+          const time = start.time + (end.time - start.time) * t;
+          const price = start.price + (end.price - start.price) * t;
+          prices.push([time, price]);
+        }
+      }
+      
+      console.log(`[DexScreener Chart] Generated ${prices.length} synthetic points`);
+      return prices;
+    } catch (error) {
+      console.error("[DexScreener Chart] Error:", error);
+      return null;
+    }
+  }
+
   app.get("/api/market-chart/:symbol", async (req: Request, res: Response) => {
     try {
       const { symbol } = req.params;
       const days = req.query.days as string || "7";
+      const chainId = req.query.chainId as string;
+      const address = req.query.address as string;
       
       if (!symbol) {
         return res.status(400).json({ error: "Missing symbol" });
@@ -218,6 +280,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
       };
 
       const geckoId = symbolToGeckoId[symbol.toUpperCase()];
+      
+      if (!geckoId && address) {
+        const chain = chainId || "solana";
+        const cacheKey = `dex_chart_${chain}_${address}`;
+        const cached = historicalPriceCache[cacheKey];
+        const now = Date.now();
+        const cacheDuration = 900000;
+        
+        if (cached && now - cached.timestamp < cacheDuration) {
+          return res.json({ prices: cached.price, cached: true, source: "dexscreener" });
+        }
+        
+        const dexPrices = await fetchDexScreenerChart(chain, address);
+        if (dexPrices && dexPrices.length > 0) {
+          historicalPriceCache[cacheKey] = { price: dexPrices, timestamp: now };
+          return res.json({ prices: dexPrices, cached: false, source: "dexscreener" });
+        }
+        
+        return res.status(404).json({ error: "Chart not available for this token" });
+      }
+      
       if (!geckoId) {
         return res.status(404).json({ error: "Token not supported for chart data" });
       }
@@ -243,6 +326,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         if (!response.ok) {
           console.error("[Market Chart] CoinGecko error:", response.status);
+          
+          if (address) {
+            const chain = chainId || "solana";
+            console.log("[Market Chart] Trying DexScreener fallback...");
+            const dexPrices = await fetchDexScreenerChart(chain, address);
+            if (dexPrices && dexPrices.length > 0) {
+              const dexCacheKey = `dex_chart_${chain}_${address}`;
+              historicalPriceCache[dexCacheKey] = { price: dexPrices, timestamp: now };
+              return res.json({ prices: dexPrices, cached: false, source: "dexscreener" });
+            }
+          }
+          
           if (cached && now - cached.timestamp < staleDuration) {
             console.log("[Market Chart] Returning stale cached data");
             return res.json({ prices: cached.price, cached: true, stale: true });
@@ -259,6 +354,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.json({ prices, cached: false });
       } catch (fetchError) {
         console.error("[Market Chart] Fetch error:", fetchError);
+        
+        if (address) {
+          const chain = chainId || "solana";
+          const dexPrices = await fetchDexScreenerChart(chain, address);
+          if (dexPrices && dexPrices.length > 0) {
+            return res.json({ prices: dexPrices, cached: false, source: "dexscreener" });
+          }
+        }
+        
         if (cached && now - cached.timestamp < staleDuration) {
           return res.json({ prices: cached.price, cached: true, stale: true });
         }

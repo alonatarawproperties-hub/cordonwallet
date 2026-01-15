@@ -13,6 +13,8 @@ interface PriceChartProps {
   currentPrice?: number;
   width?: number;
   height?: number;
+  chainId?: number;
+  tokenAddress?: string;
 }
 
 interface ChartData {
@@ -28,7 +30,7 @@ const TIME_RANGES: { label: TimeRange; days: string }[] = [
   { label: "1Y", days: "365" },
 ];
 
-export function PriceChart({ symbol, currentPrice, width: propWidth, height = 200 }: PriceChartProps) {
+export function PriceChart({ symbol, currentPrice, width: propWidth, height = 200, chainId, tokenAddress }: PriceChartProps) {
   const { theme } = useTheme();
   const [chartAreaWidth, setChartAreaWidth] = useState<number>(0);
   
@@ -53,7 +55,7 @@ export function PriceChart({ symbol, currentPrice, width: propWidth, height = 20
 
   useEffect(() => {
     fetchChartData();
-  }, [symbol, selectedRange]);
+  }, [symbol, selectedRange, chainId, tokenAddress]);
 
   const fetchChartData = async () => {
     setIsLoading(true);
@@ -63,6 +65,13 @@ export function PriceChart({ symbol, currentPrice, width: propWidth, height = 20
       const days = TIME_RANGES.find(r => r.label === selectedRange)?.days || "7";
       const baseUrl = getApiUrl();
       const url = new URL(`/api/market-chart/${symbol}?days=${days}`, baseUrl);
+      
+      if (chainId !== undefined) {
+        url.searchParams.set("chainId", chainId === 0 ? "solana" : String(chainId));
+      }
+      if (tokenAddress) {
+        url.searchParams.set("address", tokenAddress);
+      }
       
       const response = await fetch(url.toString());
       

@@ -550,7 +550,7 @@ export default function AssetDetailScreen({ route }: Props) {
           <ThemedText type="body" style={{ color: theme.textSecondary, marginBottom: Spacing.sm }}>
             Price Chart
           </ThemedText>
-          <PriceChart symbol={tokenSymbol} currentPrice={priceUsd} />
+          <PriceChart symbol={tokenSymbol} currentPrice={priceUsd} chainId={chainId} tokenAddress={address} />
         </View>
 
         <View style={[styles.tabsContainer, { borderBottomColor: theme.border }]}>
