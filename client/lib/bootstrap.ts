@@ -5,7 +5,7 @@ import { hasVault, isUnlocked } from "./wallet-engine";
 import { initWalletConnect, getActiveSessions } from "./walletconnect/client";
 import { supportedChains, getDefaultChain } from "./blockchain/chains";
 import { createPublicClient, http } from "viem";
-import { Connection } from "@solana/web3.js";
+import { getApiUrl } from "./query-client";
 
 const STORAGE_KEYS = {
   LAST_CHAIN_ID: "@cordon/last_chain_id",
@@ -200,17 +200,20 @@ async function pingLastSelectedRPC(
   }
 
   try {
-    const solanaRpcUrl = process.env.EXPO_PUBLIC_SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com";
-    const connection = new Connection(solanaRpcUrl, { commitment: "confirmed" });
-
-    const slot = await withTimeout(
-      connection.getSlot(),
+    // Use backend health endpoint instead of direct RPC (avoids CORS/access issues)
+    const apiUrl = getApiUrl();
+    const healthUrl = new URL("/api/solana/health", apiUrl);
+    
+    const healthResponse = await withTimeout(
+      fetch(healthUrl.toString()),
       STEP_TIMEOUTS.pingRPC,
       null
     );
 
-    if (slot === null) {
+    if (healthResponse === null) {
       degraded.push({ chainKey: "Solana", reason: "RPC timeout" });
+    } else if (!healthResponse.ok) {
+      degraded.push({ chainKey: "Solana", reason: "RPC unavailable" });
     }
   } catch (error: any) {
     degraded.push({ chainKey: "Solana", reason: error.message || "RPC error" });

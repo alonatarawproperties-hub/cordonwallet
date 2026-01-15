@@ -60,6 +60,17 @@ let historicalPriceCache: HistoricalPriceCache = {};
 const HISTORICAL_CACHE_DURATION = 3600000;
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Health check endpoint for Solana RPC - used by mobile app to verify connectivity
+  app.get("/api/solana/health", async (req: Request, res: Response) => {
+    try {
+      const balance = await getSolanaBalance("So11111111111111111111111111111111111111112"); // Wrapped SOL mint
+      res.json({ ok: true, timestamp: Date.now() });
+    } catch (error: any) {
+      console.error("[Health] Solana RPC check failed:", error.message);
+      res.status(503).json({ ok: false, error: "Solana RPC unavailable" });
+    }
+  });
+
   app.get("/api/transactions/:address", async (req: Request, res: Response) => {
     try {
       const { address } = req.params;
