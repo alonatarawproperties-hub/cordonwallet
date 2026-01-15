@@ -193,21 +193,56 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  async function fetchDexScreenerChart(chainId: string, address: string): Promise<[number, number][] | null> {
+  async function fetchDexScreenerChart(chainId: string, address: string, days: string = "7"): Promise<[number, number][] | null> {
     try {
       const dexChainId = DEXSCREENER_CHAIN_IDS[chainId] || chainId;
-      const url = `${DEXSCREENER_API}/token-pairs/v1/${dexChainId}/${address}`;
+      
+      const pairsUrl = `${DEXSCREENER_API}/token-pairs/v1/${dexChainId}/${address}`;
       console.log(`[DexScreener Chart] Fetching pairs for ${address} on ${dexChainId}`);
       
-      const response = await fetch(url, { headers: { "Accept": "application/json" } });
-      if (!response.ok) return null;
+      const pairsResponse = await fetch(pairsUrl, { headers: { "Accept": "application/json" } });
+      if (!pairsResponse.ok) return null;
       
-      const pairs = await response.json();
+      const pairs = await pairsResponse.json();
       if (!Array.isArray(pairs) || pairs.length === 0) return null;
       
       const bestPair = pairs.reduce((best: any, pair: any) => 
         (pair.liquidity?.usd || 0) > (best?.liquidity?.usd || 0) ? pair : best
       , pairs[0]);
+      
+      if (!bestPair?.pairAddress) return null;
+      
+      const resolution = days === "1" ? "15" : days === "7" ? "60" : "240";
+      const daysNum = parseInt(days) || 7;
+      const from = Math.floor((Date.now() - daysNum * 24 * 60 * 60 * 1000) / 1000);
+      const to = Math.floor(Date.now() / 1000);
+      
+      const ohlcvUrl = `https://io.dexscreener.com/dex/chart/amm/v3/${dexChainId}/${bestPair.pairAddress}?res=${resolution}&from=${from}&to=${to}`;
+      console.log(`[DexScreener Chart] Fetching OHLCV from ${ohlcvUrl}`);
+      
+      const ohlcvResponse = await fetch(ohlcvUrl, { 
+        headers: { 
+          "Accept": "application/json",
+          "User-Agent": "Mozilla/5.0 (compatible; CordonWallet/1.0)"
+        } 
+      });
+      
+      if (ohlcvResponse.ok) {
+        const ohlcvData = await ohlcvResponse.json();
+        
+        if (ohlcvData?.bars && Array.isArray(ohlcvData.bars) && ohlcvData.bars.length > 0) {
+          const prices: [number, number][] = ohlcvData.bars.map((bar: any) => {
+            const timestamp = bar.timestamp * 1000;
+            const closePrice = parseFloat(bar.close);
+            return [timestamp, closePrice];
+          });
+          
+          console.log(`[DexScreener Chart] Fetched ${prices.length} real OHLCV points`);
+          return prices;
+        }
+      }
+      
+      console.log("[DexScreener Chart] OHLCV not available, falling back to synthetic data");
       
       if (!bestPair?.priceUsd) return null;
       
@@ -283,16 +318,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       if (!geckoId && address) {
         const chain = chainId || "solana";
-        const cacheKey = `dex_chart_${chain}_${address}`;
+        const cacheKey = `dex_chart_${chain}_${address}_${days}`;
         const cached = historicalPriceCache[cacheKey];
         const now = Date.now();
-        const cacheDuration = 900000;
+        const cacheDuration = parseInt(days) <= 1 ? 300000 : 900000;
         
         if (cached && now - cached.timestamp < cacheDuration) {
           return res.json({ prices: cached.price, cached: true, source: "dexscreener" });
         }
         
-        const dexPrices = await fetchDexScreenerChart(chain, address);
+        const dexPrices = await fetchDexScreenerChart(chain, address, days);
         if (dexPrices && dexPrices.length > 0) {
           historicalPriceCache[cacheKey] = { price: dexPrices, timestamp: now };
           return res.json({ prices: dexPrices, cached: false, source: "dexscreener" });
