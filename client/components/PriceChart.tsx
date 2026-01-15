@@ -49,6 +49,15 @@ export function PriceChart({ symbol, currentPrice, width: propWidth, height = 20
   
   const chartRef = useRef<View>(null);
   const lastHapticIndex = useRef<number | null>(null);
+  const chartDataRef = useRef<ChartData[]>([]);
+  const chartWidthRef = useRef<number>(0);
+  const paddingLeftRef = useRef<number>(5);
+  
+  useEffect(() => {
+    chartDataRef.current = chartData;
+    chartWidthRef.current = chartWidth;
+    paddingLeftRef.current = padding.left;
+  }, [chartData, chartWidth, padding.left]);
   
   const handleChartAreaLayout = (event: LayoutChangeEvent) => {
     const { width: measuredWidth } = event.nativeEvent.layout;
@@ -125,17 +134,20 @@ export function PriceChart({ symbol, currentPrice, width: propWidth, height = 20
     return sampled;
   };
 
-  const getIndexFromX = useCallback((x: number) => {
-    if (chartData.length < 2 || chartWidth <= 0) return null;
-    const relativeX = x - padding.left;
-    const index = Math.round((relativeX / chartWidth) * (chartData.length - 1));
-    return Math.max(0, Math.min(chartData.length - 1, index));
-  }, [chartData.length, chartWidth, padding.left]);
+  const getIndexFromX = (x: number) => {
+    const data = chartDataRef.current;
+    const width = chartWidthRef.current;
+    const padLeft = paddingLeftRef.current;
+    if (data.length < 2 || width <= 0) return null;
+    const relativeX = x - padLeft;
+    const index = Math.round((relativeX / width) * (data.length - 1));
+    return Math.max(0, Math.min(data.length - 1, index));
+  };
 
   const panResponder = useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
+      onStartShouldSetPanResponder: () => chartDataRef.current.length >= 2,
+      onMoveShouldSetPanResponder: () => chartDataRef.current.length >= 2,
       onPanResponderGrant: (evt) => {
         const x = evt.nativeEvent.locationX;
         const index = getIndexFromX(x);
@@ -168,10 +180,6 @@ export function PriceChart({ symbol, currentPrice, width: propWidth, height = 20
       },
     })
   ).current;
-
-  useEffect(() => {
-    panResponder.panHandlers.onStartShouldSetResponder = () => chartData.length >= 2;
-  }, [chartData.length]);
 
   if (isLoading || chartAreaWidth === 0) {
     return (
