@@ -79,6 +79,47 @@ export async function fetchTransactionHistory(
 
   try {
     const apiUrl = getApiUrl();
+    
+    if (chainId === 0) {
+      const url = new URL(`/api/solana/history/${walletAddress}`, apiUrl);
+      url.searchParams.set("limit", "50");
+      
+      console.log(`[ExplorerAPI] Fetching Solana transactions for:`, walletAddress);
+      
+      const response = await fetch(url.toString());
+      if (!response.ok) {
+        console.error(`[ExplorerAPI] Solana history error:`, response.status);
+        return [];
+      }
+      
+      const data = await response.json();
+      
+      if (!Array.isArray(data) || data.length === 0) {
+        console.log(`[ExplorerAPI] Solana no transactions found`);
+        return [];
+      }
+      
+      console.log(`[ExplorerAPI] Solana found ${data.length} transactions`);
+      
+      const transactions: TxRecord[] = data.map((tx: any): TxRecord => ({
+        id: tx.signature,
+        chainId: 0,
+        walletAddress,
+        hash: tx.signature,
+        type: tx.tokenMint ? "spl" : "native",
+        activityType: tx.type === "receive" ? "receive" : tx.type === "send" ? "send" : "send",
+        tokenSymbol: tx.tokenSymbol || "SOL",
+        to: tx.to || "",
+        from: tx.from || "",
+        amount: tx.amount?.toString() || "0",
+        status: tx.err ? "failed" : "confirmed",
+        createdAt: tx.blockTime ? tx.blockTime * 1000 : Date.now(),
+        explorerUrl: `https://solscan.io/tx/${tx.signature}`,
+      }));
+      
+      return transactions;
+    }
+    
     const url = new URL(`/api/transactions/${walletAddress}`, apiUrl);
     url.searchParams.set("chainId", chainId.toString());
     
