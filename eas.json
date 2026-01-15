@@ -35,7 +35,7 @@
       },
       "channel": "production",
       "env": {
-        "EXPO_PUBLIC_DOMAIN": "https://app.cordonwallet.com"
+        "EXPO_PUBLIC_DOMAIN": "app.cordonwallet.com"
       }
     }
   }
