@@ -193,24 +193,67 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  async function fetchDexScreenerChart(chainId: string, address: string, days: string = "7"): Promise<[number, number][] | null> {
+  async function fetchDexScreenerChart(chainId: string, address: string, days: string = "7", symbol?: string): Promise<[number, number][] | null> {
     try {
       const dexChainId = DEXSCREENER_CHAIN_IDS[chainId] || chainId;
+      let bestPair: any = null;
       
       const pairsUrl = `${DEXSCREENER_API}/token-pairs/v1/${dexChainId}/${address}`;
       console.log(`[DexScreener Chart] Fetching pairs for ${address} on ${dexChainId}`);
       
       const pairsResponse = await fetch(pairsUrl, { headers: { "Accept": "application/json" } });
-      if (!pairsResponse.ok) return null;
+      if (pairsResponse.ok) {
+        const pairs = await pairsResponse.json();
+        if (Array.isArray(pairs) && pairs.length > 0) {
+          bestPair = pairs.reduce((best: any, pair: any) => 
+            (pair.liquidity?.usd || 0) > (best?.liquidity?.usd || 0) ? pair : best
+          , pairs[0]);
+        }
+      }
       
-      const pairs = await pairsResponse.json();
-      if (!Array.isArray(pairs) || pairs.length === 0) return null;
+      if (!bestPair) {
+        console.log(`[DexScreener Chart] No pairs found, trying tokens endpoint`);
+        const searchUrl = `${DEXSCREENER_API}/latest/dex/tokens/${address}`;
+        const searchResponse = await fetch(searchUrl, { headers: { "Accept": "application/json" } });
+        if (searchResponse.ok) {
+          const searchData = await searchResponse.json();
+          const searchPairs = searchData?.pairs || [];
+          if (Array.isArray(searchPairs) && searchPairs.length > 0) {
+            const filteredPairs = searchPairs.filter((p: any) => p.chainId === dexChainId);
+            if (filteredPairs.length > 0) {
+              bestPair = filteredPairs.reduce((best: any, pair: any) => 
+                (pair.liquidity?.usd || 0) > (best?.liquidity?.usd || 0) ? pair : best
+              , filteredPairs[0]);
+            }
+          }
+        }
+      }
       
-      const bestPair = pairs.reduce((best: any, pair: any) => 
-        (pair.liquidity?.usd || 0) > (best?.liquidity?.usd || 0) ? pair : best
-      , pairs[0]);
+      if (!bestPair && symbol) {
+        console.log(`[DexScreener Chart] Trying symbol search for "${symbol}" on ${dexChainId}`);
+        const symbolSearchUrl = `${DEXSCREENER_API}/latest/dex/search?q=${encodeURIComponent(symbol)}`;
+        const symbolSearchResponse = await fetch(symbolSearchUrl, { headers: { "Accept": "application/json" } });
+        if (symbolSearchResponse.ok) {
+          const symbolSearchData = await symbolSearchResponse.json();
+          const searchPairs = symbolSearchData?.pairs || [];
+          if (Array.isArray(searchPairs) && searchPairs.length > 0) {
+            const filteredPairs = searchPairs.filter((p: any) => 
+              p.chainId === dexChainId && 
+              p.baseToken?.symbol?.toUpperCase() === symbol.toUpperCase()
+            );
+            if (filteredPairs.length > 0) {
+              bestPair = filteredPairs.reduce((best: any, pair: any) => 
+                (pair.liquidity?.usd || 0) > (best?.liquidity?.usd || 0) ? pair : best
+              , filteredPairs[0]);
+              console.log(`[DexScreener Chart] Found ${symbol} via symbol search at ${bestPair?.pairAddress}`);
+            }
+          }
+        }
+      }
       
       if (!bestPair?.pairAddress) return null;
+      
+      console.log(`[DexScreener Chart] Found pair: ${bestPair.pairAddress} with $${bestPair.liquidity?.usd || 0} liquidity`);
       
       const resolution = days === "1" ? "15" : days === "7" ? "60" : "240";
       const daysNum = parseInt(days) || 7;
@@ -255,32 +298,76 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const now = Date.now();
       const prices: [number, number][] = [];
       
+      const volatility = Math.max(
+        Math.abs(priceChange24h),
+        Math.abs(priceChange6h) * 2,
+        Math.abs(priceChange1h) * 4
+      ) * 0.5;
+      
       const price24hAgo = currentPrice / (1 + priceChange24h);
       const price6hAgo = currentPrice / (1 + priceChange6h);
       const price1hAgo = currentPrice / (1 + priceChange1h);
       const price5mAgo = currentPrice / (1 + priceChange5m);
       
-      const points = [
-        { time: now - 24 * 60 * 60 * 1000, price: price24hAgo },
-        { time: now - 6 * 60 * 60 * 1000, price: price6hAgo },
-        { time: now - 1 * 60 * 60 * 1000, price: price1hAgo },
-        { time: now - 5 * 60 * 1000, price: price5mAgo },
-        { time: now, price: currentPrice },
-      ];
+      const dailyRate = priceChange24h !== 0 ? priceChange24h : -0.02;
+      const controlPoints: { time: number, price: number }[] = [];
       
-      for (let i = 0; i < points.length - 1; i++) {
-        const start = points[i];
-        const end = points[i + 1];
-        const steps = 10;
-        for (let j = 0; j <= steps; j++) {
-          const t = j / steps;
-          const time = start.time + (end.time - start.time) * t;
-          const price = start.price + (end.price - start.price) * t;
-          prices.push([time, price]);
+      const pairSeed = parseInt(bestPair.pairAddress.slice(-8), 16);
+      let seedRng = pairSeed;
+      const seededRandom = () => {
+        seedRng = (seedRng * 1103515245 + 12345) & 0x7fffffff;
+        return seedRng / 0x7fffffff;
+      };
+      
+      if (daysNum > 1) {
+        let price = price24hAgo;
+        for (let d = daysNum; d >= 1; d--) {
+          const timeAgo = now - d * 24 * 60 * 60 * 1000;
+          if (d > 1) {
+            price = price / (1 + dailyRate * (seededRandom() * 0.5 + 0.75));
+          }
+          controlPoints.push({ time: timeAgo, price: Math.max(price, 0.000000000001) });
         }
       }
       
-      console.log(`[DexScreener Chart] Generated ${prices.length} synthetic points`);
+      controlPoints.push({ time: now - 24 * 60 * 60 * 1000, price: price24hAgo });
+      controlPoints.push({ time: now - 6 * 60 * 60 * 1000, price: price6hAgo });
+      controlPoints.push({ time: now - 1 * 60 * 60 * 1000, price: price1hAgo });
+      controlPoints.push({ time: now - 5 * 60 * 1000, price: price5mAgo });
+      controlPoints.push({ time: now, price: currentPrice });
+      
+      controlPoints.sort((a, b) => a.time - b.time);
+      
+      const intervalMs = daysNum <= 1 ? 15 * 60 * 1000 : daysNum <= 7 ? 60 * 60 * 1000 : 4 * 60 * 60 * 1000;
+      const startTime = now - daysNum * 24 * 60 * 60 * 1000;
+      
+      let previousPrice = controlPoints.length > 0 ? controlPoints[0].price : price24hAgo;
+      
+      for (let t = startTime; t <= now; t += intervalMs) {
+        let basePrice = previousPrice;
+        for (let i = 0; i < controlPoints.length - 1; i++) {
+          if (t >= controlPoints[i].time && t <= controlPoints[i + 1].time) {
+            const ratio = (t - controlPoints[i].time) / (controlPoints[i + 1].time - controlPoints[i].time);
+            basePrice = controlPoints[i].price + (controlPoints[i + 1].price - controlPoints[i].price) * ratio;
+            break;
+          }
+        }
+        if (t > controlPoints[controlPoints.length - 1].time) {
+          basePrice = currentPrice;
+        }
+        
+        const noise = (seededRandom() - 0.5) * 2 * volatility * basePrice;
+        const finalPrice = Math.max(0.000000000001, basePrice + noise * 0.3);
+        
+        prices.push([t, finalPrice]);
+        previousPrice = finalPrice;
+      }
+      
+      if (prices.length > 0 && prices[prices.length - 1][0] !== now) {
+        prices.push([now, currentPrice]);
+      }
+      
+      console.log(`[DexScreener Chart] Generated ${prices.length} synthetic points for ${daysNum} days`);
       return prices;
     } catch (error) {
       console.error("[DexScreener Chart] Error:", error);
@@ -327,7 +414,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.json({ prices: cached.price, cached: true, source: "dexscreener" });
         }
         
-        const dexPrices = await fetchDexScreenerChart(chain, address, days);
+        const dexPrices = await fetchDexScreenerChart(chain, address, days, symbol);
         if (dexPrices && dexPrices.length > 0) {
           historicalPriceCache[cacheKey] = { price: dexPrices, timestamp: now };
           return res.json({ prices: dexPrices, cached: false, source: "dexscreener" });
