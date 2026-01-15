@@ -1,8 +1,6 @@
-import { useState, useEffect, useCallback } from "react";
-import { View, StyleSheet, Pressable, ActivityIndicator, LayoutChangeEvent, Platform } from "react-native";
-import Svg, { Path, Circle, Defs, LinearGradient, Stop, RadialGradient, Rect } from "react-native-svg";
-import { Gesture, GestureDetector } from "react-native-gesture-handler";
-import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming, runOnJS } from "react-native-reanimated";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { View, StyleSheet, Pressable, ActivityIndicator, LayoutChangeEvent, PanResponder } from "react-native";
+import Svg, { Path, Circle, Defs, LinearGradient, Stop } from "react-native-svg";
 import * as Haptics from "expo-haptics";
 import { useTheme } from "@/hooks/useTheme";
 import { ThemedText } from "@/components/ThemedText";
@@ -49,10 +47,8 @@ export function PriceChart({ symbol, currentPrice, width: propWidth, height = 20
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   
-  const indicatorX = useSharedValue(0);
-  const indicatorY = useSharedValue(0);
-  const indicatorOpacity = useSharedValue(0);
-  const infoBarOpacity = useSharedValue(0);
+  const chartRef = useRef<View>(null);
+  const lastHapticIndex = useRef<number | null>(null);
   
   const handleChartAreaLayout = (event: LayoutChangeEvent) => {
     const { width: measuredWidth } = event.nativeEvent.layout;
@@ -129,82 +125,53 @@ export function PriceChart({ symbol, currentPrice, width: propWidth, height = 20
     return sampled;
   };
 
-  const triggerHaptic = useCallback(() => {
-    if (Platform.OS !== "web") {
-      Haptics.selectionAsync();
-    }
-  }, []);
+  const getIndexFromX = useCallback((x: number) => {
+    if (chartData.length < 2 || chartWidth <= 0) return null;
+    const relativeX = x - padding.left;
+    const index = Math.round((relativeX / chartWidth) * (chartData.length - 1));
+    return Math.max(0, Math.min(chartData.length - 1, index));
+  }, [chartData.length, chartWidth, padding.left]);
 
-  const updateActiveIndex = useCallback((index: number | null) => {
-    setActiveIndex(index);
-  }, []);
-
-  const updateDragging = useCallback((dragging: boolean) => {
-    setIsDragging(dragging);
-  }, []);
-
-  const getX = useCallback((index: number) => padding.left + (index / (chartData.length - 1)) * chartWidth, [chartData.length, chartWidth, padding.left]);
-  const getY = useCallback((price: number, minPrice: number, priceRange: number) => padding.top + chartHeight - ((price - minPrice) / priceRange) * chartHeight, [chartHeight, padding.top]);
-
-  const panGesture = Gesture.Pan()
-    .onStart((event) => {
-      if (chartData.length < 2) return;
-      
-      const x = event.x - padding.left;
-      const index = Math.round((x / chartWidth) * (chartData.length - 1));
-      const clampedIndex = Math.max(0, Math.min(chartData.length - 1, index));
-      
-      const prices = chartData.map(d => d.price);
-      const minPrice = Math.min(...prices);
-      const maxPrice = Math.max(...prices);
-      const priceRange = maxPrice - minPrice || 1;
-      
-      indicatorX.value = getX(clampedIndex);
-      indicatorY.value = getY(chartData[clampedIndex].price, minPrice, priceRange);
-      indicatorOpacity.value = withSpring(1);
-      infoBarOpacity.value = withSpring(1);
-      
-      runOnJS(updateActiveIndex)(clampedIndex);
-      runOnJS(updateDragging)(true);
-      runOnJS(triggerHaptic)();
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: (evt) => {
+        const x = evt.nativeEvent.locationX;
+        const index = getIndexFromX(x);
+        if (index !== null) {
+          setActiveIndex(index);
+          setIsDragging(true);
+          lastHapticIndex.current = index;
+          Haptics.selectionAsync();
+        }
+      },
+      onPanResponderMove: (evt) => {
+        const x = evt.nativeEvent.locationX;
+        const index = getIndexFromX(x);
+        if (index !== null) {
+          setActiveIndex(index);
+          if (lastHapticIndex.current !== index) {
+            lastHapticIndex.current = index;
+          }
+        }
+      },
+      onPanResponderRelease: () => {
+        setActiveIndex(null);
+        setIsDragging(false);
+        lastHapticIndex.current = null;
+      },
+      onPanResponderTerminate: () => {
+        setActiveIndex(null);
+        setIsDragging(false);
+        lastHapticIndex.current = null;
+      },
     })
-    .onUpdate((event) => {
-      if (chartData.length < 2) return;
-      
-      const x = event.x - padding.left;
-      const index = Math.round((x / chartWidth) * (chartData.length - 1));
-      const clampedIndex = Math.max(0, Math.min(chartData.length - 1, index));
-      
-      const prices = chartData.map(d => d.price);
-      const minPrice = Math.min(...prices);
-      const maxPrice = Math.max(...prices);
-      const priceRange = maxPrice - minPrice || 1;
-      
-      const newX = getX(clampedIndex);
-      const newY = getY(chartData[clampedIndex].price, minPrice, priceRange);
-      
-      indicatorX.value = newX;
-      indicatorY.value = newY;
-      
-      runOnJS(updateActiveIndex)(clampedIndex);
-    })
-    .onEnd(() => {
-      indicatorOpacity.value = withTiming(0, { duration: 200 });
-      infoBarOpacity.value = withTiming(0, { duration: 200 });
-      runOnJS(updateActiveIndex)(null);
-      runOnJS(updateDragging)(false);
-    });
+  ).current;
 
-  const indicatorStyle = useAnimatedStyle(() => ({
-    position: "absolute" as const,
-    left: indicatorX.value - 12,
-    top: indicatorY.value - 12,
-    opacity: indicatorOpacity.value,
-  }));
-
-  const infoBarStyle = useAnimatedStyle(() => ({
-    opacity: infoBarOpacity.value,
-  }));
+  useEffect(() => {
+    panResponder.panHandlers.onStartShouldSetResponder = () => chartData.length >= 2;
+  }, [chartData.length]);
 
   if (isLoading || chartAreaWidth === 0) {
     return (
@@ -248,7 +215,10 @@ export function PriceChart({ symbol, currentPrice, width: propWidth, height = 20
   const maxPrice = Math.max(...prices);
   const priceRange = maxPrice - minPrice || 1;
 
-  const pathPoints = chartData.map((d, i) => `${i === 0 ? "M" : "L"} ${getX(i)} ${getY(d.price, minPrice, priceRange)}`).join(" ");
+  const getX = (index: number) => padding.left + (index / (chartData.length - 1)) * chartWidth;
+  const getY = (price: number) => padding.top + chartHeight - ((price - minPrice) / priceRange) * chartHeight;
+
+  const pathPoints = chartData.map((d, i) => `${i === 0 ? "M" : "L"} ${getX(i)} ${getY(d.price)}`).join(" ");
   const areaPath = `${pathPoints} L ${getX(chartData.length - 1)} ${padding.top + chartHeight} L ${getX(0)} ${padding.top + chartHeight} Z`;
 
   const lastPrice = chartData[chartData.length - 1].price;
@@ -288,6 +258,9 @@ export function PriceChart({ symbol, currentPrice, width: propWidth, height = 20
     ? chartData[activeIndex].price - firstPrice
     : lastPrice - firstPrice;
 
+  const indicatorX = activeIndex !== null ? getX(activeIndex) : 0;
+  const indicatorY = activeIndex !== null ? getY(chartData[activeIndex].price) : 0;
+
   return (
     <View style={[styles.container, { backgroundColor: theme.backgroundDefault }]} onLayout={handleChartAreaLayout}>
       <View style={styles.priceHeader}>
@@ -302,51 +275,64 @@ export function PriceChart({ symbol, currentPrice, width: propWidth, height = 20
         </ThemedText>
       </View>
 
-      <GestureDetector gesture={panGesture}>
-        <View style={{ width: svgWidth, height: height - 80 }}>
-          <Svg width={svgWidth} height={height - 80}>
-            <Defs>
-              <LinearGradient id="priceGradient" x1="0" y1="0" x2="0" y2="1">
-                <Stop offset="0%" stopColor={lineColor} stopOpacity={0.25} />
-                <Stop offset="100%" stopColor={lineColor} stopOpacity={0} />
-              </LinearGradient>
-              <RadialGradient id="glowGradient" cx="50%" cy="50%" r="50%">
-                <Stop offset="0%" stopColor={lineColor} stopOpacity={0.8} />
-                <Stop offset="50%" stopColor={lineColor} stopOpacity={0.3} />
-                <Stop offset="100%" stopColor={lineColor} stopOpacity={0} />
-              </RadialGradient>
-            </Defs>
+      <View 
+        ref={chartRef}
+        style={{ width: svgWidth, height: height - 80 }}
+        {...panResponder.panHandlers}
+      >
+        <Svg width={svgWidth} height={height - 80}>
+          <Defs>
+            <LinearGradient id="priceGradient" x1="0" y1="0" x2="0" y2="1">
+              <Stop offset="0%" stopColor={lineColor} stopOpacity={0.25} />
+              <Stop offset="100%" stopColor={lineColor} stopOpacity={0} />
+            </LinearGradient>
+          </Defs>
 
-            <Path d={areaPath} fill="url(#priceGradient)" />
-            <Path
-              d={pathPoints}
-              stroke={lineColor}
-              strokeWidth={2}
-              fill="none"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
+          <Path d={areaPath} fill="url(#priceGradient)" />
+          <Path
+            d={pathPoints}
+            stroke={lineColor}
+            strokeWidth={2}
+            fill="none"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
 
-            {!isDragging && (
+          {activeIndex !== null ? (
+            <>
               <Circle
-                cx={getX(chartData.length - 1)}
-                cy={getY(lastPrice, minPrice, priceRange)}
-                r={4}
+                cx={indicatorX}
+                cy={indicatorY}
+                r={16}
+                fill={lineColor}
+                opacity={0.2}
+              />
+              <Circle
+                cx={indicatorX}
+                cy={indicatorY}
+                r={8}
                 fill={lineColor}
               />
-            )}
-          </Svg>
-
-          <Animated.View style={indicatorStyle}>
-            <View style={[styles.glowIndicator, { backgroundColor: lineColor }]}>
-              <View style={[styles.glowInner, { backgroundColor: "#fff" }]} />
-            </View>
-          </Animated.View>
-        </View>
-      </GestureDetector>
+              <Circle
+                cx={indicatorX}
+                cy={indicatorY}
+                r={4}
+                fill="#fff"
+              />
+            </>
+          ) : (
+            <Circle
+              cx={getX(chartData.length - 1)}
+              cy={getY(lastPrice)}
+              r={4}
+              fill={lineColor}
+            />
+          )}
+        </Svg>
+      </View>
 
       {isDragging && activeIndex !== null && (
-        <Animated.View style={[styles.infoBar, { backgroundColor: theme.backgroundSecondary + "F0" }, infoBarStyle]}>
+        <View style={[styles.infoBar, { backgroundColor: theme.backgroundSecondary }]}>
           <View style={styles.infoBarContent}>
             <View style={styles.infoBarLeft}>
               <ThemedText type="caption" style={{ color: theme.textSecondary, fontSize: 11 }}>
@@ -367,11 +353,11 @@ export function PriceChart({ symbol, currentPrice, width: propWidth, height = 20
                   fontWeight: "500"
                 }}
               >
-                {displayChange >= 0 ? "+" : ""}{formatPrice(Math.abs(displayChangeAmount)).replace("$", "")} ({displayChange >= 0 ? "+" : ""}{displayChange.toFixed(2)}%)
+                {displayChange >= 0 ? "+" : ""}{displayChange.toFixed(2)}%
               </ThemedText>
             </View>
           </View>
-        </Animated.View>
+        </View>
       )}
 
       <View style={styles.timeLabels}>
@@ -443,23 +429,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.sm,
     borderRadius: BorderRadius.md,
-  },
-  glowIndicator: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.5,
-    shadowRadius: 8,
-    elevation: 8,
-  },
-  glowInner: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
   },
   infoBar: {
     position: "absolute",
