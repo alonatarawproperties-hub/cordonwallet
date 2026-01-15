@@ -53,12 +53,24 @@ function checkFallbackExpiry() {
 }
 
 function isRateLimitError(error: any): boolean {
-  const errorStr = String(error);
-  return errorStr.includes("429") || 
-         errorStr.includes("Too Many Requests") || 
-         errorStr.includes("max usage reached") ||
-         errorStr.includes("403") ||
-         errorStr.includes("Access forbidden");
+  const errorStr = String(error).toLowerCase();
+  const errorMessage = error?.message?.toLowerCase() || "";
+  const combined = errorStr + " " + errorMessage;
+  
+  const isRateLimit = combined.includes("429") || 
+         combined.includes("too many requests") || 
+         combined.includes("max usage reached") ||
+         combined.includes("403") ||
+         combined.includes("access forbidden") ||
+         combined.includes("rate limit") ||
+         combined.includes("quota") ||
+         combined.includes("forbidden");
+  
+  if (isRateLimit) {
+    console.log("[Solana API] Detected rate limit/access error:", errorStr.slice(0, 200));
+  }
+  
+  return isRateLimit;
 }
 
 console.log("[Solana API] Using RPC:", getRpcProviderName(PRIMARY_RPC_URL));

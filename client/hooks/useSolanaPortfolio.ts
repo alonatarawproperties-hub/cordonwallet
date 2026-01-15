@@ -343,11 +343,26 @@ export function useSolanaPortfolio(address: string | undefined) {
       }
     } catch (error) {
       if (isMounted.current) {
+        // Provide user-friendly error messages
+        let errorMessage = "Failed to fetch Solana balances";
+        if (error instanceof Error) {
+          const msg = error.message.toLowerCase();
+          if (msg.includes("network request failed") || msg.includes("fetch")) {
+            errorMessage = "Network request failed";
+          } else if (msg.includes("403") || msg.includes("forbidden")) {
+            errorMessage = "RPC access denied - using cached data";
+          } else if (msg.includes("timeout")) {
+            errorMessage = "Request timed out";
+          } else {
+            errorMessage = error.message;
+          }
+        }
+        
         setState(prev => ({
           ...prev,
           isLoading: false,
           isRefreshing: false,
-          error: error instanceof Error ? error.message : "Failed to fetch Solana balances",
+          error: errorMessage,
         }));
       }
     }
