@@ -74,7 +74,7 @@ export async function getQuote(request: QuoteRequest): Promise<QuoteResponse> {
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000);
+      const timeoutId = setTimeout(() => controller.abort(), 15000);
       
       const response = await fetch(url.toString(), {
         method: "GET",
@@ -149,7 +149,7 @@ export async function buildSwapTransaction(
   
   if (!response.ok) {
     const errorText = await response.text();
-    throw new Error(`Jupiter swap build failed: ${response.status} - ${errorText}`);
+    throw new Error(`Swap build failed (${response.status}): ${errorText}`);
   }
   
   return response.json();

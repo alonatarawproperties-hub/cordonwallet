@@ -15,6 +15,8 @@ import {
 const ETHERSCAN_V2_API = "https://api.etherscan.io/v2/api";
 const COINGECKO_API = "https://api.coingecko.com/api/v3";
 const DEXSCREENER_API = "https://api.dexscreener.com";
+const JUPITER_API = "https://quote-api.jup.ag";
+const JUPITER_TOKENS_API = "https://tokens.jup.ag";
 
 const DEXSCREENER_CHAIN_IDS: Record<number | string, string> = {
   0: "solana",
@@ -68,6 +70,109 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error: any) {
       console.error("[Health] Solana RPC check failed:", error.message);
       res.status(503).json({ ok: false, error: "Solana RPC unavailable" });
+    }
+  });
+
+  // Jupiter API Proxy - Quote endpoint
+  app.get("/api/jupiter/quote", async (req: Request, res: Response) => {
+    try {
+      const { inputMint, outputMint, amount, slippageBps, onlyDirectRoutes } = req.query;
+      
+      if (!inputMint || !outputMint || !amount) {
+        return res.status(400).json({ error: "Missing required parameters: inputMint, outputMint, amount" });
+      }
+
+      const params = new URLSearchParams({
+        inputMint: inputMint as string,
+        outputMint: outputMint as string,
+        amount: amount as string,
+        slippageBps: (slippageBps as string) || "50",
+      });
+      
+      if (onlyDirectRoutes === "true") {
+        params.set("onlyDirectRoutes", "true");
+      }
+
+      const url = `${JUPITER_API}/v6/quote?${params.toString()}`;
+      console.log("[Jupiter Proxy] Quote request:", url);
+      
+      const response = await fetch(url, {
+        headers: { "Accept": "application/json" },
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("[Jupiter Proxy] Quote error:", response.status, errorText);
+        return res.status(response.status).json({ error: errorText });
+      }
+      
+      const data = await response.json();
+      res.json(data);
+    } catch (error: any) {
+      console.error("[Jupiter Proxy] Quote failed:", error.message);
+      res.status(500).json({ error: error.message || "Failed to fetch quote" });
+    }
+  });
+
+  // Jupiter API Proxy - Swap endpoint
+  app.post("/api/jupiter/swap", async (req: Request, res: Response) => {
+    try {
+      const body = req.body;
+      
+      if (!body.quoteResponse || !body.userPublicKey) {
+        return res.status(400).json({ error: "Missing quoteResponse or userPublicKey" });
+      }
+
+      console.log("[Jupiter Proxy] Swap request for:", body.userPublicKey);
+      
+      const response = await fetch(`${JUPITER_API}/v6/swap`, {
+        method: "POST",
+        headers: {
+          "Accept": "application/json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("[Jupiter Proxy] Swap error:", response.status, errorText);
+        return res.status(response.status).json({ error: errorText });
+      }
+      
+      const data = await response.json();
+      res.json(data);
+    } catch (error: any) {
+      console.error("[Jupiter Proxy] Swap failed:", error.message);
+      res.status(500).json({ error: error.message || "Failed to build swap" });
+    }
+  });
+
+  // Jupiter Tokens API Proxy
+  app.get("/api/jupiter/tokens", async (req: Request, res: Response) => {
+    try {
+      const { tags } = req.query;
+      const url = tags 
+        ? `${JUPITER_TOKENS_API}/tokens?tags=${tags}`
+        : `${JUPITER_TOKENS_API}/tokens`;
+      
+      console.log("[Jupiter Proxy] Tokens request:", url);
+      
+      const response = await fetch(url, {
+        headers: { "Accept": "application/json" },
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("[Jupiter Proxy] Tokens error:", response.status, errorText);
+        return res.status(response.status).json({ error: errorText });
+      }
+      
+      const data = await response.json();
+      res.json(data);
+    } catch (error: any) {
+      console.error("[Jupiter Proxy] Tokens failed:", error.message);
+      res.status(500).json({ error: error.message || "Failed to fetch tokens" });
     }
   });
 
