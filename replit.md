@@ -66,6 +66,19 @@ The project is organized into `/client` (frontend), `/server` (backend), and `/s
 - **Security**: Integrates with the Wallet Firewall for transaction approval intents and policy enforcement.
 - **Multi-Chain Support**: Automatically handles namespace building for EVM and Solana, ensuring correct address provisioning.
 
+### Solana Swap (Jupiter Integration)
+
+- **SwapScreen**: Native Solana token swap interface with token selectors, live quotes (auto-refresh every 1.5s), slippage controls, and speed modes (standard/fast/turbo).
+- **Jupiter API**: Integration for quote fetching and swap transaction building via `client/services/jupiter.ts`.
+- **Token List Service**: Cached token list with 24h TTL, searchable by symbol/name/mint address (`client/services/solanaTokenList.ts`).
+- **Fee Controller**: Compute budget instructions for priority fees with configurable caps per speed mode (`client/lib/solana/feeController.ts`).
+- **Swap Security Gate**: Allowlist validation for Jupiter programs, drainer detection, and fee payer verification (`client/lib/solana/swapSecurity.ts`).
+- **Transaction Broadcaster**: Dual RPC support (primary Helius + fallback) with automatic rebroadcast and confirmation polling (`client/services/txBroadcaster.ts`).
+- **Swap Store**: AsyncStorage-backed history and metrics tracking (`client/services/swapStore.ts`).
+- **Speed Modes**: Standard (0.0008 SOL cap), Fast (0.002 SOL), Turbo (0.005 SOL, max 0.02 SOL for advanced).
+- **SwapHistoryScreen**: View past swaps with status indicators and explorer links.
+- **SwapDebugScreen**: Configuration viewer and session metrics.
+
 ### Browser/dApps Interface
 
 - **BrowserScreen**: Main discovery tab with search bar, active WalletConnect sessions, browsing recents, and curated popular dApps grid with security banner.
