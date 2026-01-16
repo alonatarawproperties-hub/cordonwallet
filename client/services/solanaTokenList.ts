@@ -1,9 +1,9 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { POPULAR_TOKENS, SOL_MINT } from "@/constants/solanaSwap";
+import { POPULAR_TOKENS } from "@/constants/solanaSwap";
 import { getApiUrl } from "@/lib/query-client";
 
-const TOKEN_LIST_KEY = "solana_token_list_v1";
-const TOKEN_LIST_TTL_MS = 24 * 60 * 60 * 1000;
+const TOKEN_LIST_KEY = "solana_token_list_v2";
+const TOKEN_LIST_TTL_MS = 6 * 60 * 60 * 1000;
 
 export interface TokenInfo {
   mint: string;
@@ -45,7 +45,9 @@ async function loadCacheFromStorage(): Promise<void> {
   
   POPULAR_TOKENS.forEach(t => {
     tokenCache.set(t.mint, t);
-    tokenList.push(t);
+    if (!tokenList.find(x => x.mint === t.mint)) {
+      tokenList.push(t);
+    }
   });
   cacheLoaded = true;
 }
@@ -65,17 +67,21 @@ async function saveCacheToStorage(): Promise<void> {
 export async function fetchTokenList(): Promise<TokenInfo[]> {
   try {
     const baseUrl = getApiUrl();
-    const url = `${baseUrl}/api/jupiter/tokens?tags=verified`;
+    const url = `${baseUrl}/api/swap/solana/tokens?limit=250`;
     
     const response = await fetch(url);
     if (!response.ok) {
-      throw new Error(`Jupiter token list fetch failed: ${response.status}`);
+      throw new Error(`Token list fetch failed: ${response.status}`);
     }
     
-    const data: TokenInfo[] = await response.json();
+    const data = await response.json();
     
-    tokenList = data.map(t => ({
-      mint: t.mint || (t as any).address,
+    if (!data.ok || !data.tokens) {
+      throw new Error("Invalid response format");
+    }
+    
+    tokenList = data.tokens.map((t: any) => ({
+      mint: t.mint,
       symbol: t.symbol,
       name: t.name,
       decimals: t.decimals,
@@ -102,9 +108,39 @@ export async function getTokenByMint(mint: string): Promise<TokenInfo | null> {
   const cached = tokenCache.get(mint);
   if (cached) return cached;
   
-  if (tokenList.length < 100) {
-    await fetchTokenList();
-    return tokenCache.get(mint) || null;
+  try {
+    const baseUrl = getApiUrl();
+    const response = await fetch(`${baseUrl}/api/swap/solana/token/${mint}`);
+    if (response.ok) {
+      const data = await response.json();
+      if (data.ok && data.token) {
+        tokenCache.set(mint, data.token);
+        return data.token;
+      }
+    }
+  } catch (err) {
+    console.warn("[TokenList] Failed to fetch token by mint:", err);
+  }
+  
+  try {
+    const baseUrl = getApiUrl();
+    const response = await fetch(`${baseUrl}/api/solana/token-metadata/${mint}`);
+    if (response.ok) {
+      const metadata = await response.json();
+      if (metadata && metadata.symbol) {
+        const token: TokenInfo = {
+          mint,
+          symbol: metadata.symbol,
+          name: metadata.name || metadata.symbol,
+          decimals: metadata.decimals || 9,
+          logoURI: metadata.logoUri,
+        };
+        tokenCache.set(mint, token);
+        return token;
+      }
+    }
+  } catch (err) {
+    console.warn("[TokenList] Failed to fetch token metadata:", err);
   }
   
   return null;
@@ -113,37 +149,30 @@ export async function getTokenByMint(mint: string): Promise<TokenInfo | null> {
 export async function searchTokens(query: string, limit: number = 20): Promise<TokenInfo[]> {
   await loadCacheFromStorage();
   
-  if (tokenList.length < 100) {
-    await fetchTokenList().catch(() => {});
-  }
-  
   const q = query.toLowerCase().trim();
   if (!q) return getPopularTokens();
+  
+  try {
+    const baseUrl = getApiUrl();
+    const params = new URLSearchParams({ query: q, limit: limit.toString() });
+    const response = await fetch(`${baseUrl}/api/swap/solana/tokens?${params.toString()}`);
+    
+    if (response.ok) {
+      const data = await response.json();
+      if (data.ok && data.tokens && data.tokens.length > 0) {
+        return data.tokens;
+      }
+    }
+  } catch (err) {
+    console.warn("[TokenList] Server search failed, using local cache:", err);
+  }
   
   const exactMint = tokenList.find(t => t.mint.toLowerCase() === q);
   if (exactMint) return [exactMint];
   
   if (q.length >= 32 && q.length <= 44) {
-    try {
-      const baseUrl = getApiUrl();
-      const response = await fetch(`${baseUrl}/api/solana/token-metadata/${q}`);
-      if (response.ok) {
-        const metadata = await response.json();
-        if (metadata && metadata.symbol) {
-          const token: TokenInfo = {
-            mint: q,
-            symbol: metadata.symbol,
-            name: metadata.name || metadata.symbol,
-            decimals: metadata.decimals || 9,
-            logoURI: metadata.logoUri,
-          };
-          tokenCache.set(q.toLowerCase(), token);
-          return [token];
-        }
-      }
-    } catch (err) {
-      console.warn("[TokenList] Failed to fetch token by mint:", err);
-    }
+    const token = await getTokenByMint(q);
+    if (token) return [token];
   }
   
   const results = tokenList
