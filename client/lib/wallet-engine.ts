@@ -443,6 +443,17 @@ export async function createWallet(
   if (existingVault && cachedSecrets) {
     secrets = { ...cachedSecrets, mnemonics: { ...cachedSecrets.mnemonics, [walletId]: mnemonic } };
     const meta = await loadVaultMeta();
+    
+    // Check for duplicate wallets (same EVM or Solana address)
+    const isDuplicate = meta.wallets.some(w => 
+      (w.addresses?.evm && w.addresses.evm === addresses.evm) ||
+      (w.addresses?.solana && w.addresses.solana === addresses.solana)
+    );
+    
+    if (isDuplicate) {
+      throw new Error("This wallet already exists. The same seed phrase was previously imported.");
+    }
+    
     wallets = [...meta.wallets, wallet];
   } else {
     secrets = { mnemonics: { [walletId]: mnemonic } };
@@ -578,7 +589,27 @@ export function isUnlocked(): boolean {
 
 export async function listWallets(): Promise<WalletRecord[]> {
   const meta = await loadVaultMeta();
-  return meta.wallets;
+  
+  // Deduplicate wallets by EVM address (keep first occurrence)
+  const seen = new Set<string>();
+  const uniqueWallets = meta.wallets.filter(w => {
+    const key = w.addresses?.evm || w.address;
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+  
+  // If duplicates were removed, save the cleaned list
+  if (uniqueWallets.length < meta.wallets.length) {
+    if (__DEV__) {
+      console.log(`[WalletEngine] Removed ${meta.wallets.length - uniqueWallets.length} duplicate wallets`);
+    }
+    await saveVaultMeta(uniqueWallets, meta.activeWalletId);
+  }
+  
+  return uniqueWallets;
 }
 
 export async function getActiveWallet(): Promise<WalletRecord | null> {
