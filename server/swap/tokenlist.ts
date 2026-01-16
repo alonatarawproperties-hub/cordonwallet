@@ -72,7 +72,7 @@ async function fetchFromUrl(url: string): Promise<TokenInfo[]> {
     }
     
     if (data.tokens && Array.isArray(data.tokens)) {
-      return data.tokens.map(normalizeToken).filter((t): t is TokenInfo => t !== null);
+      return data.tokens.map(normalizeToken).filter((t: TokenInfo | null): t is TokenInfo => t !== null);
     }
     
     throw new Error("Invalid token list format");
@@ -167,7 +167,7 @@ export async function searchTokens(query: string, limit: number = 50): Promise<T
   if (!q) {
     const popular = ["SOL", "USDC", "USDT", "JUP", "BONK", "RAY", "ORCA", "PYTH", "WIF", "JTO"];
     const popularTokens = popular
-      .map(sym => tokens.find(t => t.symbol.toUpperCase() === sym))
+      .map(sym => tokens.find((t: TokenInfo) => t.symbol.toUpperCase() === sym))
       .filter((t): t is TokenInfo => t !== null);
     
     const remaining = tokens

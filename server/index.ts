@@ -3,6 +3,7 @@ import type { Request, Response, NextFunction } from "express";
 import cookieParser from "cookie-parser";
 import { registerRoutes } from "./routes";
 import { registerCordonAuthRoutes } from "./cordon-auth";
+import { swapRouter } from "./swap";
 import * as fs from "fs";
 import * as path from "path";
 
@@ -296,6 +297,9 @@ function setupErrorHandler(app: express.Application) {
   // Auth routes must be registered BEFORE static file serving
   // to prevent Expo SPA from intercepting /auth/* paths
   registerCordonAuthRoutes(app);
+  
+  // Swap API routes
+  app.use("/api/swap", swapRouter);
   
   configureExpoAndLanding(app);
 

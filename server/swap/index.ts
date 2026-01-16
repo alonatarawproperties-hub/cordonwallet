@@ -88,7 +88,18 @@ swapRouter.post("/solana/build", async (req: Request, res: Response) => {
       });
     }
     
-    const result = await buildSwapTransaction(parsed.data);
+    if (!parsed.data.quote) {
+      return res.status(400).json({
+        ok: false,
+        code: "BAD_REQUEST",
+        message: "Missing quote in body",
+      });
+    }
+    
+    const result = await buildSwapTransaction({
+      ...parsed.data,
+      quote: parsed.data.quote,
+    });
     
     if (result.ok) {
       res.json(result);
