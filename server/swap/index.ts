@@ -15,6 +15,30 @@ export const swapRouter = Router();
 
 initTokenList();
 
+// Health check for swap service
+swapRouter.get("/health", async (_req: Request, res: Response) => {
+  try {
+    // Test Jupiter API connectivity
+    const jupiterOk = await fetch("https://quote-api.jup.ag/v6/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&amount=1000000&slippageBps=50", {
+      signal: AbortSignal.timeout(5000)
+    }).then(r => r.ok).catch(() => false);
+
+    res.json({
+      ok: true,
+      timestamp: Date.now(),
+      services: {
+        jupiter: jupiterOk ? "ok" : "unreachable",
+      }
+    });
+  } catch (err: any) {
+    res.status(500).json({
+      ok: false,
+      timestamp: Date.now(),
+      error: err.message
+    });
+  }
+});
+
 const tokenLookupRateLimit = new Map<string, { count: number; resetAt: number }>();
 const RATE_LIMIT_MAX = 60;
 const RATE_LIMIT_WINDOW_MS = 60 * 1000;
