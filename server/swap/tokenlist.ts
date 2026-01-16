@@ -10,6 +10,54 @@ const CACHE_FILE = path.join(CACHE_DIR, "tokenlist.json");
 
 const TOKEN_METADATA_PROGRAM_ID = new PublicKey("metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s");
 
+interface DexScreenerResult {
+  symbol: string;
+  name: string;
+  logoURI?: string;
+  decimals?: number;
+}
+
+async function fetchDexScreenerToken(mint: string): Promise<DexScreenerResult | null> {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    
+    const response = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${mint}`, {
+      headers: { "Accept": "application/json" },
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    
+    if (!response.ok) {
+      return null;
+    }
+    
+    const data = await response.json();
+    if (!data.pairs || data.pairs.length === 0) {
+      return null;
+    }
+    
+    const pair = data.pairs[0];
+    const isBaseToken = pair.baseToken?.address?.toLowerCase() === mint.toLowerCase();
+    const tokenInfo = isBaseToken ? pair.baseToken : pair.quoteToken;
+    
+    if (!tokenInfo) {
+      return null;
+    }
+    
+    console.log(`[TokenList] Found via DexScreener: ${tokenInfo.symbol} (${tokenInfo.name})`);
+    
+    return {
+      symbol: tokenInfo.symbol || "UNKNOWN",
+      name: tokenInfo.name || "Unknown Token",
+      logoURI: pair.info?.imageUrl,
+    };
+  } catch (err) {
+    console.error("[TokenList] DexScreener fetch failed:", err);
+    return null;
+  }
+}
+
 const HARDCODED_TOKENS: TokenInfo[] = [
   { mint: "So11111111111111111111111111111111111111112", symbol: "SOL", name: "Solana", decimals: 9, logoURI: "https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/So11111111111111111111111111111111111111112/logo.png", verified: true, sources: ["hardcoded"] },
   { mint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", symbol: "USDC", name: "USD Coin", decimals: 6, logoURI: "https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v/logo.png", verified: true, sources: ["hardcoded"] },
@@ -498,21 +546,64 @@ export async function resolveToken(mint: string): Promise<{ token: TokenInfo } |
     const rpcUrl = process.env.SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com";
     const connection = new Connection(rpcUrl, "confirmed");
     
-    const [helius, onChainDecimals] = await Promise.all([
+    const [helius, onChainDecimals, dexScreener] = await Promise.all([
       fetchHeliusDASAsset(mint),
       fetchOnChainDecimals(mint, connection),
+      fetchDexScreenerToken(mint),
     ]);
     
     let metaplex: MetaplexResult | null = null;
     if (!helius?.symbol || !helius?.name || !helius?.logoURI) {
-      metaplex = await fetchMetaplexMetadata(mint, connection);
+      if (!dexScreener?.symbol || !dexScreener?.name) {
+        metaplex = await fetchMetaplexMetadata(mint, connection);
+      }
     }
     
-    if (onChainDecimals === null && helius?.decimals === undefined) {
-      throw new Error("Token not found on-chain");
+    const decimals = onChainDecimals ?? helius?.decimals ?? 9;
+    
+    const sources: string[] = [];
+    let symbol = "UNKNOWN";
+    let name = "Unknown Token";
+    let logoURI: string | undefined;
+    
+    if (helius?.symbol && helius?.name) {
+      symbol = helius.symbol;
+      name = helius.name;
+      logoURI = helius.logoURI;
+      sources.push("helius-das");
+    } else if (dexScreener?.symbol && dexScreener?.name) {
+      symbol = dexScreener.symbol;
+      name = dexScreener.name;
+      logoURI = dexScreener.logoURI;
+      sources.push("dexscreener");
+    } else if (metaplex?.symbol && metaplex?.name) {
+      symbol = metaplex.symbol;
+      name = metaplex.name;
+      logoURI = metaplex.logoURI;
+      sources.push("metaplex");
     }
     
-    return buildTokenInfo(mint, null, helius, metaplex, onChainDecimals);
+    if (onChainDecimals !== null) {
+      sources.push("on-chain");
+    }
+    
+    const tags: string[] = [];
+    if (mint.endsWith("pump")) {
+      tags.push("pumpfun");
+    }
+    
+    return {
+      mint,
+      symbol,
+      name,
+      decimals,
+      logoURI,
+      verified: false,
+      sources: sources.length > 0 ? sources : ["unknown"],
+      lastUpdated: Date.now(),
+      tags: tags.length > 0 ? tags : undefined,
+      isCustom: true,
+    };
   })();
   
   inflightRequests.set(mint.toLowerCase(), resolvePromise);

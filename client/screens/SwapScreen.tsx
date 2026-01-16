@@ -272,7 +272,8 @@ export default function SwapScreen() {
       setCustomTokenLoading(true);
 
       const cached = recentCustomTokens.find(t => t.mint.toLowerCase() === mint.toLowerCase());
-      if (cached) {
+      const isCacheValid = cached && cached.symbol !== "UNKNOWN" && cached.name !== "Unknown Token";
+      if (isCacheValid) {
         setCustomTokenResult(cached);
         setCustomTokenLoading(false);
         return;
@@ -1216,7 +1217,7 @@ export default function SwapScreen() {
                   onPress={() => {
                     const newValue = !liveQuotes;
                     setLiveQuotes(newValue);
-                    quoteEngine.setLiveQuotes(newValue);
+                    quoteEngineRef.current.setLiveQuotes(newValue);
                   }}
                 >
                   <View
