@@ -1,0 +1,390 @@
+import {
+  Connection,
+  VersionedTransaction,
+  TransactionSignature,
+  Commitment,
+  SignatureStatus,
+} from "@solana/web3.js";
+import {
+  RPC_PRIMARY,
+  RPC_FALLBACK,
+  WS_PRIMARY,
+  WS_FALLBACK,
+  SwapSpeed,
+  SPEED_CONFIGS,
+} from "@/constants/solanaSwap";
+
+export type TxStatus = "submitted" | "processed" | "confirmed" | "finalized" | "failed" | "expired";
+
+export interface BroadcastResult {
+  signature: string;
+  status: TxStatus;
+  error?: string;
+  slot?: number;
+  confirmationTime?: number;
+  rebroadcastCount: number;
+  usedFallback: boolean;
+}
+
+export interface BroadcastConfig {
+  mode: SwapSpeed;
+  onStatusChange?: (status: TxStatus, signature: string) => void;
+  onRebroadcast?: (count: number) => void;
+}
+
+interface RpcHealth {
+  url: string;
+  latencyMs: number | null;
+  healthy: boolean;
+  lastCheck: number;
+}
+
+let primaryConnection: Connection | null = null;
+let fallbackConnection: Connection | null = null;
+let rpcHealthCache: { primary: RpcHealth; fallback: RpcHealth } = {
+  primary: { url: RPC_PRIMARY, latencyMs: null, healthy: true, lastCheck: 0 },
+  fallback: { url: RPC_FALLBACK, latencyMs: null, healthy: true, lastCheck: 0 },
+};
+
+function getPrimaryConnection(): Connection {
+  if (!primaryConnection) {
+    primaryConnection = new Connection(RPC_PRIMARY, {
+      commitment: "confirmed",
+      wsEndpoint: WS_PRIMARY || undefined,
+    });
+  }
+  return primaryConnection;
+}
+
+function getFallbackConnection(): Connection {
+  if (!fallbackConnection) {
+    fallbackConnection = new Connection(RPC_FALLBACK, {
+      commitment: "confirmed",
+      wsEndpoint: WS_FALLBACK || undefined,
+    });
+  }
+  return fallbackConnection;
+}
+
+export async function checkRpcHealth(): Promise<typeof rpcHealthCache> {
+  const checkConnection = async (conn: Connection, key: "primary" | "fallback"): Promise<void> => {
+    const start = Date.now();
+    try {
+      await conn.getLatestBlockhash({ commitment: "confirmed" });
+      rpcHealthCache[key] = {
+        url: key === "primary" ? RPC_PRIMARY : RPC_FALLBACK,
+        latencyMs: Date.now() - start,
+        healthy: true,
+        lastCheck: Date.now(),
+      };
+    } catch (error) {
+      rpcHealthCache[key] = {
+        url: key === "primary" ? RPC_PRIMARY : RPC_FALLBACK,
+        latencyMs: null,
+        healthy: false,
+        lastCheck: Date.now(),
+      };
+    }
+  };
+
+  await Promise.all([
+    checkConnection(getPrimaryConnection(), "primary"),
+    checkConnection(getFallbackConnection(), "fallback"),
+  ]);
+
+  return rpcHealthCache;
+}
+
+export function getRpcHealth(): typeof rpcHealthCache {
+  return rpcHealthCache;
+}
+
+async function sendWithRetry(
+  connection: Connection,
+  signedTx: Uint8Array,
+  maxRetries: number = 3
+): Promise<TransactionSignature> {
+  let lastError: Error | null = null;
+  
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      const signature = await connection.sendRawTransaction(signedTx, {
+        skipPreflight: false,
+        preflightCommitment: "confirmed",
+        maxRetries: 0,
+      });
+      return signature;
+    } catch (error: any) {
+      lastError = error;
+      if (error.message?.includes("blockhash") || 
+          error.message?.includes("not found") ||
+          error.message?.includes("expired")) {
+        throw error;
+      }
+      await new Promise(r => setTimeout(r, 100 * (i + 1)));
+    }
+  }
+  
+  throw lastError || new Error("Failed to send transaction");
+}
+
+async function waitForStatus(
+  connection: Connection,
+  signature: string,
+  targetStatus: Commitment,
+  timeoutMs: number
+): Promise<{ status: SignatureStatus | null; confirmed: boolean }> {
+  const start = Date.now();
+  
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const response = await connection.getSignatureStatus(signature, {
+        searchTransactionHistory: false,
+      });
+      
+      const status = response.value;
+      
+      if (status?.err) {
+        return { status, confirmed: false };
+      }
+      
+      const confStatus = status?.confirmationStatus as string | undefined;
+      
+      if (confStatus === "finalized") {
+        return { status, confirmed: true };
+      }
+      
+      if (targetStatus === "confirmed") {
+        if (confStatus === "confirmed" || confStatus === "finalized") {
+          return { status, confirmed: true };
+        }
+      }
+      
+      if (targetStatus === "processed" && confStatus) {
+        return { status, confirmed: true };
+      }
+    } catch (error) {
+      console.warn("[Broadcaster] Status check error:", error);
+    }
+    
+    await new Promise(r => setTimeout(r, 200));
+  }
+  
+  return { status: null, confirmed: false };
+}
+
+export async function broadcastTransaction(
+  signedTxBytes: Uint8Array,
+  config: BroadcastConfig
+): Promise<BroadcastResult> {
+  const speedConfig = SPEED_CONFIGS[config.mode];
+  const primaryConn = getPrimaryConnection();
+  const fallbackConn = getFallbackConnection();
+  
+  let signature: string = "";
+  let usedFallback = false;
+  let rebroadcastCount = 0;
+  const startTime = Date.now();
+  
+  try {
+    config.onStatusChange?.("submitted", "");
+    signature = await sendWithRetry(primaryConn, signedTxBytes);
+    config.onStatusChange?.("submitted", signature);
+    console.log(`[Broadcaster] Primary submit: ${signature}`);
+  } catch (primaryError: any) {
+    console.warn("[Broadcaster] Primary submit failed, trying fallback:", primaryError.message);
+    
+    try {
+      signature = await sendWithRetry(fallbackConn, signedTxBytes);
+      usedFallback = true;
+      config.onStatusChange?.("submitted", signature);
+      console.log(`[Broadcaster] Fallback submit: ${signature}`);
+    } catch (fallbackError: any) {
+      return {
+        signature: "",
+        status: "failed",
+        error: fallbackError.message || "Failed to submit transaction",
+        rebroadcastCount: 0,
+        usedFallback: true,
+      };
+    }
+  }
+  
+  const initialCheck = await waitForStatus(primaryConn, signature, "processed", 500);
+  if (initialCheck.status?.err) {
+    return {
+      signature,
+      status: "failed",
+      error: JSON.stringify(initialCheck.status.err),
+      rebroadcastCount,
+      usedFallback,
+    };
+  }
+  
+  if (!initialCheck.confirmed && !usedFallback) {
+    try {
+      await sendWithRetry(fallbackConn, signedTxBytes, 1);
+      usedFallback = true;
+      console.log("[Broadcaster] Also sent to fallback for redundancy");
+    } catch {
+    }
+  }
+  
+  const rebroadcastLoop = async () => {
+    const maxDuration = speedConfig.maxRebroadcastDurationMs;
+    const interval = speedConfig.rebroadcastIntervalMs;
+    const loopStart = Date.now();
+    
+    while (Date.now() - loopStart < maxDuration) {
+      await new Promise(r => setTimeout(r, interval));
+      
+      const status = await waitForStatus(primaryConn, signature, "processed", 300);
+      if (status.confirmed || status.status?.err) {
+        return;
+      }
+      
+      rebroadcastCount++;
+      config.onRebroadcast?.(rebroadcastCount);
+      
+      try {
+        await primaryConn.sendRawTransaction(signedTxBytes, {
+          skipPreflight: true,
+          preflightCommitment: "confirmed",
+          maxRetries: 0,
+        });
+        console.log(`[Broadcaster] Rebroadcast ${rebroadcastCount}`);
+      } catch {
+      }
+      
+      if (config.mode === "turbo" && rebroadcastCount % 2 === 0) {
+        try {
+          await fallbackConn.sendRawTransaction(signedTxBytes, {
+            skipPreflight: true,
+            preflightCommitment: "confirmed",
+            maxRetries: 0,
+          });
+        } catch {
+        }
+      }
+    }
+  };
+  
+  rebroadcastLoop().catch(console.error);
+  
+  const targetCommitment = speedConfig.completionLevel === "confirmed" ? "confirmed" : "processed";
+  const waitTimeout = speedConfig.maxRebroadcastDurationMs + 5000;
+  
+  const result = await waitForStatus(primaryConn, signature, targetCommitment, waitTimeout);
+  
+  if (result.status?.err) {
+    const errorStr = JSON.stringify(result.status.err);
+    
+    let errorCategory = "unknown";
+    if (errorStr.includes("SlippageToleranceExceeded") || errorStr.includes("0x1771")) {
+      errorCategory = "slippage";
+    } else if (errorStr.includes("InsufficientFunds") || errorStr.includes("0x1")) {
+      errorCategory = "insufficient_funds";
+    } else if (errorStr.includes("blockhash") || errorStr.includes("expired")) {
+      errorCategory = "blockhash_expired";
+    }
+    
+    return {
+      signature,
+      status: "failed",
+      error: errorCategory === "slippage" 
+        ? "Slippage tolerance exceeded. Please retry with higher slippage." 
+        : errorCategory === "insufficient_funds"
+        ? "Insufficient funds for this swap."
+        : errorCategory === "blockhash_expired"
+        ? "Transaction expired. Please retry."
+        : `Transaction failed: ${errorStr}`,
+      slot: result.status.slot ?? undefined,
+      rebroadcastCount,
+      usedFallback,
+    };
+  }
+  
+  if (!result.confirmed) {
+    return {
+      signature,
+      status: "expired",
+      error: "Transaction not confirmed in time. It may still land - check explorer.",
+      rebroadcastCount,
+      usedFallback,
+    };
+  }
+  
+  const confirmationTime = Date.now() - startTime;
+  const finalStatus: TxStatus = result.status?.confirmationStatus === "finalized" 
+    ? "finalized" 
+    : result.status?.confirmationStatus === "confirmed" 
+    ? "confirmed" 
+    : "processed";
+  
+  config.onStatusChange?.(finalStatus, signature);
+  
+  return {
+    signature,
+    status: finalStatus,
+    slot: result.status?.slot ?? undefined,
+    confirmationTime,
+    rebroadcastCount,
+    usedFallback,
+  };
+}
+
+export function classifyError(error: string): {
+  category: "slippage" | "insufficient_funds" | "blockhash_expired" | "rpc_timeout" | "unknown";
+  userMessage: string;
+  canRetry: boolean;
+  needsRebuild: boolean;
+} {
+  const errorLower = error.toLowerCase();
+  
+  if (errorLower.includes("slippage") || errorLower.includes("0x1771")) {
+    return {
+      category: "slippage",
+      userMessage: "Price moved too much. Increase slippage or try again.",
+      canRetry: true,
+      needsRebuild: true,
+    };
+  }
+  
+  if (errorLower.includes("insufficient") || errorLower.includes("0x1")) {
+    return {
+      category: "insufficient_funds",
+      userMessage: "Not enough balance for this swap.",
+      canRetry: false,
+      needsRebuild: false,
+    };
+  }
+  
+  if (errorLower.includes("blockhash") || errorLower.includes("expired") || errorLower.includes("not found")) {
+    return {
+      category: "blockhash_expired",
+      userMessage: "Transaction expired. Please try again.",
+      canRetry: true,
+      needsRebuild: true,
+    };
+  }
+  
+  if (errorLower.includes("timeout") || errorLower.includes("econnrefused")) {
+    return {
+      category: "rpc_timeout",
+      userMessage: "Network issue. Retrying...",
+      canRetry: true,
+      needsRebuild: false,
+    };
+  }
+  
+  return {
+    category: "unknown",
+    userMessage: error,
+    canRetry: false,
+    needsRebuild: false,
+  };
+}
+
+export function getExplorerUrl(signature: string): string {
+  return `https://solscan.io/tx/${signature}`;
+}
