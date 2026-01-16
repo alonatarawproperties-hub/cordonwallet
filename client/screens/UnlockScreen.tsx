@@ -170,7 +170,7 @@ export default function UnlockScreen({ navigation }: Props) {
     <ThemedView style={[styles.container, { paddingTop: insets.top + Spacing["3xl"], paddingBottom: insets.bottom + Spacing["2xl"] }]}>
       <View style={styles.content}>
         <Image
-          source={require("../../assets/images/icon.png")}
+          source={require("../../assets/images/cordon-logo.png")}
           style={styles.logo}
           resizeMode="contain"
         />
