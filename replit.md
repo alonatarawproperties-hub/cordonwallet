@@ -16,7 +16,8 @@ Preferred communication style: Simple, everyday language.
 - **State Management**: React Context for wallet state and TanStack Query for server state.
 - **Styling**: Custom theme system with light/dark mode support, adhering to a fintech-minimalist design.
 - **Data Storage**: AsyncStorage for non-sensitive preferences and Expo SecureStore for sensitive, encrypted data.
-- **Boot Sequence**: A robust splash screen preloads assets, initializes core services, and determines the initial app route, with built-in health checks and error recovery.
+- **Boot Sequence**: A robust splash screen preloads assets, initializes core services, prefetches cached portfolio data, and determines the initial app route, with built-in health checks and error recovery.
+- **Portfolio Prefetching**: During app startup, the bootstrap process loads cached portfolio data (EVM and Solana assets) so the main screen displays instantly without loading delays. Fresh data is fetched in the background after the cached data is shown.
 
 ### Backend
 

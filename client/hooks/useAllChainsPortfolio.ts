@@ -4,6 +4,7 @@ import { getNativeBalance, getERC20Balance, isBalanceError, BalanceResult } from
 import { getTokensForChain } from "@/lib/blockchain/tokens";
 import { supportedChains, getChainById } from "@/lib/blockchain/chains";
 import { getApiUrl } from "@/lib/query-client";
+import { getPreloadedCache, clearPreloadedCache, savePortfolioDisplayCache } from "@/lib/portfolio-cache";
 
 export interface MultiChainAsset {
   symbol: string;
@@ -67,6 +68,22 @@ export function useAllChainsPortfolio(address: string | undefined) {
     const cacheKey = `${CACHE_KEY_PREFIX}${address}`;
 
     if (!isRefresh) {
+      const preloadedCache = getPreloadedCache();
+      if (preloadedCache && preloadedCache.evmAddress === address && preloadedCache.evmAssets.length > 0) {
+        console.log("[Portfolio] Using preloaded cache with", preloadedCache.evmAssets.length, "assets");
+        if (isMounted.current) {
+          setState(prev => ({
+            ...prev,
+            assets: preloadedCache.evmAssets,
+            isLoading: false,
+            lastUpdated: preloadedCache.timestamp,
+          }));
+        }
+        clearPreloadedCache();
+        fetchAllBalances(true);
+        return;
+      }
+
       try {
         const cached = await AsyncStorage.getItem(cacheKey);
         if (cached) {

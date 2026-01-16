@@ -1,11 +1,12 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Asset } from "expo-asset";
 import * as Font from "expo-font";
-import { hasVault, isUnlocked } from "./wallet-engine";
+import { hasVault, isUnlocked, getActiveWallet } from "./wallet-engine";
 import { initWalletConnect, getActiveSessions } from "./walletconnect/client";
 import { supportedChains, getDefaultChain } from "./blockchain/chains";
 import { createPublicClient, http } from "viem";
 import { getApiUrl } from "./query-client";
+import { prefetchPortfolioCache } from "./portfolio-cache";
 
 const STORAGE_KEYS = {
   LAST_CHAIN_ID: "@cordon/last_chain_id",
@@ -21,6 +22,7 @@ const STEP_TIMEOUTS: Record<string, number> = {
   initWalletConnect: 2500,
   checkVaultExists: 1000,
   pingRPC: 1200,
+  prefetchPortfolio: 500,
 };
 
 const GLOBAL_TIMEOUT = 6000;
@@ -170,6 +172,25 @@ async function checkVaultStatus(
   }
 }
 
+async function prefetchPortfolioCacheData(
+  onProgress: (step: string, pct: number) => void
+): Promise<void> {
+  onProgress("prefetchPortfolio", 0);
+
+  try {
+    const activeWallet = await getActiveWallet();
+    if (activeWallet?.addresses) {
+      const evmAddress = activeWallet.addresses.evm;
+      const solanaAddress = activeWallet.addresses.solana;
+      await prefetchPortfolioCache(evmAddress, solanaAddress);
+    }
+  } catch (error) {
+    console.warn("[Bootstrap] Portfolio prefetch failed:", error);
+  }
+
+  onProgress("prefetchPortfolio", 100);
+}
+
 async function pingLastSelectedRPC(
   settings: UserSettings,
   onProgress: (step: string, pct: number) => void
@@ -286,6 +307,14 @@ export async function bootstrapApp(
   vaultExists = vaultStatus.hasVault;
   walletUnlocked = vaultStatus.isUnlocked;
   stepEnd("checkVaultExists");
+
+  stepStart("prefetchPortfolio");
+  await withTimeout(
+    prefetchPortfolioCacheData(progress),
+    STEP_TIMEOUTS.prefetchPortfolio,
+    undefined
+  );
+  stepEnd("prefetchPortfolio");
 
   stepStart("pingRPC");
   degraded = await withTimeout(

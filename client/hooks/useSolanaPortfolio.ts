@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { getApiUrl } from "@/lib/query-client";
 import { getCustomTokens, getHiddenTokens, CustomToken } from "@/lib/token-preferences";
+import { getPreloadedCache, clearPreloadedCache } from "@/lib/portfolio-cache";
 
 interface SolBalance {
   lamports: number;
@@ -60,7 +61,7 @@ export interface SolanaPortfolioState {
   lastUpdated: number | null;
 }
 
-const CACHE_KEY_PREFIX = "@cordon/solana_portfolio_v1_";
+const CACHE_KEY_PREFIX = "@cordon/solana_portfolio_v2_";
 const CACHE_DURATION = 30000;
 
 export function useSolanaPortfolio(address: string | undefined) {
@@ -112,6 +113,21 @@ export function useSolanaPortfolio(address: string | undefined) {
 
 
     if (!isRefresh) {
+      const preloadedCache = getPreloadedCache();
+      if (preloadedCache && preloadedCache.solanaAddress === address && preloadedCache.solanaAssets.length > 0) {
+        console.log("[SolanaPortfolio] Using preloaded cache with", preloadedCache.solanaAssets.length, "assets");
+        if (isMounted.current) {
+          setState(prev => ({
+            ...prev,
+            assets: preloadedCache.solanaAssets,
+            isLoading: false,
+            lastUpdated: preloadedCache.timestamp,
+          }));
+        }
+        fetchBalances(true);
+        return;
+      }
+
       try {
         const cached = await AsyncStorage.getItem(cacheKey);
         if (cached) {

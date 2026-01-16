@@ -20,6 +20,7 @@ import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { getTokenLogoUrl } from "@/lib/token-logos";
 import type { ChainType } from "@/components/ChainSelector";
 import { getCustomTokens, CustomToken, buildCustomTokenMap } from "@/lib/token-preferences";
+import { savePortfolioDisplayCache } from "@/lib/portfolio-cache";
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
@@ -318,6 +319,17 @@ export default function PortfolioScreen() {
       hasTriggeredRefresh.current = false;
     }
   }, [isRefreshing]);
+
+  useEffect(() => {
+    if (!isLoading && !isRefreshing && lastUpdated && (evmPortfolio.assets.length > 0 || solanaPortfolio.assets.length > 0)) {
+      savePortfolioDisplayCache(
+        evmPortfolio.assets,
+        solanaPortfolio.assets,
+        evmAddress,
+        solanaAddress
+      );
+    }
+  }, [lastUpdated, isLoading, isRefreshing, evmPortfolio.assets, solanaPortfolio.assets, evmAddress, solanaAddress]);
 
   return (
     <ScrollView
