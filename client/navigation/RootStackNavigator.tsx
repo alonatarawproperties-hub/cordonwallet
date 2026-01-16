@@ -30,6 +30,9 @@ import WalletConnectScreen from "@/screens/WalletConnectScreen";
 import WCScannerScreen from "@/screens/WCScannerScreen";
 import DemoFlowScreen from "@/screens/DemoFlowScreen";
 import BrowserWebViewScreen from "@/screens/BrowserWebViewScreen";
+import ExportWalletScreen from "@/screens/ExportWalletScreen";
+import SeedPhraseExportScreen from "@/screens/SeedPhraseExportScreen";
+import PrivateKeyExportScreen from "@/screens/PrivateKeyExportScreen";
 import type { BootResult, InitialRoute } from "@/lib/bootstrap";
 
 export type TransactionDetailParams = {
@@ -96,6 +99,9 @@ export type RootStackParamList = {
   WCScanner: undefined;
   DemoFlow: undefined;
   BrowserWebView: { url: string; title?: string };
+  ExportWallet: { walletId: string; walletName: string };
+  SeedPhraseExport: { walletId: string; walletName: string };
+  PrivateKeyExport: { walletId: string; walletName: string };
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -251,6 +257,21 @@ export default function RootStackNavigator() {
         name="BrowserWebView"
         component={BrowserWebViewScreen}
         options={{ headerShown: false, presentation: "fullScreenModal" }}
+      />
+      <Stack.Screen
+        name="ExportWallet"
+        component={ExportWalletScreen}
+        options={{ headerTitle: "Backup Wallet" }}
+      />
+      <Stack.Screen
+        name="SeedPhraseExport"
+        component={SeedPhraseExportScreen}
+        options={{ headerTitle: "Recovery Phrase" }}
+      />
+      <Stack.Screen
+        name="PrivateKeyExport"
+        component={PrivateKeyExportScreen}
+        options={{ headerTitle: "Private Keys" }}
       />
     </Stack.Navigator>
   );

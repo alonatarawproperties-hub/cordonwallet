@@ -161,6 +161,14 @@ export default function WalletManagerScreen() {
           ) : null}
           <Pressable 
             style={styles.actionButton}
+            onPress={() => navigation.navigate("ExportWallet", { walletId: item.id, walletName: item.name })}
+          >
+            <Feather name="shield" size={16} color={theme.warning} />
+            <ThemedText type="small" style={{ color: theme.warning }}>Backup</ThemedText>
+          </Pressable>
+          <View style={[styles.actionDivider, { backgroundColor: theme.border }]} />
+          <Pressable 
+            style={styles.actionButton}
             onPress={() => handleRemoveWallet(item.id, item.name)}
           >
             <Feather name="trash-2" size={16} color={theme.danger} />
