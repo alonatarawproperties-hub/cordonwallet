@@ -383,8 +383,7 @@ export default function PortfolioScreen() {
             icon="repeat"
             label="Swap"
             iconColor={theme.warning}
-            onPress={() => {}}
-            disabled
+            onPress={() => (navigation as any).navigate("Swap")}
             theme={theme}
           />
         </View>
