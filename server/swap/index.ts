@@ -8,7 +8,7 @@ import {
 import { getQuote, buildSwapTransaction } from "./jupiter";
 import { buildPumpTransaction, isPumpToken } from "./pump";
 import { broadcastTransaction, getTransactionStatus } from "./broadcast";
-import { searchTokens, getToken, initTokenList } from "./tokenlist";
+import { searchTokens, getToken, resolveToken, initTokenList } from "./tokenlist";
 import { getRouteQuote, getPumpMeta } from "./route";
 
 export const swapRouter = Router();
@@ -79,13 +79,13 @@ swapRouter.get("/solana/tokens", async (req: Request, res: Response) => {
 swapRouter.get("/solana/token/:mint", async (req: Request, res: Response) => {
   try {
     const { mint } = req.params;
-    const token = await getToken(mint);
+    const result = await resolveToken(mint);
     
-    if (!token) {
-      return res.status(404).json({ ok: false, error: "Token not found" });
+    if ("error" in result) {
+      return res.status(result.code).json({ ok: false, error: result.error });
     }
     
-    res.json({ ok: true, token });
+    res.json({ ok: true, ...result.token });
   } catch (err: any) {
     console.error("[Swap API] Token lookup failed:", err);
     res.status(500).json({ ok: false, error: err.message });

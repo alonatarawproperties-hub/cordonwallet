@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import {
   View,
   StyleSheet,
@@ -13,6 +13,7 @@ import {
   Platform,
   Keyboard,
 } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
@@ -65,9 +66,52 @@ import { calculateFeeConfig, formatFeeDisplay } from "@/lib/solana/feeController
 import { decodeAndValidateSwapTx, isDrainerTransaction } from "@/lib/solana/swapSecurity";
 import { broadcastTransaction, classifyError, getExplorerUrl } from "@/services/txBroadcaster";
 import { addSwapRecord, updateSwapStatus, addDebugLog, SwapTimings } from "@/services/swapStore";
+import { getApiUrl } from "@/lib/query-client";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
+
+const CUSTOM_TOKENS_KEY = "swap_custom_tokens";
+const MAX_CUSTOM_TOKENS = 25;
+
+interface CustomTokenInfo extends TokenInfo {
+  verified: boolean;
+  sources: string[];
+}
+
+function isLikelySolanaMint(text: string): boolean {
+  const trimmed = text.trim();
+  if (trimmed.length < 32 || trimmed.length > 44) return false;
+  return /^[1-9A-HJ-NP-Za-km-z]+$/.test(trimmed);
+}
+
+function shortMint(mint: string): string {
+  if (mint.length <= 12) return mint;
+  return `${mint.slice(0, 4)}...${mint.slice(-4)}`;
+}
+
+async function loadRecentCustomTokens(): Promise<CustomTokenInfo[]> {
+  try {
+    const data = await AsyncStorage.getItem(CUSTOM_TOKENS_KEY);
+    if (data) {
+      return JSON.parse(data);
+    }
+  } catch (err) {
+    console.warn("[SwapScreen] Failed to load custom tokens:", err);
+  }
+  return [];
+}
+
+async function saveCustomToken(token: CustomTokenInfo, existing: CustomTokenInfo[]): Promise<CustomTokenInfo[]> {
+  const filtered = existing.filter(t => t.mint !== token.mint);
+  const updated = [token, ...filtered].slice(0, MAX_CUSTOM_TOKENS);
+  try {
+    await AsyncStorage.setItem(CUSTOM_TOKENS_KEY, JSON.stringify(updated));
+  } catch (err) {
+    console.warn("[SwapScreen] Failed to save custom token:", err);
+  }
+  return updated;
+}
 
 export default function SwapScreen() {
   const insets = useSafeAreaInsets();
@@ -100,6 +144,11 @@ export default function SwapScreen() {
   const [tokenModalType, setTokenModalType] = useState<"input" | "output">("input");
   const [tokenSearch, setTokenSearch] = useState("");
   const [tokenResults, setTokenResults] = useState<TokenInfo[]>([]);
+
+  const [customTokenLoading, setCustomTokenLoading] = useState(false);
+  const [customTokenError, setCustomTokenError] = useState<string | null>(null);
+  const [customTokenResult, setCustomTokenResult] = useState<CustomTokenInfo | null>(null);
+  const [recentCustomTokens, setRecentCustomTokens] = useState<CustomTokenInfo[]>([]);
 
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [pendingSwap, setPendingSwap] = useState<{
@@ -206,9 +255,55 @@ export default function SwapScreen() {
     quoteEngineRef.current.setSpeedMode(speed);
   }, [speed]);
 
+  useEffect(() => {
+    loadRecentCustomTokens().then(setRecentCustomTokens);
+  }, []);
+
+  const isMintMode = useMemo(() => isLikelySolanaMint(tokenSearch), [tokenSearch]);
+
   const handleTokenSearch = async (query: string) => {
     setTokenSearch(query);
-    if (query.trim()) {
+    setCustomTokenError(null);
+    setCustomTokenResult(null);
+
+    if (isLikelySolanaMint(query)) {
+      const mint = query.trim();
+      setCustomTokenLoading(true);
+
+      const cached = recentCustomTokens.find(t => t.mint.toLowerCase() === mint.toLowerCase());
+      if (cached) {
+        setCustomTokenResult(cached);
+        setCustomTokenLoading(false);
+        return;
+      }
+
+      try {
+        const url = new URL(`/api/swap/solana/token/${mint}`, getApiUrl());
+        const resp = await fetch(url.toString());
+        const data = await resp.json();
+
+        if (resp.ok && data.ok !== false) {
+          const token: CustomTokenInfo = {
+            mint: data.mint,
+            symbol: data.symbol,
+            name: data.name,
+            decimals: data.decimals,
+            logoURI: data.logoURI,
+            verified: data.verified ?? false,
+            sources: data.sources ?? ["on-chain"],
+          };
+          setCustomTokenResult(token);
+          const updated = await saveCustomToken(token, recentCustomTokens);
+          setRecentCustomTokens(updated);
+        } else {
+          setCustomTokenError(data.error || "Token not found");
+        }
+      } catch (err: any) {
+        setCustomTokenError(err.message || "Failed to fetch token");
+      } finally {
+        setCustomTokenLoading(false);
+      }
+    } else if (query.trim()) {
       const results = await searchTokens(query);
       setTokenResults(results);
     } else {
@@ -221,6 +316,9 @@ export default function SwapScreen() {
     setTokenModalType(type);
     setTokenSearch("");
     setTokenResults(getPopularTokens());
+    setCustomTokenResult(null);
+    setCustomTokenError(null);
+    setCustomTokenLoading(false);
     setShowTokenModal(true);
   };
 
@@ -600,6 +698,126 @@ export default function SwapScreen() {
     );
   };
 
+  const selectCustomToken = () => {
+    if (!customTokenResult || customTokenResult.decimals < 0) return;
+    selectToken(customTokenResult);
+  };
+
+  const renderCustomTokenRow = () => {
+    if (!isMintMode) return null;
+    
+    const mint = tokenSearch.trim();
+    const canSelect = customTokenResult && customTokenResult.decimals >= 0 && !customTokenError;
+
+    return (
+      <View style={[styles.customTokenSection, { borderBottomColor: theme.border }]}>
+        <ThemedText type="caption" style={[styles.sectionLabel, { color: theme.textSecondary, marginBottom: Spacing.sm }]}>
+          Custom Token
+        </ThemedText>
+        <Pressable
+          style={({ pressed }) => [
+            styles.tokenItem,
+            { 
+              backgroundColor: pressed && canSelect ? theme.backgroundSecondary : "transparent",
+              opacity: canSelect ? 1 : 0.6,
+            }
+          ]}
+          onPress={selectCustomToken}
+          disabled={!canSelect}
+        >
+          {customTokenLoading ? (
+            <View style={[styles.tokenLogoPlaceholder, { backgroundColor: theme.backgroundSecondary }]}>
+              <ActivityIndicator size="small" color={theme.accent} />
+            </View>
+          ) : customTokenResult?.logoURI ? (
+            <Image source={{ uri: customTokenResult.logoURI }} style={styles.tokenLogo} />
+          ) : (
+            <View style={[styles.tokenLogoPlaceholder, { backgroundColor: "#FF69B4" + "20" }]}>
+              <ThemedText type="caption" style={{ color: "#FF69B4", fontWeight: "600" }}>
+                {customTokenResult?.symbol?.slice(0, 2) || "?"}
+              </ThemedText>
+            </View>
+          )}
+          <View style={styles.tokenInfo}>
+            <View style={styles.tokenTitleRow}>
+              <ThemedText type="body" style={{ fontWeight: "600" }}>
+                {customTokenResult?.symbol || "Loading..."}
+              </ThemedText>
+              {customTokenResult && !customTokenResult.verified && (
+                <View style={[styles.unverifiedBadge, { backgroundColor: "#F59E0B" + "20" }]}>
+                  <ThemedText type="caption" style={{ color: "#F59E0B", fontSize: 10 }}>Unverified</ThemedText>
+                </View>
+              )}
+            </View>
+            <ThemedText type="caption" style={{ color: theme.textSecondary }}>
+              {customTokenResult?.name || "Unknown Token"}
+            </ThemedText>
+            <ThemedText type="caption" style={{ color: theme.textSecondary, fontSize: 11 }}>
+              {shortMint(mint)}
+            </ThemedText>
+            {customTokenResult && (
+              <ThemedText type="caption" style={{ color: theme.textSecondary, fontSize: 10 }}>
+                Decimals: {customTokenResult.decimals}
+              </ThemedText>
+            )}
+          </View>
+          {customTokenLoading && (
+            <ActivityIndicator size="small" color={theme.accent} style={{ marginLeft: Spacing.sm }} />
+          )}
+        </Pressable>
+        {customTokenError && (
+          <ThemedText type="caption" style={{ color: "#EF4444", marginTop: Spacing.xs, marginLeft: Spacing.md }}>
+            {customTokenError}
+          </ThemedText>
+        )}
+      </View>
+    );
+  };
+
+  const renderRecentCustomTokens = () => {
+    if (isMintMode || tokenSearch.trim() || recentCustomTokens.length === 0) return null;
+
+    return (
+      <View style={[styles.customTokenSection, { borderBottomColor: theme.border }]}>
+        <ThemedText type="caption" style={[styles.sectionLabel, { color: theme.textSecondary, marginBottom: Spacing.sm }]}>
+          Recent Custom Tokens
+        </ThemedText>
+        {recentCustomTokens.slice(0, 5).map((token) => (
+          <Pressable
+            key={token.mint}
+            style={({ pressed }) => [
+              styles.tokenItem,
+              { backgroundColor: pressed ? theme.backgroundSecondary : "transparent" }
+            ]}
+            onPress={() => selectToken(token)}
+          >
+            {token.logoURI ? (
+              <Image source={{ uri: token.logoURI }} style={styles.tokenLogo} />
+            ) : (
+              <View style={[styles.tokenLogoPlaceholder, { backgroundColor: "#FF69B4" + "20" }]}>
+                <ThemedText type="caption" style={{ color: "#FF69B4", fontWeight: "600" }}>
+                  {token.symbol.slice(0, 2)}
+                </ThemedText>
+              </View>
+            )}
+            <View style={styles.tokenInfo}>
+              <View style={styles.tokenTitleRow}>
+                <ThemedText type="body" style={{ fontWeight: "600" }}>{token.symbol}</ThemedText>
+                {!token.verified && (
+                  <View style={[styles.unverifiedBadge, { backgroundColor: "#F59E0B" + "20" }]}>
+                    <ThemedText type="caption" style={{ color: "#F59E0B", fontSize: 10 }}>Unverified</ThemedText>
+                  </View>
+                )}
+              </View>
+              <ThemedText type="caption" style={{ color: theme.textSecondary }}>{token.name}</ThemedText>
+              <ThemedText type="caption" style={{ color: theme.textSecondary, fontSize: 11 }}>{shortMint(token.mint)}</ThemedText>
+            </View>
+          </Pressable>
+        ))}
+      </View>
+    );
+  };
+
   const renderTokenModal = () => (
     <Modal visible={showTokenModal} transparent animationType="slide" onRequestClose={() => setShowTokenModal(false)}>
       <KeyboardAvoidingView 
@@ -633,37 +851,42 @@ export default function SwapScreen() {
             />
           </View>
 
-          <FlatList
-            data={tokenResults}
-            keyExtractor={(item) => item.mint}
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-            renderItem={({ item }) => (
-              <Pressable
-                style={({ pressed }) => [
-                  styles.tokenItem, 
-                  { backgroundColor: pressed ? theme.backgroundSecondary : "transparent" }
-                ]}
-                onPress={() => selectToken(item)}
-              >
-                {item.logoURI ? (
-                  <Image source={{ uri: item.logoURI }} style={styles.tokenLogo} />
-                ) : (
-                  <View style={[styles.tokenLogoPlaceholder, { backgroundColor: theme.accent + "20" }]}>
-                    <ThemedText type="caption" style={{ color: theme.accent, fontWeight: "600" }}>
-                      {item.symbol.slice(0, 2)}
-                    </ThemedText>
+          {renderCustomTokenRow()}
+          {renderRecentCustomTokens()}
+
+          {!isMintMode && (
+            <FlatList
+              data={tokenResults}
+              keyExtractor={(item) => item.mint}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+              renderItem={({ item }) => (
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.tokenItem, 
+                    { backgroundColor: pressed ? theme.backgroundSecondary : "transparent" }
+                  ]}
+                  onPress={() => selectToken(item)}
+                >
+                  {item.logoURI ? (
+                    <Image source={{ uri: item.logoURI }} style={styles.tokenLogo} />
+                  ) : (
+                    <View style={[styles.tokenLogoPlaceholder, { backgroundColor: theme.accent + "20" }]}>
+                      <ThemedText type="caption" style={{ color: theme.accent, fontWeight: "600" }}>
+                        {item.symbol.slice(0, 2)}
+                      </ThemedText>
+                    </View>
+                  )}
+                  <View style={styles.tokenInfo}>
+                    <ThemedText type="body" style={{ fontWeight: "600" }}>{item.symbol}</ThemedText>
+                    <ThemedText type="caption" style={{ color: theme.textSecondary }}>{item.name}</ThemedText>
                   </View>
-                )}
-                <View style={styles.tokenInfo}>
-                  <ThemedText type="body" style={{ fontWeight: "600" }}>{item.symbol}</ThemedText>
-                  <ThemedText type="caption" style={{ color: theme.textSecondary }}>{item.name}</ThemedText>
-                </View>
-              </Pressable>
-            )}
-            style={styles.tokenList}
-            contentContainerStyle={styles.tokenListContent}
-          />
+                </Pressable>
+              )}
+              style={styles.tokenList}
+              contentContainerStyle={styles.tokenListContent}
+            />
+          )}
         </View>
       </KeyboardAvoidingView>
     </Modal>
@@ -1268,6 +1491,22 @@ const styles = StyleSheet.create({
   },
   tokenInfo: {
     flex: 1,
+  },
+  tokenTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+  },
+  customTokenSection: {
+    borderBottomWidth: 1,
+    paddingBottom: Spacing.md,
+    marginBottom: Spacing.sm,
+    paddingHorizontal: Spacing.sm,
+  },
+  unverifiedBadge: {
+    paddingHorizontal: Spacing.xs,
+    paddingVertical: 2,
+    borderRadius: BorderRadius.sm,
   },
   confirmModal: {
     borderTopLeftRadius: BorderRadius.xl,

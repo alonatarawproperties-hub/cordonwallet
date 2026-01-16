@@ -2,6 +2,8 @@ import { swapConfig } from "./config";
 import type { TokenInfo } from "./types";
 import * as fs from "fs";
 import * as path from "path";
+import { Connection, PublicKey } from "@solana/web3.js";
+import { getMint } from "@solana/spl-token";
 
 const CACHE_DIR = path.join(process.cwd(), "server", ".cache");
 const CACHE_FILE = path.join(CACHE_DIR, "tokenlist.json");
@@ -148,6 +150,32 @@ export async function getTokenList(): Promise<TokenInfo[]> {
   return memoryCache;
 }
 
+interface CustomTokenCache {
+  token: TokenInfo & { verified: boolean; sources: string[] };
+  fetchedAt: number;
+}
+
+const customTokenCache = new Map<string, CustomTokenCache>();
+const CUSTOM_TOKEN_TTL = 10 * 60 * 1000; // 10 minutes
+
+function isValidBase58Mint(mint: string): boolean {
+  if (!mint || mint.length < 32 || mint.length > 44) return false;
+  return /^[1-9A-HJ-NP-Za-km-z]+$/.test(mint);
+}
+
+async function fetchOnChainDecimals(mint: string): Promise<number | null> {
+  try {
+    const rpcUrl = process.env.SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com";
+    const connection = new Connection(rpcUrl, "confirmed");
+    const mintPubkey = new PublicKey(mint);
+    const mintInfo = await getMint(connection, mintPubkey);
+    return mintInfo.decimals;
+  } catch (err: any) {
+    console.warn(`[TokenList] Failed to fetch on-chain decimals for ${mint}:`, err.message);
+    return null;
+  }
+}
+
 export async function getToken(mint: string): Promise<TokenInfo | null> {
   const tokens = await getTokenList();
   const found = tokens.find(t => t.mint.toLowerCase() === mint.toLowerCase());
@@ -158,6 +186,51 @@ export async function getToken(mint: string): Promise<TokenInfo | null> {
   if (hardcoded) return hardcoded;
   
   return null;
+}
+
+export async function resolveToken(mint: string): Promise<{ token: TokenInfo & { verified: boolean; sources: string[] } } | { error: string; code: number }> {
+  if (!isValidBase58Mint(mint)) {
+    return { error: "Invalid mint address format", code: 400 };
+  }
+
+  // Check custom token cache first
+  const cached = customTokenCache.get(mint);
+  if (cached && Date.now() - cached.fetchedAt < CUSTOM_TOKEN_TTL) {
+    return { token: cached.token };
+  }
+
+  // Try known token list first
+  const knownToken = await getToken(mint);
+  if (knownToken) {
+    const result = {
+      token: {
+        ...knownToken,
+        verified: true,
+        sources: ["jupiter"],
+      },
+    };
+    customTokenCache.set(mint, { token: result.token, fetchedAt: Date.now() });
+    return result;
+  }
+
+  // Resolve on-chain for unknown tokens
+  const decimals = await fetchOnChainDecimals(mint);
+  if (decimals === null) {
+    return { error: "Invalid mint - token account not found on-chain", code: 404 };
+  }
+
+  const customToken = {
+    mint,
+    symbol: "UNKNOWN",
+    name: "Unknown Token",
+    decimals,
+    logoURI: undefined,
+    verified: false,
+    sources: ["on-chain"],
+  };
+
+  customTokenCache.set(mint, { token: customToken, fetchedAt: Date.now() });
+  return { token: customToken };
 }
 
 export async function searchTokens(query: string, limit: number = 50): Promise<TokenInfo[]> {
