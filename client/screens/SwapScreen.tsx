@@ -879,22 +879,85 @@ export default function SwapScreen() {
     return { balance: 0, usdValue: 0 };
   }, [solanaAssets]);
 
-  const handleClearRecentlyUsed = async () => {
-    await clearRecentlyUsedTokens();
-    setRecentlyUsedTokens([]);
-  };
-
-  const filteredRecentlyUsed = useMemo(() => {
+  const yourTokens = useMemo(() => {
+    if (!solanaAssets || solanaAssets.length === 0) return [];
     const excludeMint = tokenModalType === "input" ? outputToken?.mint : inputToken?.mint;
-    return recentlyUsedTokens.filter(t => t.mint !== excludeMint);
-  }, [recentlyUsedTokens, tokenModalType, inputToken, outputToken]);
+    
+    return solanaAssets
+      .filter(a => {
+        const mint = a.isNative ? SOL_MINT : a.mint;
+        if (mint === excludeMint) return false;
+        const bal = parseFloat(a.balance.replace(/,/g, ""));
+        return bal > 0;
+      })
+      .map(a => {
+        const bal = parseFloat(a.balance.replace(/,/g, ""));
+        const usdValue = bal * (a.priceUsd || 0);
+        return {
+          mint: a.isNative ? SOL_MINT : a.mint || "",
+          symbol: a.symbol,
+          name: a.name,
+          decimals: a.decimals || 9,
+          logoURI: a.logoUrl,
+          balance: bal,
+          usdValue,
+          verified: true,
+        };
+      })
+      .sort((a, b) => b.usdValue - a.usdValue);
+  }, [solanaAssets, tokenModalType, inputToken, outputToken]);
+
+  const renderTokenRow = (item: TokenInfo & { verified?: boolean }, showBalance = true) => {
+    const { balance, usdValue } = getModalTokenBalance(item.mint);
+    const isVerified = (item as any).verified !== false;
+    
+    return (
+      <Pressable
+        key={item.mint}
+        style={({ pressed }) => [
+          styles.tokenItemNew, 
+          { backgroundColor: pressed ? theme.backgroundSecondary : "transparent" }
+        ]}
+        onPress={() => selectToken(item)}
+      >
+        {item.logoURI ? (
+          <Image source={{ uri: item.logoURI }} style={styles.tokenLogoNew} />
+        ) : (
+          <View style={[styles.tokenLogoPlaceholderNew, { backgroundColor: theme.border }]}>
+            <ThemedText type="body" style={{ color: theme.textSecondary, fontWeight: "600" }}>
+              {item.symbol.slice(0, 2)}
+            </ThemedText>
+          </View>
+        )}
+        <View style={styles.tokenInfoNew}>
+          <View style={styles.tokenSymbolRow}>
+            <ThemedText type="body" style={{ fontWeight: "600" }}>{item.symbol}</ThemedText>
+            {isVerified && (
+              <Feather name="check-circle" size={12} color="#22C55E" style={{ marginLeft: 4 }} />
+            )}
+          </View>
+          <ThemedText type="caption" style={{ color: theme.textSecondary }}>{item.name}</ThemedText>
+        </View>
+        {showBalance && balance > 0 ? (
+          <View style={styles.tokenBalanceColumn}>
+            <ThemedText type="body" style={{ fontWeight: "600", textAlign: "right" }}>
+              {balance.toLocaleString(undefined, { maximumFractionDigits: 4 })}
+            </ThemedText>
+            <ThemedText type="caption" style={{ color: theme.textSecondary, textAlign: "right" }}>
+              ${usdValue.toFixed(2)}
+            </ThemedText>
+          </View>
+        ) : null}
+      </Pressable>
+    );
+  };
 
   const renderTokenModal = () => (
     <Modal visible={showTokenModal} transparent={false} animationType="slide" onRequestClose={() => setShowTokenModal(false)} presentationStyle="fullScreen">
       <View style={[styles.fullScreenModal, { backgroundColor: theme.backgroundDefault }]}>
         <View style={[styles.fullScreenHeader, { paddingTop: insets.top + Spacing.sm }]}>
           <Pressable style={styles.headerBackButton} onPress={() => setShowTokenModal(false)}>
-            <Feather name="arrow-left" size={24} color={theme.text} />
+            <Feather name="x" size={24} color={theme.text} />
           </Pressable>
           <ThemedText type="body" style={styles.headerTitle}>
             {tokenModalType === "input" ? "You Pay" : "You Receive"}
@@ -902,109 +965,71 @@ export default function SwapScreen() {
           <View style={styles.headerSpacer} />
         </View>
 
-        <View style={[styles.searchContainer, { backgroundColor: theme.backgroundSecondary, marginHorizontal: Spacing.lg }]}>
-          <Feather name="search" size={18} color={theme.textSecondary} style={styles.searchIcon} />
+        <View style={[styles.searchContainerNew, { backgroundColor: theme.backgroundSecondary }]}>
+          <Feather name="search" size={18} color={theme.textSecondary} />
           <TextInput
-            style={[styles.tokenSearchInput, { color: theme.text }]}
-            placeholder="Search by name or paste address"
+            style={[styles.tokenSearchInputNew, { color: theme.text }]}
+            placeholder="Search tokens"
             placeholderTextColor={theme.textSecondary}
             value={tokenSearch}
             onChangeText={handleTokenSearch}
             autoCapitalize="none"
             autoCorrect={false}
           />
+          {tokenSearch.length > 0 ? (
+            <Pressable onPress={() => { setTokenSearch(""); setTokenResults(getPopularTokens()); }}>
+              <Feather name="x-circle" size={18} color={theme.textSecondary} />
+            </Pressable>
+          ) : null}
         </View>
 
-        {filteredRecentlyUsed.length > 0 && !tokenSearch && (
-          <View style={styles.recentSection}>
-            <View style={styles.recentHeader}>
-              <ThemedText type="caption" style={{ color: theme.textSecondary }}>Recently used</ThemedText>
-              <Pressable onPress={handleClearRecentlyUsed}>
-                <ThemedText type="caption" style={{ color: theme.accent }}>Clear all</ThemedText>
-              </Pressable>
-            </View>
-            <FlatList
-              horizontal
-              data={filteredRecentlyUsed}
-              keyExtractor={(item) => item.mint}
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.recentChipsContainer}
-              renderItem={({ item }) => (
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.recentChip,
-                    { 
-                      backgroundColor: pressed ? theme.accent + "30" : theme.backgroundSecondary,
-                      borderColor: theme.border,
-                    }
-                  ]}
-                  onPress={() => selectToken(item)}
-                >
-                  {item.logoURI ? (
-                    <Image source={{ uri: item.logoURI }} style={styles.recentChipLogo} />
-                  ) : (
-                    <View style={[styles.recentChipLogoPlaceholder, { backgroundColor: theme.accent + "20" }]}>
-                      <ThemedText type="caption" style={{ fontSize: 8, color: theme.accent }}>
-                        {item.symbol.slice(0, 2)}
-                      </ThemedText>
-                    </View>
-                  )}
-                  <ThemedText type="caption" style={{ fontWeight: "600" }}>{item.symbol}</ThemedText>
-                </Pressable>
-              )}
-            />
-          </View>
-        )}
-
         {renderCustomTokenRow()}
-        {renderRecentCustomTokens()}
 
-        {!isMintMode && (
-          <FlatList
-            data={tokenResults}
-            keyExtractor={(item) => item.mint}
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={{ paddingBottom: insets.bottom + Spacing.lg, paddingHorizontal: Spacing.lg }}
-            renderItem={({ item }) => {
-              const { balance, usdValue } = getModalTokenBalance(item.mint);
-              return (
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.tokenItem, 
-                    { backgroundColor: pressed ? theme.backgroundSecondary : "transparent" }
-                  ]}
-                  onPress={() => selectToken(item)}
-                >
-                  {item.logoURI ? (
-                    <Image source={{ uri: item.logoURI }} style={styles.tokenLogo} />
-                  ) : (
-                    <View style={[styles.tokenLogoPlaceholder, { backgroundColor: theme.accent + "20" }]}>
-                      <ThemedText type="caption" style={{ color: theme.accent, fontWeight: "600" }}>
-                        {item.symbol.slice(0, 2)}
-                      </ThemedText>
-                    </View>
-                  )}
-                  <View style={styles.tokenInfo}>
-                    <ThemedText type="body" style={{ fontWeight: "600" }}>{item.symbol}</ThemedText>
-                    <ThemedText type="caption" style={{ color: theme.textSecondary }}>{item.name}</ThemedText>
+        <FlatList
+          data={tokenSearch ? tokenResults : [...yourTokens, ...tokenResults.filter(t => !yourTokens.find(y => y.mint === t.mint))]}
+          keyExtractor={(item) => item.mint}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ paddingBottom: insets.bottom + Spacing.lg }}
+          ListHeaderComponent={
+            !tokenSearch && yourTokens.length > 0 ? (
+              <View style={styles.sectionHeaderContainer}>
+                <ThemedText type="caption" style={[styles.sectionHeaderText, { color: theme.textSecondary }]}>
+                  Your Tokens
+                </ThemedText>
+              </View>
+            ) : null
+          }
+          renderItem={({ item, index }) => {
+            const isFirstPopular = !tokenSearch && yourTokens.length > 0 && index === yourTokens.length;
+            return (
+              <View>
+                {isFirstPopular ? (
+                  <View style={styles.sectionHeaderContainer}>
+                    <ThemedText type="caption" style={[styles.sectionHeaderText, { color: theme.textSecondary }]}>
+                      Popular
+                    </ThemedText>
                   </View>
-                  {balance > 0 ? (
-                    <View style={styles.tokenBalanceColumn}>
-                      <ThemedText type="body" style={{ fontWeight: "600", textAlign: "right" }}>
-                        {balance.toLocaleString(undefined, { maximumFractionDigits: 4 })}
-                      </ThemedText>
-                      <ThemedText type="caption" style={{ color: theme.textSecondary, textAlign: "right" }}>
-                        ${usdValue.toFixed(2)}
-                      </ThemedText>
-                    </View>
-                  ) : null}
-                </Pressable>
-              );
-            }}
-            style={styles.tokenList}
-          />
-        )}
+                ) : null}
+                {renderTokenRow(item)}
+              </View>
+            );
+          }}
+          style={styles.tokenListNew}
+          ListEmptyComponent={
+            tokenSearch ? (
+              <View style={styles.emptyState}>
+                <Feather name="search" size={48} color={theme.textSecondary} />
+                <ThemedText type="body" style={{ color: theme.textSecondary, marginTop: Spacing.md }}>
+                  No tokens found
+                </ThemedText>
+                <ThemedText type="caption" style={{ color: theme.textSecondary, marginTop: Spacing.xs }}>
+                  Try searching by contract address
+                </ThemedText>
+              </View>
+            ) : null
+          }
+        />
       </View>
     </Modal>
   );
@@ -1786,5 +1811,65 @@ const styles = StyleSheet.create({
   },
   tokenBalanceColumn: {
     alignItems: "flex-end",
+  },
+  tokenItemNew: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.lg,
+    minHeight: 64,
+  },
+  tokenLogoNew: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+  },
+  tokenLogoPlaceholderNew: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  tokenInfoNew: {
+    flex: 1,
+    marginLeft: Spacing.md,
+  },
+  tokenSymbolRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  searchContainerNew: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: 10,
+    marginHorizontal: Spacing.lg,
+    marginBottom: Spacing.md,
+    paddingHorizontal: Spacing.md,
+    gap: Spacing.sm,
+  },
+  tokenSearchInputNew: {
+    flex: 1,
+    paddingVertical: Spacing.md,
+    fontSize: 16,
+  },
+  tokenListNew: {
+    flex: 1,
+  },
+  sectionHeaderContainer: {
+    paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.lg,
+    paddingBottom: Spacing.sm,
+  },
+  sectionHeaderText: {
+    fontSize: 13,
+    fontWeight: "600",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  emptyState: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingTop: Spacing.xl * 2,
   },
 });

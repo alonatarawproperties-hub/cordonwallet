@@ -1,201 +1,184 @@
 # Design Guidelines: EVM Wallet App
 
-## Design Philosophy
-**Style**: Minimalist, professional fintech. Clean spacing, strong hierarchy, safety-first tone.
+## Brand Identity
+**Purpose**: Secure, user-friendly crypto wallet for everyday users and power users.
 
-**Avoid**: Neon colors, heavy gradients, meme visuals, "casino" crypto aesthetic, cluttered dashboards.
+**Aesthetic Direction**: **Refined fintech minimalism** - professional, trustworthy, and restrained. Clean spacing, strong hierarchy, subtle interactions. Avoids the "casino crypto" aesthetic with neon colors and heavy gradients.
 
-## Color System
-
-### Light Theme
-- Background: `#FFFFFF`
-- Surface/Card: `#F7F8FA`
-- Border: `#E5E7EB`
-- Text Primary: `#0B0F14`
-- Text Secondary: `#6B7280`
-
-### Dark Theme
-- Background: `#0B0F14`
-- Surface/Card: `#111827`
-- Border: `#1F2937`
-- Text Primary: `#F9FAFB`
-- Text Secondary: `#A1A1AA`
-
-### Semantic Colors
-- Accent: `#3B82F6`
-- Success: `#22C55E`
-- Warning: `#F59E0B`
-- Danger: `#EF4444`
-
-## Typography
-
-### Font Family
-- Mobile: System font stack (SF Pro on iOS, Roboto on Android)
-- Web: Inter (with system fallback)
-
-### Scale
-- Heading 1: 24px
-- Heading 2: 20px
-- Heading 3: 18px
-- Body: 16px
-- Caption: 12-13px
-
-### Hierarchy
-Use font weight and color to establish hierarchy. Primary actions use Text Primary; supporting info uses Text Secondary.
-
-## Layout System
-
-### Spacing Grid
-8px base unit. Standard paddings: 16px, 24px.
-
-### Border Radius
-- Cards/Sheets: 12px
-- Inputs: 10px
-- Pills/Badges: 999px (fully rounded)
-
-### Elevation
-- Use subtle shadows only on modals and bottom sheets
-- Otherwise use flat design with borders
-- Avoid heavy drop shadows
-
-### Icons
-- Use simple line icons (Lucide or similar)
-- Consistent stroke width across all icons
-- Size: 20-24px for UI elements
+**Memorable Element**: Safety-first UI patterns with intelligent transaction previewing and policy enforcement that feels protective, not restrictive.
 
 ## Navigation Architecture
 
-### Mobile (Bottom Tabs)
-1. Portfolio
-2. Activity
-3. Browser (dApps)
-4. Bundles
-5. Settings
+**Root Navigation**: Bottom Tab Bar (iOS) / Bottom Navigation (Android)
 
-### Web (Left Sidebar)
-Same structure as mobile tabs, displayed as vertical navigation.
+**Tabs**:
+1. **Portfolio** - Asset overview, total balance, network switcher
+2. **Activity** - Transaction history and status tracking
+3. **Browser** - dApp connection and interaction
+4. **Bundles** - Multi-wallet management and batch operations
+5. **Settings** - Account, security, policies, preferences
 
-## Component Specifications
+**Modal Screens** (presented from any tab):
+- Token Selector
+- Send/Receive flows
+- Asset Detail
+- Firewall Preview Sheet
+- Approval management
 
-### Buttons
-- **Primary**: Accent background, white text
-- **Secondary**: Transparent background, Accent border/text
-- **Ghost**: Transparent background, no border
-- **Destructive**: Danger background, white text
+## Screen-by-Screen Specifications
 
-### Input Fields
-- Label above input
-- Helper text below (Text Secondary)
-- Error state (Danger color)
-- 10px border radius
-- Border on all states
+### Token Selector Screen
+**Purpose**: Select token for swap/send with polished, friction-free UX.
 
-### Cards
-- 12px border radius
-- Surface background color
-- Border in Border color
-- 16-24px internal padding
+**Layout**:
+- **Header**: Transparent background, search bar integrated, "Cancel" button (left), no right button
+- **Content**: Scrollable list with search-driven sections
+- **Safe Area**: Top inset = headerHeight + 16px, Bottom inset = insets.bottom + 16px
 
-### List Rows
-- Title (Text Primary, Body size)
-- Subtitle (Text Secondary, Caption size)
-- Right value (aligned right)
-- Chevron for navigable items
+**Sections** (in order):
+1. **Search Results** (when search active) - prioritize exact matches, then partial matches
+2. **Popular Tokens** (default view) - 6-8 verified tokens with high market cap/liquidity
+3. **Your Tokens** (if user has balance) - tokens user owns, sorted by USD value descending
+4. **All Tokens** - alphabetical, infinite scroll
 
-### Badges
-- Variants: neutral, success, warning, danger
-- 999px border radius
-- Small text (Caption size)
-- Used for status indicators
+**REMOVE**: Recently used chips. Recent custom tokens section. Consolidate into "Your Tokens" section only.
 
-### Modals & Bottom Sheets
-- Subtle shadow (mobile: bottom sheets preferred)
-- 12px top border radius for bottom sheets
-- Drag handle indicator on sheets
+**Token Row Specifications**:
+- Left: Token logo (40x40px circular), Symbol (Body, Text Primary), Name (Caption, Text Secondary)
+- Right: Balance (if owned, Body, Text Primary), USD Value (Caption, Text Secondary)
+- Row height: 64px, horizontal padding: 16px
+- Verification badge: Small checkmark icon (12px) next to symbol, Success color, only for verified tokens
+- Unverified tokens: NO badge (absence communicates unverified status without visual harshness)
+- Press state: Surface color background with subtle opacity change (0.8)
 
-### Toast Notifications
-- Success/Warning/Danger variants
-- Auto-dismiss after 3-5 seconds
-- Positioned at top or bottom (consistent)
+**Search Bar**:
+- Placeholder: "Search tokens"
+- Integrated into header with rounded corners (10px)
+- Border color when inactive, Accent border when focused
+- Clear button appears when text entered
+- Search by symbol, name, or contract address
 
-### Loading States
-- Skeleton loaders for content loading
-- Match the shape of final content
-- Subtle shimmer animation
+**Empty States**:
+- No search results: Illustration (search-empty.png), "No tokens found", secondary text with "Try searching by contract address"
+- No owned tokens: Illustration (empty-wallet.png), "No tokens yet", "Buy or receive tokens to get started"
 
-### Empty States
-- Centered icon or illustration
-- Primary message (Heading 3)
-- Supporting text (Body, Text Secondary)
-- Optional CTA button
+### Portfolio Screen
+**Layout**:
+- **Header**: Transparent, network switcher (pill buttons), settings icon (right)
+- **Content**: Scrollable, total balance card at top, asset list below
+- **Safe Area**: Top inset = headerHeight + 24px, Bottom inset = tabBarHeight + 16px
 
-## Critical UX Patterns
+**Components**:
+- Total balance (large heading, collapsible on scroll)
+- Network pills (Ethereum, Polygon, etc.)
+- Asset cards: Token logo, symbol/name, balance, USD value, 24h change percentage
+- Pull-to-refresh for price updates
+
+### Send/Receive Flows
+**Layout**: Stack navigation, custom header with progress indicator for multi-step flows
+**Safe Area**: Top inset = 16px (header is opaque), Bottom inset = insets.bottom + 16px
+
+**Components**: Large input fields, token selector trigger, network display badge, gas fee preview, confirmation buttons (header or bottom depending on keyboard state)
 
 ### Firewall Preview Sheet
-**Title**: "Before you sign"
+**Layout**: Bottom sheet modal, 12px top border radius, drag handle
+**Safe Area**: Top inset = 24px, Bottom inset = insets.bottom + 16px
 
-**Content Structure**:
-1. Action type badge (top)
-2. "You pay" / "You receive" sections
-3. Destination/Spender address with explorer link
-4. Highlight "Unlimited approval" in Danger color
-5. Risk summary: Low/Medium/High badge + bullet reasons
-6. Policy status: Allowed/Blocked with reason
+**Components**: Action badge, transaction details (You pay/receive), destination address with explorer link, risk summary with color-coded badge, policy status, dual action buttons (primary + secondary or destructive override)
 
-**Buttons**:
-- Primary: "Sign" (disabled if blocked)
-- Secondary: "Reject"
-- If blocked: require "I understand" checkbox + "Override (Danger)" button with confirmation
+## Color Palette
 
-### Security-First Interactions
-- Seed phrase display: Show only once with clear backup warning
-- Sensitive actions: Always require confirmation (especially approvals, overrides)
-- Error messages: Never show raw RPC errors; use plain English
-- Dangerous actions: Use Danger color, explicit confirmation, extra friction
+### Dark Theme (Default)
+- **Background**: `#0B0F14`
+- **Surface**: `#111827`
+- **Border**: `#1F2937`
+- **Text Primary**: `#F9FAFB`
+- **Text Secondary**: `#A1A1AA`
+- **Accent**: `#3B82F6`
+- **Success**: `#22C55E`
+- **Warning**: `#F59E0B`
+- **Danger**: `#EF4444`
+
+### Light Theme
+- **Background**: `#FFFFFF`
+- **Surface**: `#F7F8FA`
+- **Border**: `#E5E7EB`
+- **Text Primary**: `#0B0F14`
+- **Text Secondary**: `#6B7280`
+- Semantic colors same as dark theme
+
+## Typography
+**Font**: SF Pro (iOS), Roboto (Android)
+
+**Type Scale**:
+- Heading 1: 24px, Bold
+- Heading 2: 20px, Semibold
+- Heading 3: 18px, Semibold
+- Body: 16px, Regular
+- Caption: 13px, Regular
+- Small: 12px, Regular
+
+**Hierarchy**: Use weight and color (Primary vs Secondary) for emphasis.
+
+## Design System
+
+### Spacing
+8px base unit. Common values: 8px, 12px, 16px, 24px
+
+### Border Radius
+- Cards: 12px
+- Inputs: 10px
+- Pills: 999px
+- Buttons: 10px
+
+### Touchable Feedback
+- All touchables: Opacity change (0.6) on press
+- List rows: Surface background with opacity 0.8
+- Floating buttons: Subtle shadow (offset: 0,2 / opacity: 0.10 / radius: 2)
+
+### Icons
+- Library: Lucide or system icons
+- Size: 20-24px for UI elements
+- Stroke: Consistent weight
+
+### Loading States
+- Skeleton loaders matching final content shape
+- Subtle shimmer animation
+- Never show spinners without context
 
 ### Transaction States
 - Pending: Warning color, animated indicator
 - Success: Success color, checkmark
-- Failed: Danger color, error explanation with recovery guidance
+- Failed: Danger color, plain English error with recovery steps
 
-## Screen Layout Patterns
+## Assets to Generate
 
-### Portfolio Screen
-- Total balance (large, top)
-- Network switcher (pills)
-- Asset list (cards or rows)
-- Pull-to-refresh
+**icon.png** - App icon: Abstract wallet symbol in Accent color on dark gradient background
+**WHERE USED**: Device home screen
 
-### Asset Detail
-- Asset header (icon, name, balance)
-- Price chart (optional for MVP)
-- Action buttons: Send, Receive, Swap
-- Transaction history list
+**splash-icon.png** - Simplified wallet icon: Monochrome version of app icon
+**WHERE USED**: App launch screen
 
-### Send/Receive
-- Recipient/Address input (large, clear)
-- Amount input (prominent)
-- Token selector
-- Network display
-- Gas fee preview
-- Clear error states for validation
+**empty-wallet.png** - Empty wallet illustration: Open wallet with minimal line art, dark theme colors
+**WHERE USED**: Token selector "Your Tokens" empty state, Portfolio screen when no assets
 
-### Approvals Dashboard
-- Grouped by spender
-- Token name, spender address, approved amount
-- Highlight unlimited approvals (Danger)
-- "Revoke" action (destructive button)
-- Cost preview before revoke
+**search-empty.png** - Search illustration: Magnifying glass with "not found" indicator, subtle and minimal
+**WHERE USED**: Token selector search with no results
 
-### Bundles
-- Bundle cards with rollup totals
-- "Create Bundle" prominent CTA
-- Batch action buttons (guarded by policies)
-- Clear visual grouping of wallets in bundle
+**token-placeholder.png** - Generic token logo: Circle with "?" symbol, Border color outline
+**WHERE USED**: Fallback for tokens without logo images
 
-## Accessibility Requirements
-- Minimum touch target: 44x44px
-- Color contrast: WCAG AA minimum
-- Form inputs: clear labels, error messages
-- Critical actions: confirmation dialogs with clear messaging
-- Loading states: always provide feedback for async operations
+**eth-logo.png** - Ethereum logo: Official ETH diamond icon
+**WHERE USED**: Token selector, portfolio, transaction lists
+
+**usdc-logo.png** - USDC logo: Official Circle USDC icon
+**WHERE USED**: Token selector, portfolio, transaction lists
+
+**dai-logo.png** - DAI logo: Official DAI stablecoin icon
+**WHERE USED**: Token selector, portfolio, transaction lists
+
+**wbtc-logo.png** - Wrapped Bitcoin logo: Official WBTC icon
+**WHERE USED**: Token selector, portfolio, transaction lists
+
+**uni-logo.png** - Uniswap logo: Official UNI token icon
+**WHERE USED**: Token selector, portfolio, transaction lists
