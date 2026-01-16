@@ -35,6 +35,7 @@ import SeedPhraseExportScreen from "@/screens/SeedPhraseExportScreen";
 import PrivateKeyExportScreen from "@/screens/PrivateKeyExportScreen";
 import SwapHistoryScreen from "@/screens/SwapHistoryScreen";
 import SwapDebugScreen from "@/screens/SwapDebugScreen";
+import TokenSelectScreen from "@/screens/TokenSelectScreen";
 import type { BootResult, InitialRoute } from "@/lib/bootstrap";
 
 export type TransactionDetailParams = {
@@ -106,6 +107,11 @@ export type RootStackParamList = {
   PrivateKeyExport: { walletId: string; walletName: string };
   SwapHistory: undefined;
   SwapDebug: undefined;
+  TokenSelect: {
+    mode: "input" | "output";
+    onSelect: (token: any) => void;
+    excludeMint?: string;
+  };
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -286,6 +292,11 @@ export default function RootStackNavigator() {
         name="SwapDebug"
         component={SwapDebugScreen}
         options={{ headerTitle: "Swap Debug" }}
+      />
+      <Stack.Screen
+        name="TokenSelect"
+        component={TokenSelectScreen}
+        options={{ headerShown: false, presentation: "fullScreenModal" }}
       />
     </Stack.Navigator>
   );
