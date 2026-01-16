@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { View, StyleSheet, Pressable, Alert } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useHeaderHeight } from "@react-navigation/elements";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -9,7 +10,6 @@ import * as LocalAuthentication from "expo-local-authentication";
 
 import { ThemedView } from "@/components/ThemedView";
 import { ThemedText } from "@/components/ThemedText";
-import { Button } from "@/components/Button";
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius } from "@/constants/theme";
 import { getMnemonic } from "@/lib/wallet-engine";
@@ -20,6 +20,7 @@ type Props = NativeStackScreenProps<RootStackParamList, "SeedPhraseExport">;
 export default function SeedPhraseExportScreen({ navigation, route }: Props) {
   const { walletId, walletName } = route.params;
   const insets = useSafeAreaInsets();
+  const headerHeight = useHeaderHeight();
   const { theme } = useTheme();
   const [seedPhrase, setSeedPhrase] = useState<string[] | null>(null);
   const [isRevealed, setIsRevealed] = useState(false);
@@ -80,8 +81,8 @@ export default function SeedPhraseExportScreen({ navigation, route }: Props) {
     setCopied(true);
     
     Alert.alert(
-      "Copied to Clipboard",
-      "Your recovery phrase has been copied. Make sure to store it securely and clear your clipboard.",
+      "Copied",
+      "Recovery phrase copied. Store it securely and clear your clipboard.",
       [{ text: "OK" }]
     );
     
@@ -99,19 +100,19 @@ export default function SeedPhraseExportScreen({ navigation, route }: Props) {
   }
 
   return (
-    <ThemedView style={[styles.container, { paddingBottom: insets.bottom + Spacing.xl }]}>
-      <View style={[styles.warningBanner, { backgroundColor: theme.warning + "15" }]}>
-        <Feather name="eye-off" size={16} color={theme.warning} />
-        <ThemedText type="small" style={{ color: theme.warning, marginLeft: Spacing.sm, flex: 1 }}>
-          Make sure no one is watching. Auto-hiding in {timeLeft}s
+    <ThemedView style={styles.container}>
+      <View style={[styles.timerBar, { backgroundColor: theme.warning + "10" }]}>
+        <Feather name="clock" size={14} color={theme.warning} />
+        <ThemedText type="small" style={[styles.timerText, { color: theme.warning }]}>
+          Auto-hiding in {timeLeft}s
         </ThemedText>
+        <View style={[styles.timerProgress, { backgroundColor: theme.warning + "30" }]}>
+          <View style={[styles.timerFill, { backgroundColor: theme.warning, width: `${(timeLeft / 60) * 100}%` }]} />
+        </View>
       </View>
 
-      <View style={styles.content}>
-        <ThemedText type="h3" style={styles.title}>
-          Recovery Phrase
-        </ThemedText>
-        <ThemedText type="small" style={[styles.subtitle, { color: theme.textSecondary }]}>
+      <View style={[styles.content, { paddingTop: Spacing.xl }]}>
+        <ThemedText type="small" style={[styles.walletLabel, { color: theme.textSecondary }]}>
           {walletName}
         </ThemedText>
 
@@ -119,7 +120,7 @@ export default function SeedPhraseExportScreen({ navigation, route }: Props) {
           {seedPhrase.map((word, index) => (
             <View 
               key={index} 
-              style={[styles.wordCard, { backgroundColor: theme.backgroundDefault, borderColor: theme.border }]}
+              style={[styles.wordCard, { backgroundColor: theme.backgroundSecondary }]}
             >
               <ThemedText type="small" style={[styles.wordNumber, { color: theme.textSecondary }]}>
                 {index + 1}
@@ -132,21 +133,22 @@ export default function SeedPhraseExportScreen({ navigation, route }: Props) {
         </View>
       </View>
 
-      <View style={styles.buttons}>
-        <Button onPress={handleCopy} style={styles.button}>
-          <View style={styles.buttonContent}>
-            <Feather name={copied ? "check" : "copy"} size={18} color="#fff" />
-            <ThemedText type="body" style={{ color: "#fff", marginLeft: Spacing.sm, fontWeight: "600" }}>
-              {copied ? "Copied!" : "Copy to Clipboard"}
-            </ThemedText>
-          </View>
-        </Button>
+      <View style={[styles.buttons, { paddingBottom: insets.bottom + Spacing.lg }]}>
+        <Pressable
+          onPress={handleCopy}
+          style={[styles.copyButton, { backgroundColor: copied ? theme.success : theme.accent }]}
+        >
+          <Feather name={copied ? "check" : "copy"} size={18} color="#fff" />
+          <ThemedText type="body" style={styles.copyButtonText}>
+            {copied ? "Copied" : "Copy to Clipboard"}
+          </ThemedText>
+        </Pressable>
 
         <Pressable
           onPress={() => navigation.goBack()}
-          style={[styles.secondaryButton, { borderColor: theme.border }]}
+          style={styles.doneButton}
         >
-          <ThemedText type="body" style={{ fontWeight: "500" }}>
+          <ThemedText type="body" style={{ color: theme.textSecondary }}>
             Done
           </ThemedText>
         </Pressable>
@@ -163,24 +165,35 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  warningBanner: {
+  timerBar: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: Spacing.md,
+    paddingVertical: Spacing.sm,
     paddingHorizontal: Spacing.lg,
+  },
+  timerText: {
+    marginLeft: Spacing.sm,
+    fontWeight: "500",
+  },
+  timerProgress: {
+    flex: 1,
+    height: 3,
+    borderRadius: 2,
+    marginLeft: Spacing.md,
+    overflow: "hidden",
+  },
+  timerFill: {
+    height: "100%",
+    borderRadius: 2,
   },
   content: {
     flex: 1,
-    paddingHorizontal: Spacing.xl,
-    paddingTop: Spacing.xl,
+    paddingHorizontal: Spacing.lg,
   },
-  title: {
+  walletLabel: {
     textAlign: "center",
-    marginBottom: Spacing.xs,
-  },
-  subtitle: {
-    textAlign: "center",
-    marginBottom: Spacing.xl,
+    marginBottom: Spacing.lg,
+    letterSpacing: 0.5,
   },
   seedGrid: {
     flexDirection: "row",
@@ -188,18 +201,18 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   wordCard: {
-    width: "31%",
+    width: "32%",
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: Spacing.md,
-    paddingHorizontal: Spacing.sm,
-    borderRadius: BorderRadius.sm,
-    borderWidth: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 10,
+    borderRadius: BorderRadius.md,
     marginBottom: Spacing.sm,
   },
   wordNumber: {
-    width: 20,
+    width: 18,
     fontSize: 11,
+    fontWeight: "500",
   },
   word: {
     flex: 1,
@@ -207,22 +220,24 @@ const styles = StyleSheet.create({
     fontWeight: "500",
   },
   buttons: {
-    paddingHorizontal: Spacing.xl,
-    gap: Spacing.md,
+    paddingHorizontal: Spacing.lg,
+    gap: Spacing.sm,
   },
-  button: {
-    width: "100%",
-  },
-  buttonContent: {
+  copyButton: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
+    paddingVertical: 16,
+    borderRadius: BorderRadius.lg,
   },
-  secondaryButton: {
+  copyButtonText: {
+    color: "#fff",
+    fontWeight: "600",
+    marginLeft: Spacing.sm,
+  },
+  doneButton: {
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: Spacing.lg,
-    borderRadius: BorderRadius.md,
-    borderWidth: 1,
+    paddingVertical: 14,
   },
 });

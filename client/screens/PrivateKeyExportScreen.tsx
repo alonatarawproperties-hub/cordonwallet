@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { View, StyleSheet, Pressable, Alert, ScrollView } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useHeaderHeight } from "@react-navigation/elements";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -20,6 +21,7 @@ type Props = NativeStackScreenProps<RootStackParamList, "PrivateKeyExport">;
 export default function PrivateKeyExportScreen({ navigation, route }: Props) {
   const { walletId, walletName } = route.params;
   const insets = useSafeAreaInsets();
+  const headerHeight = useHeaderHeight();
   const { theme } = useTheme();
   const [evmPrivateKey, setEvmPrivateKey] = useState<string | null>(null);
   const [solanaPrivateKey, setSolanaPrivateKey] = useState<string | null>(null);
@@ -106,32 +108,35 @@ export default function PrivateKeyExportScreen({ navigation, route }: Props) {
   }
 
   return (
-    <ThemedView style={[styles.container, { paddingBottom: insets.bottom + Spacing.xl }]}>
-      <View style={[styles.warningBanner, { backgroundColor: theme.warning + "15" }]}>
-        <Feather name="eye-off" size={16} color={theme.warning} />
-        <ThemedText type="small" style={{ color: theme.warning, marginLeft: Spacing.sm, flex: 1 }}>
-          Make sure no one is watching. Auto-hiding in {timeLeft}s
+    <ThemedView style={styles.container}>
+      <View style={[styles.timerBar, { backgroundColor: theme.warning + "10" }]}>
+        <Feather name="clock" size={14} color={theme.warning} />
+        <ThemedText type="small" style={[styles.timerText, { color: theme.warning }]}>
+          Auto-hiding in {timeLeft}s
         </ThemedText>
+        <View style={[styles.timerProgress, { backgroundColor: theme.warning + "30" }]}>
+          <View style={[styles.timerFill, { backgroundColor: theme.warning, width: `${(timeLeft / 60) * 100}%` }]} />
+        </View>
       </View>
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        <ThemedText type="h3" style={styles.title}>
-          Private Keys
-        </ThemedText>
-        <ThemedText type="small" style={[styles.subtitle, { color: theme.textSecondary }]}>
+      <ScrollView 
+        style={styles.content} 
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        <ThemedText type="small" style={[styles.walletLabel, { color: theme.textSecondary }]}>
           {walletName}
         </ThemedText>
 
         {evmPrivateKey ? (
-          <View style={[styles.keyCard, { backgroundColor: theme.backgroundDefault, borderColor: theme.border }]}>
+          <View style={[styles.keyCard, { backgroundColor: theme.backgroundSecondary }]}>
             <View style={styles.keyHeader}>
-              <View style={[styles.chainBadge, { backgroundColor: "#627EEA20" }]}>
-                <ThemedText type="small" style={{ color: "#627EEA", fontWeight: "600" }}>
-                  EVM
-                </ThemedText>
-              </View>
+              <View style={[styles.chainDot, { backgroundColor: "#627EEA" }]} />
+              <ThemedText type="body" style={styles.chainName}>
+                EVM Networks
+              </ThemedText>
               <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                Ethereum, Polygon, BSC
+                ETH, Polygon, BSC
               </ThemedText>
             </View>
             <View style={[styles.keyBox, { backgroundColor: theme.backgroundRoot }]}>
@@ -139,28 +144,31 @@ export default function PrivateKeyExportScreen({ navigation, route }: Props) {
                 {evmPrivateKey}
               </ThemedText>
             </View>
-            <Pressable 
-              onPress={handleCopyEvm} 
-              style={[styles.copyButton, { backgroundColor: copiedEvm ? theme.success + "20" : theme.accent + "15" }]}
-            >
-              <Feather name={copiedEvm ? "check" : "copy"} size={16} color={copiedEvm ? theme.success : theme.accent} />
-              <ThemedText type="small" style={{ marginLeft: Spacing.xs, color: copiedEvm ? theme.success : theme.accent, fontWeight: "500" }}>
-                {copiedEvm ? "Copied!" : "Copy"}
+            <Pressable onPress={handleCopyEvm} style={styles.copyRow}>
+              <Feather 
+                name={copiedEvm ? "check" : "copy"} 
+                size={14} 
+                color={copiedEvm ? theme.success : theme.accent} 
+              />
+              <ThemedText 
+                type="small" 
+                style={[styles.copyText, { color: copiedEvm ? theme.success : theme.accent }]}
+              >
+                {copiedEvm ? "Copied" : "Copy"}
               </ThemedText>
             </Pressable>
           </View>
         ) : null}
 
         {solanaPrivateKey ? (
-          <View style={[styles.keyCard, { backgroundColor: theme.backgroundDefault, borderColor: theme.border }]}>
+          <View style={[styles.keyCard, { backgroundColor: theme.backgroundSecondary }]}>
             <View style={styles.keyHeader}>
-              <View style={[styles.chainBadge, { backgroundColor: "#9945FF20" }]}>
-                <ThemedText type="small" style={{ color: "#9945FF", fontWeight: "600" }}>
-                  Solana
-                </ThemedText>
-              </View>
+              <View style={[styles.chainDot, { backgroundColor: "#9945FF" }]} />
+              <ThemedText type="body" style={styles.chainName}>
+                Solana
+              </ThemedText>
               <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                Solana Mainnet
+                Mainnet
               </ThemedText>
             </View>
             <View style={[styles.keyBox, { backgroundColor: theme.backgroundRoot }]}>
@@ -168,32 +176,36 @@ export default function PrivateKeyExportScreen({ navigation, route }: Props) {
                 {solanaPrivateKey}
               </ThemedText>
             </View>
-            <Pressable 
-              onPress={handleCopySolana} 
-              style={[styles.copyButton, { backgroundColor: copiedSolana ? theme.success + "20" : theme.accent + "15" }]}
-            >
-              <Feather name={copiedSolana ? "check" : "copy"} size={16} color={copiedSolana ? theme.success : theme.accent} />
-              <ThemedText type="small" style={{ marginLeft: Spacing.xs, color: copiedSolana ? theme.success : theme.accent, fontWeight: "500" }}>
-                {copiedSolana ? "Copied!" : "Copy"}
+            <Pressable onPress={handleCopySolana} style={styles.copyRow}>
+              <Feather 
+                name={copiedSolana ? "check" : "copy"} 
+                size={14} 
+                color={copiedSolana ? theme.success : theme.accent} 
+              />
+              <ThemedText 
+                type="small" 
+                style={[styles.copyText, { color: copiedSolana ? theme.success : theme.accent }]}
+              >
+                {copiedSolana ? "Copied" : "Copy"}
               </ThemedText>
             </Pressable>
           </View>
         ) : null}
 
-        <View style={[styles.infoCard, { backgroundColor: theme.accent + "10", borderColor: theme.accent + "30" }]}>
-          <Feather name="info" size={16} color={theme.accent} />
-          <ThemedText type="small" style={{ flex: 1, marginLeft: Spacing.sm, color: theme.textSecondary }}>
-            Private keys are used to import your wallet into other apps. Each blockchain has its own key format.
+        <View style={styles.infoRow}>
+          <Feather name="info" size={14} color={theme.textSecondary} />
+          <ThemedText type="small" style={[styles.infoText, { color: theme.textSecondary }]}>
+            Use these keys to import your wallet into other apps. Each blockchain requires its specific key format.
           </ThemedText>
         </View>
       </ScrollView>
 
-      <View style={styles.buttons}>
+      <View style={[styles.buttons, { paddingBottom: insets.bottom + Spacing.lg }]}>
         <Pressable
           onPress={() => navigation.goBack()}
-          style={[styles.doneButton, { borderColor: theme.border }]}
+          style={styles.doneButton}
         >
-          <ThemedText type="body" style={{ fontWeight: "500" }}>
+          <ThemedText type="body" style={{ color: theme.textSecondary }}>
             Done
           </ThemedText>
         </Pressable>
@@ -210,74 +222,96 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  warningBanner: {
+  timerBar: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: Spacing.md,
+    paddingVertical: Spacing.sm,
     paddingHorizontal: Spacing.lg,
+  },
+  timerText: {
+    marginLeft: Spacing.sm,
+    fontWeight: "500",
+  },
+  timerProgress: {
+    flex: 1,
+    height: 3,
+    borderRadius: 2,
+    marginLeft: Spacing.md,
+    overflow: "hidden",
+  },
+  timerFill: {
+    height: "100%",
+    borderRadius: 2,
   },
   content: {
     flex: 1,
-    paddingHorizontal: Spacing.xl,
+  },
+  scrollContent: {
+    paddingHorizontal: Spacing.lg,
     paddingTop: Spacing.xl,
+    paddingBottom: Spacing.lg,
   },
-  title: {
+  walletLabel: {
     textAlign: "center",
-    marginBottom: Spacing.xs,
-  },
-  subtitle: {
-    textAlign: "center",
-    marginBottom: Spacing.xl,
+    marginBottom: Spacing.lg,
+    letterSpacing: 0.5,
   },
   keyCard: {
     padding: Spacing.lg,
-    borderRadius: BorderRadius.md,
-    borderWidth: 1,
-    marginBottom: Spacing.lg,
+    borderRadius: BorderRadius.lg,
+    marginBottom: Spacing.md,
   },
   keyHeader: {
     flexDirection: "row",
     alignItems: "center",
     marginBottom: Spacing.md,
   },
-  chainBadge: {
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 4,
-    borderRadius: 6,
+  chainDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: Spacing.sm,
+  },
+  chainName: {
+    fontWeight: "600",
     marginRight: Spacing.sm,
   },
   keyBox: {
     padding: Spacing.md,
-    borderRadius: BorderRadius.sm,
-    marginBottom: Spacing.md,
+    borderRadius: BorderRadius.md,
+    marginBottom: Spacing.sm,
   },
   keyText: {
     fontFamily: "monospace",
-    fontSize: 12,
+    fontSize: 11,
     lineHeight: 18,
   },
-  copyButton: {
+  copyRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     paddingVertical: Spacing.sm,
-    borderRadius: BorderRadius.sm,
   },
-  infoCard: {
+  copyText: {
+    marginLeft: Spacing.xs,
+    fontWeight: "500",
+  },
+  infoRow: {
     flexDirection: "row",
-    padding: Spacing.md,
-    borderRadius: BorderRadius.sm,
-    borderWidth: 1,
-    marginBottom: Spacing.xl,
+    alignItems: "flex-start",
+    marginTop: Spacing.md,
+  },
+  infoText: {
+    flex: 1,
+    marginLeft: Spacing.sm,
+    lineHeight: 18,
   },
   buttons: {
-    paddingHorizontal: Spacing.xl,
+    paddingHorizontal: Spacing.lg,
   },
   doneButton: {
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: Spacing.lg,
-    borderRadius: BorderRadius.md,
-    borderWidth: 1,
+    paddingVertical: 14,
   },
 });

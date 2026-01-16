@@ -1,13 +1,13 @@
 import React, { useState, useCallback } from "react";
 import { View, StyleSheet, Pressable, Alert } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useHeaderHeight } from "@react-navigation/elements";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 
 import { ThemedView } from "@/components/ThemedView";
 import { ThemedText } from "@/components/ThemedText";
-import { Button } from "@/components/Button";
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius } from "@/constants/theme";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
@@ -17,6 +17,7 @@ type Props = NativeStackScreenProps<RootStackParamList, "ExportWallet">;
 export default function ExportWalletScreen({ navigation, route }: Props) {
   const { walletId, walletName } = route.params;
   const insets = useSafeAreaInsets();
+  const headerHeight = useHeaderHeight();
   const { theme } = useTheme();
   const [acknowledged, setAcknowledged] = useState(false);
 
@@ -44,35 +45,39 @@ export default function ExportWalletScreen({ navigation, route }: Props) {
   }, [acknowledged, navigation, walletId, walletName]);
 
   return (
-    <ThemedView style={[styles.container, { paddingBottom: insets.bottom + Spacing.xl }]}>
-      <View style={styles.content}>
-        <View style={[styles.warningIcon, { backgroundColor: theme.danger + "20" }]}>
-          <Feather name="alert-triangle" size={48} color={theme.danger} />
+    <ThemedView style={styles.container}>
+      <View style={[styles.content, { paddingTop: headerHeight + Spacing.xl }]}>
+        <View style={styles.iconContainer}>
+          <View style={[styles.iconOuter, { borderColor: theme.warning + "40" }]}>
+            <View style={[styles.iconInner, { backgroundColor: theme.warning + "15" }]}>
+              <Feather name="lock" size={28} color={theme.warning} />
+            </View>
+          </View>
         </View>
 
-        <ThemedText type="h2" style={styles.title}>
-          Backup Your Wallet
+        <ThemedText type="small" style={[styles.walletLabel, { color: theme.textSecondary }]}>
+          {walletName}
         </ThemedText>
 
         <ThemedText type="body" style={[styles.description, { color: theme.textSecondary }]}>
-          Your recovery phrase and private keys give full access to your wallet and funds.
+          Your recovery phrase and private keys provide full access to your funds. Keep them safe and never share.
         </ThemedText>
 
-        <View style={[styles.warningCard, { backgroundColor: theme.danger + "10", borderColor: theme.danger + "30" }]}>
-          <Feather name="shield-off" size={20} color={theme.danger} />
-          <View style={styles.warningTextContainer}>
-            <ThemedText type="body" style={{ fontWeight: "600", color: theme.danger }}>
-              Never share with anyone
-            </ThemedText>
-            <ThemedText type="small" style={{ color: theme.danger, marginTop: 2 }}>
-              Anyone with this information can steal your funds permanently. Cordon support will never ask for it.
+        <View style={[styles.warningCard, { backgroundColor: theme.danger + "08" }]}>
+          <View style={styles.warningRow}>
+            <Feather name="alert-circle" size={18} color={theme.danger} />
+            <ThemedText type="body" style={[styles.warningTitle, { color: theme.danger }]}>
+              Security Warning
             </ThemedText>
           </View>
+          <ThemedText type="small" style={[styles.warningText, { color: theme.textSecondary }]}>
+            Anyone with access to this information can permanently steal your funds. Cordon will never ask for it.
+          </ThemedText>
         </View>
 
         <Pressable 
           onPress={handleToggleAcknowledge} 
-          style={[styles.checkboxRow, { borderColor: acknowledged ? theme.accent : theme.border }]}
+          style={styles.checkboxRow}
         >
           <View style={[
             styles.checkbox, 
@@ -81,22 +86,30 @@ export default function ExportWalletScreen({ navigation, route }: Props) {
               borderColor: acknowledged ? theme.accent : theme.border,
             }
           ]}>
-            {acknowledged ? <Feather name="check" size={14} color="#fff" /> : null}
+            {acknowledged ? <Feather name="check" size={12} color="#fff" /> : null}
           </View>
-          <ThemedText type="body" style={styles.checkboxLabel}>
-            I understand that if I lose my recovery phrase, I will lose access to my funds forever.
+          <ThemedText type="small" style={[styles.checkboxLabel, { color: theme.textSecondary }]}>
+            I understand the risks and take full responsibility for securing this information.
           </ThemedText>
         </Pressable>
       </View>
 
-      <View style={styles.buttons}>
-        <Button
+      <View style={[styles.buttons, { paddingBottom: insets.bottom + Spacing.lg }]}>
+        <Pressable
           onPress={handleShowSeedPhrase}
           disabled={!acknowledged}
-          style={[styles.button, !acknowledged && { opacity: 0.5 }]}
+          style={[
+            styles.primaryButton, 
+            { 
+              backgroundColor: acknowledged ? theme.accent : theme.accent + "40",
+            }
+          ]}
         >
-          Show Recovery Phrase
-        </Button>
+          <Feather name="grid" size={18} color="#fff" />
+          <ThemedText type="body" style={styles.primaryButtonText}>
+            Show Recovery Phrase
+          </ThemedText>
+        </Pressable>
 
         <Pressable
           onPress={handleShowPrivateKey}
@@ -105,12 +118,12 @@ export default function ExportWalletScreen({ navigation, route }: Props) {
             styles.secondaryButton, 
             { 
               borderColor: theme.border,
-              opacity: acknowledged ? 1 : 0.5,
+              opacity: acknowledged ? 1 : 0.4,
             }
           ]}
         >
           <Feather name="key" size={18} color={theme.text} />
-          <ThemedText type="body" style={{ marginLeft: Spacing.sm, fontWeight: "500" }}>
+          <ThemedText type="body" style={{ marginLeft: Spacing.sm }}>
             Export Private Keys
           </ThemedText>
         </Pressable>
@@ -122,75 +135,98 @@ export default function ExportWalletScreen({ navigation, route }: Props) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    paddingHorizontal: Spacing.xl,
   },
   content: {
     flex: 1,
-    alignItems: "center",
-    paddingTop: Spacing["3xl"],
+    paddingHorizontal: Spacing.xl,
   },
-  warningIcon: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
-    justifyContent: "center",
+  iconContainer: {
     alignItems: "center",
     marginBottom: Spacing.xl,
   },
-  title: {
+  iconOuter: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    borderWidth: 2,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  iconInner: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  walletLabel: {
     textAlign: "center",
     marginBottom: Spacing.md,
+    letterSpacing: 0.5,
   },
   description: {
     textAlign: "center",
-    paddingHorizontal: Spacing.lg,
+    lineHeight: 22,
     marginBottom: Spacing.xl,
   },
   warningCard: {
-    flexDirection: "row",
     padding: Spacing.lg,
-    borderRadius: BorderRadius.md,
-    borderWidth: 1,
+    borderRadius: BorderRadius.lg,
     marginBottom: Spacing.xl,
-    alignItems: "flex-start",
   },
-  warningTextContainer: {
-    flex: 1,
-    marginLeft: Spacing.md,
+  warningRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: Spacing.sm,
+  },
+  warningTitle: {
+    fontWeight: "600",
+    marginLeft: Spacing.sm,
+  },
+  warningText: {
+    lineHeight: 20,
+    paddingLeft: 26,
   },
   checkboxRow: {
     flexDirection: "row",
     alignItems: "flex-start",
-    padding: Spacing.lg,
-    borderRadius: BorderRadius.md,
-    borderWidth: 1,
   },
   checkbox: {
-    width: 22,
-    height: 22,
+    width: 20,
+    height: 20,
     borderRadius: 6,
-    borderWidth: 2,
+    borderWidth: 1.5,
     justifyContent: "center",
     alignItems: "center",
     marginRight: Spacing.md,
-    marginTop: 2,
+    marginTop: 1,
   },
   checkboxLabel: {
     flex: 1,
-    lineHeight: 22,
+    lineHeight: 20,
   },
   buttons: {
+    paddingHorizontal: Spacing.xl,
     gap: Spacing.md,
   },
-  button: {
-    width: "100%",
+  primaryButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 16,
+    borderRadius: BorderRadius.lg,
+  },
+  primaryButtonText: {
+    color: "#fff",
+    fontWeight: "600",
+    marginLeft: Spacing.sm,
   },
   secondaryButton: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: Spacing.lg,
-    borderRadius: BorderRadius.md,
+    paddingVertical: 16,
+    borderRadius: BorderRadius.lg,
     borderWidth: 1,
   },
 });
