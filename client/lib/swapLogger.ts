@@ -1,0 +1,97 @@
+const isDev = __DEV__;
+
+type LogLevel = "debug" | "info" | "warn" | "error";
+
+const TRANSIENT_ERROR_PATTERNS = [
+  /429/i,
+  /rate.?limit/i,
+  /too many requests/i,
+  /temporarily unavailable/i,
+  /503/i,
+  /UPSTREAM_BUSY/i,
+  /network busy/i,
+  /timeout/i,
+  /fetch failed/i,
+];
+
+function isTransientError(message: string): boolean {
+  return TRANSIENT_ERROR_PATTERNS.some(pattern => pattern.test(message));
+}
+
+function formatMessage(tag: string, message: string, data?: any): string {
+  const dataStr = data ? ` ${JSON.stringify(data)}` : "";
+  return `[${tag}] ${message}${dataStr}`;
+}
+
+export const swapLogger = {
+  debug(tag: string, message: string, data?: any): void {
+    if (isDev) {
+      console.log(formatMessage(tag, message, data));
+    }
+  },
+
+  info(tag: string, message: string, data?: any): void {
+    console.log(formatMessage(tag, message, data));
+  },
+
+  warn(tag: string, message: string, data?: any): void {
+    const msg = formatMessage(tag, message, data);
+    if (isTransientError(message) || (data && isTransientError(String(data)))) {
+      if (isDev) {
+        console.log(`[TRANSIENT] ${msg}`);
+      }
+    } else {
+      console.warn(msg);
+    }
+  },
+
+  error(tag: string, message: string, data?: any): void {
+    const msg = formatMessage(tag, message, data);
+    const errorStr = data?.message || data?.error || String(data) || message;
+    
+    if (isTransientError(errorStr)) {
+      if (isDev) {
+        console.log(`[TRANSIENT] ${msg}`);
+      }
+    } else {
+      console.error(msg);
+    }
+  },
+
+  transient(tag: string, message: string, data?: any): void {
+    if (isDev) {
+      console.log(formatMessage(tag, `[transient] ${message}`, data));
+    }
+  },
+};
+
+export function isRetryableError(status: number): boolean {
+  return status === 429 || status === 503 || status >= 500;
+}
+
+export function getUserFriendlyErrorMessage(error: any): string {
+  const msg = error?.message || String(error);
+  
+  if (/429|rate.?limit|too many requests/i.test(msg)) {
+    return "Network busy, retrying...";
+  }
+  if (/503|UPSTREAM_BUSY/i.test(msg)) {
+    return "Service temporarily unavailable, retrying...";
+  }
+  if (/timeout|timed out/i.test(msg)) {
+    return "Request timed out, retrying...";
+  }
+  if (/no route|no swap routes/i.test(msg)) {
+    return "No route found for this swap pair.";
+  }
+  if (/network|fetch failed|connection/i.test(msg)) {
+    return "Network issue, please check your connection.";
+  }
+  
+  return msg;
+}
+
+export function shouldSuppressLogBox(error: any): boolean {
+  const msg = error?.message || String(error);
+  return isTransientError(msg);
+}
