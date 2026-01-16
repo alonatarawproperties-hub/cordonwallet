@@ -1,4 +1,5 @@
-import { JUPITER_API_URLS, SwapSpeed, SPEED_CONFIGS, LAMPORTS_PER_SOL } from "@/constants/solanaSwap";
+import { SwapSpeed, SPEED_CONFIGS, LAMPORTS_PER_SOL } from "@/constants/solanaSwap";
+import { getApiUrl } from "@/lib/query-client";
 
 export interface QuoteRequest {
   inputMint: string;
@@ -56,97 +57,77 @@ export interface SwapResponse {
   };
 }
 
-async function tryFetch(url: string, options: RequestInit, timeoutMs: number = 15000): Promise<Response> {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-  
-  try {
-    const response = await fetch(url, {
-      ...options,
-      signal: controller.signal,
-    });
-    clearTimeout(timeoutId);
-    return response;
-  } catch (error: any) {
-    clearTimeout(timeoutId);
-    if (error.name === "AbortError") {
-      throw new Error("Request timed out");
-    }
-    throw error;
-  }
-}
-
 export async function getQuote(request: QuoteRequest): Promise<QuoteResponse> {
+  // Route through our backend server proxy to handle API authentication
+  const baseUrl = getApiUrl();
   const params = new URLSearchParams({
     inputMint: request.inputMint,
     outputMint: request.outputMint,
     amount: request.amount,
     slippageBps: request.slippageBps.toString(),
+    swapMode: "ExactIn",
   });
   
   if (request.onlyDirectRoutes) {
     params.set("onlyDirectRoutes", "true");
   }
   
-  const queryString = params.toString();
+  const url = `${baseUrl}/api/jupiter/quote?${params.toString()}`;
+  console.log("[Jupiter] Requesting quote via server proxy");
+  
+  const maxRetries = 2;
   let lastError: Error | null = null;
   
-  // Try each Jupiter API endpoint
-  for (let apiIdx = 0; apiIdx < JUPITER_API_URLS.length; apiIdx++) {
-    const baseUrl = JUPITER_API_URLS[apiIdx].replace(/\/$/, "");
-    const fullUrl = `${baseUrl}/v6/quote?${queryString}`;
-    
-    console.log(`[Jupiter] Trying endpoint ${apiIdx + 1}/${JUPITER_API_URLS.length}: ${baseUrl}`);
-    
-    // Retry logic for each endpoint
-    const maxRetries = 1;
-    for (let attempt = 0; attempt <= maxRetries; attempt++) {
-      try {
-        console.log(`[Jupiter] Attempt ${attempt + 1}/${maxRetries + 1} on ${baseUrl}`);
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      console.log(`[Jupiter] Attempt ${attempt + 1}/${maxRetries + 1}`);
+      
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 20000);
+      
+      const response = await fetch(url, {
+        method: "GET",
+        headers: { "Accept": "application/json" },
+        signal: controller.signal,
+      });
+      
+      clearTimeout(timeoutId);
+      console.log("[Jupiter] Response status:", response.status);
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: "Unknown error" }));
+        console.log("[Jupiter] Error response:", errorData);
         
-        const response = await tryFetch(fullUrl, {
-          method: "GET",
-          headers: { 
-            "Accept": "application/json",
-          },
-        });
-        
-        console.log("[Jupiter] Response status:", response.status);
-        
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.log("[Jupiter] Error response:", errorText);
-          if (response.status === 400 && errorText.includes("No routes found")) {
-            throw new Error("No swap routes found. Try a larger amount or different tokens.");
-          }
-          throw new Error(`Quote failed (${response.status}): ${errorText}`);
+        if (response.status === 400 && JSON.stringify(errorData).includes("No routes")) {
+          throw new Error("No swap routes found. Try a larger amount or different tokens.");
         }
-        
-        const data = await response.json();
-        console.log("[Jupiter] Quote success, output:", data.outAmount);
-        return data;
-      } catch (error: any) {
-        console.log("[Jupiter] Fetch error:", error.name, error.message);
-        lastError = error;
-        
-        // Don't retry on API errors (400, 404, etc), only on network errors
-        if (error.message?.includes("Quote failed") || error.message?.includes("No routes")) {
-          throw error;
-        }
-        
-        // Retry on network/timeout errors
-        if (attempt < maxRetries) {
-          console.log("[Jupiter] Retrying after delay...");
-          await new Promise(r => setTimeout(r, 500 * (attempt + 1)));
-        }
+        throw new Error(`Quote failed (${response.status}): ${errorData.error || JSON.stringify(errorData)}`);
+      }
+      
+      const data = await response.json();
+      console.log("[Jupiter] Quote success, output:", data.outAmount);
+      return data;
+    } catch (error: any) {
+      console.log("[Jupiter] Fetch error:", error.name, error.message);
+      lastError = error;
+      
+      if (error.name === "AbortError") {
+        lastError = new Error("Request timed out. Please try again.");
+      }
+      
+      // Don't retry on API errors, only on network/timeout errors
+      if (error.message?.includes("Quote failed") || error.message?.includes("No routes")) {
+        throw error;
+      }
+      
+      if (attempt < maxRetries) {
+        console.log("[Jupiter] Retrying after delay...");
+        await new Promise(r => setTimeout(r, 500 * (attempt + 1)));
       }
     }
-    
-    // If this endpoint failed completely, try the next one
-    console.log(`[Jupiter] Endpoint ${baseUrl} failed, trying next...`);
   }
   
-  throw lastError || new Error("All Jupiter API endpoints failed. Check your network connection.");
+  throw lastError || new Error("Failed to get quote. Check your network connection.");
 }
 
 export async function buildSwapTransaction(
@@ -175,40 +156,40 @@ export async function buildSwapTransaction(
     prioritizationFeeLamports,
   };
   
-  let lastError: Error | null = null;
+  // Route through our backend server proxy
+  const baseUrl = getApiUrl();
+  const url = `${baseUrl}/api/jupiter/swap`;
+  console.log("[Jupiter] Building swap transaction via server proxy");
   
-  for (const baseUrl of JUPITER_API_URLS) {
-    const url = `${baseUrl.replace(/\/$/, "")}/v6/swap`;
-    console.log("[Jupiter] Building swap transaction via:", url);
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30000);
+  
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(request),
+      signal: controller.signal,
+    });
     
-    try {
-      const response = await tryFetch(url, {
-        method: "POST",
-        headers: {
-          "Accept": "application/json",
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(request),
-      });
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Swap build failed (${response.status}): ${errorText}`);
-      }
-      
-      return response.json();
-    } catch (error: any) {
-      console.log("[Jupiter] Swap build error:", error.message);
-      lastError = error;
-      
-      // Don't try next endpoint for API errors
-      if (error.message?.includes("Swap build failed")) {
-        throw error;
-      }
+    clearTimeout(timeoutId);
+    
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ error: "Unknown error" }));
+      throw new Error(`Swap build failed (${response.status}): ${errorData.error || JSON.stringify(errorData)}`);
     }
+    
+    return response.json();
+  } catch (error: any) {
+    clearTimeout(timeoutId);
+    if (error.name === "AbortError") {
+      throw new Error("Swap request timed out. Please try again.");
+    }
+    throw error;
   }
-  
-  throw lastError || new Error("Failed to build swap transaction");
 }
 
 export function calculatePriceImpact(quoteResponse: QuoteResponse): {

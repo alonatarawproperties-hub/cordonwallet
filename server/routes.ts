@@ -15,7 +15,9 @@ import {
 const ETHERSCAN_V2_API = "https://api.etherscan.io/v2/api";
 const COINGECKO_API = "https://api.coingecko.com/api/v3";
 const DEXSCREENER_API = "https://api.dexscreener.com";
-const JUPITER_API = "https://quote-api.jup.ag";
+// QuickNode public Jupiter API - free tier, no API key required
+// Has 0.2% platform fee on swaps, but works reliably
+const JUPITER_API = "https://public.jupiterapi.com";
 const JUPITER_TOKENS_API = "https://tokens.jup.ag";
 
 const DEXSCREENER_CHAIN_IDS: Record<number | string, string> = {
@@ -73,10 +75,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Jupiter API Proxy - Quote endpoint
+  // Jupiter API Proxy - Quote endpoint (public API, no auth required)
   app.get("/api/jupiter/quote", async (req: Request, res: Response) => {
     try {
-      const { inputMint, outputMint, amount, slippageBps, onlyDirectRoutes } = req.query;
+      const { inputMint, outputMint, amount, slippageBps, swapMode, onlyDirectRoutes } = req.query;
       
       if (!inputMint || !outputMint || !amount) {
         return res.status(400).json({ error: "Missing required parameters: inputMint, outputMint, amount" });
@@ -87,27 +89,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
         outputMint: outputMint as string,
         amount: amount as string,
         slippageBps: (slippageBps as string) || "50",
+        swapMode: (swapMode as string) || "ExactIn",
       });
       
       if (onlyDirectRoutes === "true") {
         params.set("onlyDirectRoutes", "true");
       }
 
-      const url = `${JUPITER_API}/v6/quote?${params.toString()}`;
+      // QuickNode API uses /quote instead of /v6/quote
+      const url = `${JUPITER_API}/quote?${params.toString()}`;
       console.log("[Jupiter Proxy] Quote request:", url);
       
       const response = await fetch(url, {
-        headers: { "Accept": "application/json" },
+        headers: { 
+          "Accept": "application/json",
+          "User-Agent": "Cordon-Wallet/1.0",
+        },
       });
       
+      const responseText = await response.text();
+      console.log("[Jupiter Proxy] Quote response status:", response.status);
+      
       if (!response.ok) {
-        const errorText = await response.text();
-        console.error("[Jupiter Proxy] Quote error:", response.status, errorText);
-        return res.status(response.status).json({ error: errorText });
+        console.error("[Jupiter Proxy] Quote error:", response.status, responseText);
+        return res.status(response.status).json({ error: responseText });
       }
       
-      const data = await response.json();
-      res.json(data);
+      try {
+        const data = JSON.parse(responseText);
+        res.json(data);
+      } catch {
+        console.error("[Jupiter Proxy] Failed to parse response:", responseText);
+        res.status(500).json({ error: "Invalid response from Jupiter API" });
+      }
     } catch (error: any) {
       console.error("[Jupiter Proxy] Quote failed:", error.message);
       res.status(500).json({ error: error.message || "Failed to fetch quote" });
@@ -125,7 +139,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       console.log("[Jupiter Proxy] Swap request for:", body.userPublicKey);
       
-      const response = await fetch(`${JUPITER_API}/v6/swap`, {
+      // QuickNode API uses /swap instead of /v6/swap
+      const response = await fetch(`${JUPITER_API}/swap`, {
         method: "POST",
         headers: {
           "Accept": "application/json",
