@@ -73,8 +73,6 @@ type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
 const CUSTOM_TOKENS_KEY = "swap_custom_tokens";
 const MAX_CUSTOM_TOKENS = 25;
-const RECENTLY_USED_KEY = "swap_recently_used_tokens";
-const MAX_RECENTLY_USED = 8;
 
 interface CustomTokenInfo extends TokenInfo {
   verified: boolean;
@@ -120,34 +118,6 @@ async function saveCustomToken(token: CustomTokenInfo, existing: CustomTokenInfo
   return updated;
 }
 
-async function loadRecentlyUsedTokens(): Promise<TokenInfo[]> {
-  try {
-    const data = await AsyncStorage.getItem(RECENTLY_USED_KEY);
-    if (data) return JSON.parse(data);
-  } catch (err) {
-    console.warn("[SwapScreen] Failed to load recently used:", err);
-  }
-  return [];
-}
-
-async function addToRecentlyUsed(token: TokenInfo, existing: TokenInfo[]): Promise<TokenInfo[]> {
-  const filtered = existing.filter(t => t.mint !== token.mint);
-  const updated = [token, ...filtered].slice(0, MAX_RECENTLY_USED);
-  try {
-    await AsyncStorage.setItem(RECENTLY_USED_KEY, JSON.stringify(updated));
-  } catch (err) {
-    console.warn("[SwapScreen] Failed to save recently used:", err);
-  }
-  return updated;
-}
-
-async function clearRecentlyUsedTokens(): Promise<void> {
-  try {
-    await AsyncStorage.removeItem(RECENTLY_USED_KEY);
-  } catch (err) {
-    console.warn("[SwapScreen] Failed to clear recently used:", err);
-  }
-}
 
 export default function SwapScreen() {
   const insets = useSafeAreaInsets();
@@ -186,7 +156,6 @@ export default function SwapScreen() {
   const [customTokenError, setCustomTokenError] = useState<string | null>(null);
   const [customTokenResult, setCustomTokenResult] = useState<CustomTokenInfo | null>(null);
   const [recentCustomTokens, setRecentCustomTokens] = useState<CustomTokenInfo[]>([]);
-  const [recentlyUsedTokens, setRecentlyUsedTokens] = useState<TokenInfo[]>([]);
 
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [pendingSwap, setPendingSwap] = useState<{
@@ -295,7 +264,6 @@ export default function SwapScreen() {
 
   useEffect(() => {
     loadRecentCustomTokens().then(setRecentCustomTokens);
-    loadRecentlyUsedTokens().then(setRecentlyUsedTokens);
   }, []);
 
   const isMintMode = useMemo(() => isLikelySolanaMint(tokenSearch), [tokenSearch]);
@@ -378,9 +346,6 @@ export default function SwapScreen() {
     setQuote(null);
     setSwapRoute("none");
     setPumpMeta(null);
-    
-    const updated = await addToRecentlyUsed(token, recentlyUsedTokens);
-    setRecentlyUsedTokens(updated);
   };
 
   const swapTokens = () => {
@@ -1773,41 +1738,6 @@ const styles = StyleSheet.create({
   },
   headerSpacer: {
     width: 40,
-  },
-  recentSection: {
-    paddingTop: Spacing.md,
-  },
-  recentHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingHorizontal: Spacing.lg,
-    marginBottom: Spacing.sm,
-  },
-  recentChipsContainer: {
-    paddingHorizontal: Spacing.lg,
-    gap: Spacing.sm,
-  },
-  recentChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-    borderRadius: BorderRadius.full,
-    borderWidth: 1,
-    gap: Spacing.xs,
-  },
-  recentChipLogo: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-  },
-  recentChipLogoPlaceholder: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    justifyContent: "center",
-    alignItems: "center",
   },
   tokenBalanceColumn: {
     alignItems: "flex-end",
