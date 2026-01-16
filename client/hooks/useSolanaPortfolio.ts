@@ -181,6 +181,7 @@ export function useSolanaPortfolio(address: string | undefined) {
         isNative: true,
         chainId: "solana",
         chainName: "Solana",
+        logoUrl: "https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/So11111111111111111111111111111111111111112/logo.png",
       });
 
       portfolio.tokens.forEach((token) => {
