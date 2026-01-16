@@ -206,6 +206,7 @@ export default function PortfolioScreen() {
   const navigation = useNavigation<Navigation>();
   const { activeWallet } = useWallet();
   const [customTokens, setCustomTokens] = useState<CustomToken[]>([]);
+  const stableAssetsRef = useRef<UnifiedAsset[]>([]);
 
   const walletType = activeWallet?.walletType || "multi-chain";
   const evmAddress = activeWallet?.addresses?.evm || activeWallet?.address;
@@ -240,14 +241,43 @@ export default function PortfolioScreen() {
       };
     });
 
-    const allAssets = [...evmAssets, ...solAssets].sort((a, b) => {
-      return (b.valueUsd || 0) - (a.valueUsd || 0);
-    });
+    const isRefreshingAny = (walletType === "solana-only" ? false : evmPortfolio.isRefreshing) || solanaPortfolio.isRefreshing;
+    const isLoadingAny = (walletType === "solana-only" ? false : evmPortfolio.isLoading) || solanaPortfolio.isLoading;
+
+    const combined = [...evmAssets, ...solAssets];
+    
+    let allAssets: UnifiedAsset[];
+    if (isRefreshingAny && stableAssetsRef.current.length > 0) {
+      const prevOrder = new Map(stableAssetsRef.current.map((a, i) => [
+        `${a.chainType}_${a.symbol}_${a.chainId}`, i
+      ]));
+      allAssets = combined.map((asset) => {
+        const key = `${asset.chainType}_${asset.symbol}_${asset.chainId}`;
+        const prevAsset = stableAssetsRef.current.find(
+          (a) => `${a.chainType}_${a.symbol}_${a.chainId}` === key
+        );
+        return prevAsset ? { ...asset, valueUsd: prevAsset.valueUsd || asset.valueUsd } : asset;
+      }).sort((a, b) => {
+        const keyA = `${a.chainType}_${a.symbol}_${a.chainId}`;
+        const keyB = `${b.chainType}_${b.symbol}_${b.chainId}`;
+        const orderA = prevOrder.get(keyA) ?? 999;
+        const orderB = prevOrder.get(keyB) ?? 999;
+        return orderA - orderB;
+      });
+    } else {
+      allAssets = combined.sort((a, b) => {
+        const valueDiff = (b.valueUsd || 0) - (a.valueUsd || 0);
+        if (valueDiff !== 0) return valueDiff;
+        if (a.isNative && !b.isNative) return -1;
+        if (!a.isNative && b.isNative) return 1;
+        return a.symbol.localeCompare(b.symbol);
+      });
+      if (!isLoadingAny) {
+        stableAssetsRef.current = allAssets;
+      }
+    }
 
     const total = allAssets.reduce((sum, asset) => sum + (asset.valueUsd || 0), 0);
-
-    const isLoadingAny = (walletType === "solana-only" ? false : evmPortfolio.isLoading) || solanaPortfolio.isLoading;
-    const isRefreshingAny = (walletType === "solana-only" ? false : evmPortfolio.isRefreshing) || solanaPortfolio.isRefreshing;
     const errorAny = (walletType === "solana-only" ? null : evmPortfolio.error) || solanaPortfolio.error;
     const latestUpdate = Math.max(
       walletType === "solana-only" ? 0 : (evmPortfolio.lastUpdated || 0), 
