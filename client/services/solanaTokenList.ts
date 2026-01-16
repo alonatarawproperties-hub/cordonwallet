@@ -114,7 +114,7 @@ export async function searchTokens(query: string, limit: number = 20): Promise<T
   await loadCacheFromStorage();
   
   if (tokenList.length < 100) {
-    await fetchTokenList();
+    await fetchTokenList().catch(() => {});
   }
   
   const q = query.toLowerCase().trim();
@@ -122,6 +122,29 @@ export async function searchTokens(query: string, limit: number = 20): Promise<T
   
   const exactMint = tokenList.find(t => t.mint.toLowerCase() === q);
   if (exactMint) return [exactMint];
+  
+  if (q.length >= 32 && q.length <= 44) {
+    try {
+      const baseUrl = getApiUrl();
+      const response = await fetch(`${baseUrl}/api/solana/token-metadata/${q}`);
+      if (response.ok) {
+        const metadata = await response.json();
+        if (metadata && metadata.symbol) {
+          const token: TokenInfo = {
+            mint: q,
+            symbol: metadata.symbol,
+            name: metadata.name || metadata.symbol,
+            decimals: metadata.decimals || 9,
+            logoURI: metadata.logoUri,
+          };
+          tokenCache.set(q.toLowerCase(), token);
+          return [token];
+        }
+      }
+    } catch (err) {
+      console.warn("[TokenList] Failed to fetch token by mint:", err);
+    }
+  }
   
   const results = tokenList
     .filter(t => 

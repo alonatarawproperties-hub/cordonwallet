@@ -163,32 +163,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Jupiter Tokens API Proxy
+  // Jupiter Tokens API Proxy with fallbacks
   app.get("/api/jupiter/tokens", async (req: Request, res: Response) => {
-    try {
-      const { tags } = req.query;
-      const url = tags 
-        ? `${JUPITER_TOKENS_API}/tokens?tags=${tags}`
-        : `${JUPITER_TOKENS_API}/tokens`;
-      
-      console.log("[Jupiter Proxy] Tokens request:", url);
-      
-      const response = await fetch(url, {
-        headers: { "Accept": "application/json" },
-      });
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error("[Jupiter Proxy] Tokens error:", response.status, errorText);
-        return res.status(response.status).json({ error: errorText });
+    const { tags } = req.query;
+    
+    const endpoints = [
+      tags ? `${JUPITER_TOKENS_API}/tokens?tags=${tags}` : `${JUPITER_TOKENS_API}/tokens`,
+      "https://token.jup.ag/strict",
+      "https://token.jup.ag/all",
+    ];
+    
+    for (const url of endpoints) {
+      try {
+        console.log("[Jupiter Proxy] Tokens request:", url);
+        
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 10000);
+        
+        const response = await fetch(url, {
+          headers: { "Accept": "application/json" },
+          signal: controller.signal,
+        });
+        
+        clearTimeout(timeout);
+        
+        if (response.ok) {
+          const data = await response.json();
+          console.log(`[Jupiter Proxy] Tokens fetched: ${Array.isArray(data) ? data.length : 'object'} from ${url}`);
+          return res.json(data);
+        }
+        
+        console.warn(`[Jupiter Proxy] Endpoint failed: ${url} - ${response.status}`);
+      } catch (error: any) {
+        console.warn(`[Jupiter Proxy] Endpoint error: ${url} - ${error.message}`);
       }
-      
-      const data = await response.json();
-      res.json(data);
-    } catch (error: any) {
-      console.error("[Jupiter Proxy] Tokens failed:", error.message);
-      res.status(500).json({ error: error.message || "Failed to fetch tokens" });
     }
+    
+    console.error("[Jupiter Proxy] All token endpoints failed");
+    res.status(503).json({ error: "Token list temporarily unavailable" });
   });
 
   app.get("/api/transactions/:address", async (req: Request, res: Response) => {
