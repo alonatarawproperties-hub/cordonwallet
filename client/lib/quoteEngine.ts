@@ -51,9 +51,14 @@ const ANTI_SPAM_MS = 1200;
 const MAX_RETRIES = 2;
 const RETRY_DELAYS = [300, 800];
 const RATE_LIMIT_COOLDOWN_MS = 2000;
+const RATE_LIMIT_BACKOFF_MS = 4000;
+const RATE_LIMIT_SLOW_MODE_DURATION_MS = 60000;
+const LIVE_QUOTES_INTERVAL_MS = 2000;
+const DEFAULT_POLL_INTERVAL_MS = 12000;
 
 class QuoteEngine {
   private speedMode: SwapSpeed = "standard";
+  private liveQuotesEnabled = false;
   private isTyping = false;
   private lastInputAt = 0;
   private isFocused = false;
@@ -65,6 +70,7 @@ class QuoteEngine {
   private intervalId: NodeJS.Timeout | null = null;
   private debounceTimer: NodeJS.Timeout | null = null;
   private rateLimitCooldownUntil = 0;
+  private rateLimitSlowModeUntil = 0;
   private abortController: AbortController | null = null;
 
   private currentParams: QuoteParams | null = null;
@@ -104,7 +110,27 @@ class QuoteEngine {
   }
 
   private getRefreshInterval(): number {
+    if (Date.now() < this.rateLimitSlowModeUntil) {
+      return DEFAULT_POLL_INTERVAL_MS;
+    }
+    
+    if (this.liveQuotesEnabled && this.speedMode === "turbo") {
+      return LIVE_QUOTES_INTERVAL_MS;
+    }
+    
     return QUOTE_REFRESH_INTERVALS[this.speedMode];
+  }
+
+  setLiveQuotes(enabled: boolean) {
+    this.liveQuotesEnabled = enabled;
+    swapLogger.debug("QuoteEngine", `Live quotes ${enabled ? "enabled" : "disabled"}`);
+    if (this.isFocused && this.isAppActive) {
+      this.startPollingIfAllowed();
+    }
+  }
+
+  getLiveQuotesEnabled(): boolean {
+    return this.liveQuotesEnabled;
   }
 
   private isValidToFetch(): boolean {
@@ -278,8 +304,10 @@ class QuoteEngine {
           }
 
           if (response.status === 429) {
-            this.rateLimitCooldownUntil = Date.now() + RATE_LIMIT_COOLDOWN_MS;
-            swapLogger.transient("QuoteEngine", "Rate limited, entering cooldown");
+            this.rateLimitCooldownUntil = Date.now() + RATE_LIMIT_BACKOFF_MS;
+            this.rateLimitSlowModeUntil = Date.now() + RATE_LIMIT_SLOW_MODE_DURATION_MS;
+            swapLogger.transient("QuoteEngine", "Rate limited, entering slow mode for 60s");
+            this.startPollingIfAllowed();
           }
 
           if (isRetryableError(response.status) && attempt < MAX_RETRIES) {

@@ -15,6 +15,36 @@ export const swapRouter = Router();
 
 initTokenList();
 
+const tokenLookupRateLimit = new Map<string, { count: number; resetAt: number }>();
+const RATE_LIMIT_MAX = 60;
+const RATE_LIMIT_WINDOW_MS = 60 * 1000;
+
+function checkTokenRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const entry = tokenLookupRateLimit.get(ip);
+  
+  if (!entry || now >= entry.resetAt) {
+    tokenLookupRateLimit.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+    return true;
+  }
+  
+  if (entry.count >= RATE_LIMIT_MAX) {
+    return false;
+  }
+  
+  entry.count++;
+  return true;
+}
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, entry] of tokenLookupRateLimit.entries()) {
+    if (now >= entry.resetAt) {
+      tokenLookupRateLimit.delete(ip);
+    }
+  }
+}, 60000);
+
 swapRouter.get("/solana/route-quote", async (req: Request, res: Response) => {
   try {
     const parsed = QuoteParamsSchema.safeParse(req.query);
@@ -77,18 +107,28 @@ swapRouter.get("/solana/tokens", async (req: Request, res: Response) => {
 });
 
 swapRouter.get("/solana/token/:mint", async (req: Request, res: Response) => {
+  const clientIp = req.ip || req.socket.remoteAddress || "unknown";
+  
+  if (!checkTokenRateLimit(clientIp)) {
+    return res.status(429).json({ ok: false, error: "rate_limited" });
+  }
+  
   try {
     const { mint } = req.params;
     const result = await resolveToken(mint);
     
     if ("error" in result) {
-      return res.status(result.code).json({ ok: false, error: result.error });
+      return res.status(result.code).json({ 
+        ok: false, 
+        error: "Token lookup failed", 
+        details: result.error 
+      });
     }
     
     res.json({ ok: true, ...result.token });
   } catch (err: any) {
     console.error("[Swap API] Token lookup failed:", err);
-    res.status(500).json({ ok: false, error: err.message });
+    res.status(500).json({ ok: false, error: "Token lookup failed", details: err.message });
   }
 });
 

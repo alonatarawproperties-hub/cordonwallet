@@ -130,6 +130,7 @@ export default function SwapScreen() {
   const [speed, setSpeed] = useState<SwapSpeed>("standard");
   const [customCapSol, setCustomCapSol] = useState<number | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [liveQuotes, setLiveQuotes] = useState(false);
 
   const [quote, setQuote] = useState<QuoteResponse | null>(null);
   const [swapRoute, setSwapRoute] = useState<SwapRoute>("none");
@@ -1197,6 +1198,43 @@ export default function SwapScreen() {
                   </ThemedText>
                 </View>
               )}
+
+              <View style={styles.liveQuotesRow}>
+                <View style={{ flex: 1 }}>
+                  <ThemedText type="caption" style={{ color: theme.text, fontWeight: "500" }}>
+                    Live Quotes
+                  </ThemedText>
+                  <ThemedText type="caption" style={{ color: theme.textSecondary, fontSize: 11 }}>
+                    Refresh every 2s in Turbo mode
+                  </ThemedText>
+                </View>
+                <Pressable
+                  style={[
+                    styles.liveQuotesToggle,
+                    { backgroundColor: liveQuotes ? theme.accent : theme.backgroundSecondary },
+                  ]}
+                  onPress={() => {
+                    const newValue = !liveQuotes;
+                    setLiveQuotes(newValue);
+                    quoteEngine.setLiveQuotes(newValue);
+                  }}
+                >
+                  <View
+                    style={[
+                      styles.liveQuotesKnob,
+                      { 
+                        backgroundColor: "#fff",
+                        transform: [{ translateX: liveQuotes ? 18 : 2 }],
+                      },
+                    ]}
+                  />
+                </Pressable>
+              </View>
+              {liveQuotes && speed !== "turbo" && (
+                <ThemedText type="caption" style={{ color: theme.textSecondary, marginTop: Spacing.xs, fontSize: 11 }}>
+                  Switch to Turbo speed to enable 2s refresh
+                </ThemedText>
+              )}
             </View>
           )}
         </View>
@@ -1404,6 +1442,25 @@ const styles = StyleSheet.create({
     padding: Spacing.sm,
     borderRadius: BorderRadius.md,
     marginTop: Spacing.sm,
+  },
+  liveQuotesRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: Spacing.md,
+    paddingTop: Spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: "rgba(128,128,128,0.2)",
+  },
+  liveQuotesToggle: {
+    width: 44,
+    height: 26,
+    borderRadius: 13,
+    justifyContent: "center",
+  },
+  liveQuotesKnob: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
   },
   ctaContainer: {
     position: "absolute",

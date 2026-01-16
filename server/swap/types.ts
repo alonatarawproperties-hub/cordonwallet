@@ -40,6 +40,11 @@ export interface TokenInfo {
   name: string;
   decimals: number;
   logoURI?: string;
+  verified?: boolean;
+  sources?: string[];
+  lastUpdated?: number;
+  tags?: string[];
+  isCustom?: boolean;
 }
 
 export interface QuoteResponse {
