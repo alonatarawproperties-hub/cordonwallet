@@ -42,7 +42,7 @@ import {
   LAMPORTS_PER_SOL,
   ADV_MAX_CAP_SOL,
 } from "@/constants/solanaSwap";
-import { getQuoteEngine, QuoteEngineState } from "@/lib/quoteEngine";
+import { getQuoteEngine, QuoteEngineState, SwapRoute, PumpMeta } from "@/lib/quoteEngine";
 import {
   TokenInfo,
   searchTokens,
@@ -60,6 +60,7 @@ import {
   QuoteResponse,
   SwapResponse,
 } from "@/services/jupiter";
+import { buildPump, SOL_MINT as SWAP_SOL_MINT } from "@/services/solanaSwapApi";
 import { calculateFeeConfig, formatFeeDisplay } from "@/lib/solana/feeController";
 import { decodeAndValidateSwapTx, isDrainerTransaction } from "@/lib/solana/swapSecurity";
 import { broadcastTransaction, classifyError, getExplorerUrl } from "@/services/txBroadcaster";
@@ -87,6 +88,8 @@ export default function SwapScreen() {
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   const [quote, setQuote] = useState<QuoteResponse | null>(null);
+  const [swapRoute, setSwapRoute] = useState<SwapRoute>("none");
+  const [pumpMeta, setPumpMeta] = useState<PumpMeta | null>(null);
   const [isQuoting, setIsQuoting] = useState(false);
   const [quoteError, setQuoteError] = useState<string | null>(null);
 
@@ -100,8 +103,9 @@ export default function SwapScreen() {
 
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [pendingSwap, setPendingSwap] = useState<{
-    quote: QuoteResponse;
+    quote: QuoteResponse | null;
     swapResponse: SwapResponse;
+    route: SwapRoute;
   } | null>(null);
 
   const quoteEngineRef = useRef(getQuoteEngine());
@@ -139,9 +143,9 @@ export default function SwapScreen() {
     const engine = quoteEngineRef.current;
     
     const handleQuoteUpdate = (state: QuoteEngineState) => {
-      if (state.quote) {
-        setQuote(state.quote);
-      }
+      setQuote(state.quote);
+      setSwapRoute(state.route);
+      setPumpMeta(state.pumpMeta);
       setIsQuoting(state.isUpdating);
       setQuoteError(state.error);
     };
@@ -170,6 +174,8 @@ export default function SwapScreen() {
     if (!inputToken || !outputToken || !inputAmount || parseFloat(inputAmount) <= 0) {
       engine.clearQuote();
       setQuote(null);
+      setSwapRoute("none");
+      setPumpMeta(null);
       return;
     }
 
@@ -180,6 +186,8 @@ export default function SwapScreen() {
       setQuoteError(`Minimum swap is ${MIN_SOL_SWAP} SOL`);
       engine.clearQuote();
       setQuote(null);
+      setSwapRoute("none");
+      setPumpMeta(null);
       return;
     }
 
@@ -230,6 +238,8 @@ export default function SwapScreen() {
     }
     setShowTokenModal(false);
     setQuote(null);
+    setSwapRoute("none");
+    setPumpMeta(null);
   };
 
   const swapTokens = () => {
@@ -238,6 +248,8 @@ export default function SwapScreen() {
     setOutputToken(temp);
     setInputAmount("");
     setQuote(null);
+    setSwapRoute("none");
+    setPumpMeta(null);
   };
 
   const handleMaxPress = async () => {
@@ -256,8 +268,10 @@ export default function SwapScreen() {
     }
   };
 
+  const canSwap = (swapRoute === "jupiter" && quote) || (swapRoute === "pump" && pumpMeta);
+
   const handleSwapPress = async () => {
-    if (!quote || !inputToken || !outputToken || !activeWallet) return;
+    if (!canSwap || !inputToken || !outputToken || !activeWallet) return;
 
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
@@ -275,7 +289,34 @@ export default function SwapScreen() {
 
     try {
       const capSol = customCapSol ?? SPEED_CONFIGS[speed].capSol;
-      const swapResponse = await buildSwapTransaction(quote, solanaAddr, speed, capSol);
+      let swapResponse: SwapResponse;
+
+      if (swapRoute === "pump" && pumpMeta) {
+        const isBuying = inputToken.mint === SOL_MINT;
+        const buildResult = await buildPump({
+          userPublicKey: solanaAddr,
+          mint: pumpMeta.mint,
+          side: isBuying ? "buy" : "sell",
+          amountSol: isBuying ? parseFloat(inputAmount) : undefined,
+          amountTokens: isBuying ? undefined : parseFloat(inputAmount),
+          slippageBps,
+          speedMode: speed,
+          maxPriorityFeeLamports: capSol * LAMPORTS_PER_SOL,
+        });
+
+        if (!buildResult.ok || !buildResult.swapTransactionBase64) {
+          throw new Error(buildResult.message || "Failed to build Pump transaction");
+        }
+
+        swapResponse = {
+          swapTransaction: buildResult.swapTransactionBase64,
+          lastValidBlockHeight: 0,
+        };
+      } else if (quote) {
+        swapResponse = await buildSwapTransaction(quote, solanaAddr, speed, capSol);
+      } else {
+        throw new Error("No valid swap route");
+      }
       timings.buildLatencyMs = Date.now() - buildStart;
 
       const securityResult = decodeAndValidateSwapTx(
@@ -304,7 +345,7 @@ export default function SwapScreen() {
         await addDebugLog("warn", "Security warnings", securityResult.warnings);
       }
 
-      setPendingSwap({ quote, swapResponse });
+      setPendingSwap({ quote, swapResponse, route: swapRoute });
       setShowConfirmModal(true);
       setIsSwapping(false);
       setSwapStatus("");
@@ -350,16 +391,16 @@ export default function SwapScreen() {
 
       setSwapStatus("Submitting...");
 
-      const outAmount = formatBaseUnits(
-        pendingSwap.quote.outAmount,
-        outputToken.decimals
-      );
-      const minReceived = formatBaseUnits(
-        pendingSwap.quote.otherAmountThreshold,
-        outputToken.decimals
-      );
+      const outAmount = pendingSwap.quote 
+        ? formatBaseUnits(pendingSwap.quote.outAmount, outputToken.decimals)
+        : "0";
+      const minReceived = pendingSwap.quote 
+        ? formatBaseUnits(pendingSwap.quote.otherAmountThreshold, outputToken.decimals)
+        : "0";
 
       const capSol = customCapSol ?? SPEED_CONFIGS[speed].capSol;
+      const routeLabel = pendingSwap.route === "pump" ? "Pump.fun" : 
+        (pendingSwap.quote ? formatRoute(pendingSwap.quote) : "Unknown");
 
       const record = await addSwapRecord({
         timestamp: Date.now(),
@@ -376,8 +417,8 @@ export default function SwapScreen() {
         signature: "",
         status: "submitted",
         timings,
-        route: formatRoute(pendingSwap.quote),
-        priceImpactPct: parseFloat(pendingSwap.quote.priceImpactPct),
+        route: routeLabel,
+        priceImpactPct: pendingSwap.quote ? parseFloat(pendingSwap.quote.priceImpactPct) : 0,
       });
 
       const submitStart = Date.now();
@@ -466,9 +507,14 @@ export default function SwapScreen() {
   const renderConfirmModal = () => {
     if (!pendingSwap || !inputToken || !outputToken) return null;
 
-    const outAmount = formatBaseUnits(pendingSwap.quote.outAmount, outputToken.decimals);
-    const minReceived = formatBaseUnits(pendingSwap.quote.otherAmountThreshold, outputToken.decimals);
+    const outAmount = pendingSwap.quote 
+      ? formatBaseUnits(pendingSwap.quote.outAmount, outputToken.decimals)
+      : "0";
+    const minReceived = pendingSwap.quote 
+      ? formatBaseUnits(pendingSwap.quote.otherAmountThreshold, outputToken.decimals)
+      : "0";
     const networkFee = estimateNetworkFee(pendingSwap.swapResponse);
+    const routeLabel = pendingSwap.route === "pump" ? "Pump.fun (Bonding Curve)" : "Jupiter";
 
     return (
       <Modal visible={showConfirmModal} transparent animationType="slide">
@@ -741,8 +787,12 @@ export default function SwapScreen() {
           </View>
         </View>
 
-        {quote && (
+        {quote && swapRoute === "jupiter" && (
           <View style={[styles.quoteCard, { backgroundColor: theme.backgroundDefault }]}>
+            <View style={styles.quoteRow}>
+              <ThemedText type="caption" style={{ color: theme.textSecondary }}>Route</ThemedText>
+              <ThemedText type="caption" style={{ fontWeight: "500", color: theme.accent }}>Jupiter</ThemedText>
+            </View>
             <View style={styles.quoteRow}>
               <ThemedText type="caption" style={{ color: theme.textSecondary }}>Rate</ThemedText>
               <ThemedText type="caption" style={{ fontWeight: "500" }}>
@@ -764,13 +814,33 @@ export default function SwapScreen() {
               </ThemedText>
             </View>
             <View style={styles.quoteRow}>
-              <ThemedText type="caption" style={{ color: theme.textSecondary }}>Route</ThemedText>
-              <ThemedText type="caption" style={{ fontWeight: "500" }}>{formatRoute(quote)}</ThemedText>
-            </View>
-            <View style={styles.quoteRow}>
               <ThemedText type="caption" style={{ color: theme.textSecondary }}>Min received</ThemedText>
               <ThemedText type="caption" style={{ fontWeight: "500" }}>
                 {formatTokenAmount(formatBaseUnits(quote.otherAmountThreshold, outputToken?.decimals || 6), outputToken?.decimals || 6)} {outputToken?.symbol}
+              </ThemedText>
+            </View>
+          </View>
+        )}
+
+        {swapRoute === "pump" && pumpMeta && (
+          <View style={[styles.quoteCard, { backgroundColor: theme.backgroundDefault }]}>
+            <View style={styles.quoteRow}>
+              <ThemedText type="caption" style={{ color: theme.textSecondary }}>Route</ThemedText>
+              <ThemedText type="caption" style={{ fontWeight: "500", color: "#FF69B4" }}>Pump.fun (Bonding Curve)</ThemedText>
+            </View>
+            <View style={styles.quoteRow}>
+              <ThemedText type="caption" style={{ color: theme.textSecondary }}>Type</ThemedText>
+              <ThemedText type="caption" style={{ fontWeight: "500" }}>
+                {inputToken?.mint === SOL_MINT ? "Buy" : "Sell"}
+              </ThemedText>
+            </View>
+            <View style={styles.quoteRow}>
+              <ThemedText type="caption" style={{ color: theme.textSecondary }}>Slippage</ThemedText>
+              <ThemedText type="caption" style={{ fontWeight: "500" }}>{(slippageBps / 100).toFixed(1)}%</ThemedText>
+            </View>
+            <View style={[styles.quoteRow, { borderBottomWidth: 0 }]}>
+              <ThemedText type="caption" style={{ color: "#F59E0B" }}>
+                Pump trades don't show exact output. Review carefully before confirming.
               </ThemedText>
             </View>
           </View>
@@ -914,12 +984,12 @@ export default function SwapScreen() {
           style={({ pressed }) => [
             styles.swapCta,
             {
-              backgroundColor: quote && !isSwapping ? theme.accent : theme.backgroundSecondary,
-              opacity: quote && !isSwapping ? (pressed ? 0.9 : 1) : 0.5,
+              backgroundColor: canSwap && !isSwapping ? theme.accent : theme.backgroundSecondary,
+              opacity: canSwap && !isSwapping ? (pressed ? 0.9 : 1) : 0.5,
             },
           ]}
           onPress={handleSwapPress}
-          disabled={!quote || isSwapping}
+          disabled={!canSwap || isSwapping}
         >
           {isSwapping ? (
             <View style={styles.swappingRow}>

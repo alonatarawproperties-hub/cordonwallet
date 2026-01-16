@@ -12,8 +12,35 @@ export interface QuoteParams {
   speedMode: SwapSpeed;
 }
 
+export interface PumpMeta {
+  isPump: boolean;
+  isBondingCurve: boolean;
+  isGraduated: boolean;
+  mint: string;
+  updatedAt: number;
+}
+
+export type SwapRoute = "jupiter" | "pump" | "none";
+
+export interface RouteQuoteResponse {
+  ok: boolean;
+  route: SwapRoute;
+  quoteResponse?: QuoteResponse;
+  pumpMeta?: PumpMeta;
+  normalized?: {
+    outAmount: string;
+    minOut: string;
+    priceImpactPct: number;
+    routePlan: any[];
+  };
+  reason?: string;
+  message?: string;
+}
+
 export interface QuoteEngineState {
   quote: QuoteResponse | null;
+  route: SwapRoute;
+  pumpMeta: PumpMeta | null;
   isUpdating: boolean;
   error: string | null;
 }
@@ -42,6 +69,8 @@ class QuoteEngine {
 
   private currentParams: QuoteParams | null = null;
   private lastQuote: QuoteResponse | null = null;
+  private lastRoute: SwapRoute = "none";
+  private lastPumpMeta: PumpMeta | null = null;
   private callback: QuoteEngineCallback | null = null;
 
   private appStateSubscription: ReturnType<typeof AppState.addEventListener> | null = null;
@@ -92,6 +121,8 @@ class QuoteEngine {
     if (this.callback) {
       this.callback({
         quote: this.lastQuote,
+        route: this.lastRoute,
+        pumpMeta: this.lastPumpMeta,
         isUpdating: this.inFlight,
         error: null,
         ...state,
@@ -157,7 +188,7 @@ class QuoteEngine {
     const signal = this.abortController.signal;
 
     try {
-      const quote = await this.fetchWithRetry(params, signal);
+      const result = await this.fetchWithRetry(params, signal);
 
       if (localRequestId !== this.requestId) {
         swapLogger.debug("QuoteEngine", "Ignored stale response");
@@ -166,10 +197,22 @@ class QuoteEngine {
 
       this.lastParamsHash = paramsHash;
       this.lastFetchAt = Date.now();
-      this.lastQuote = quote;
+      this.lastRoute = result.route;
+      this.lastPumpMeta = result.pumpMeta || null;
 
-      this.emit({ quote, isUpdating: false, error: null });
-      swapLogger.info("QuoteEngine", "Quote updated", { outAmount: quote.outAmount });
+      if (result.route === "jupiter" && result.quoteResponse) {
+        this.lastQuote = result.quoteResponse;
+        this.emit({ quote: result.quoteResponse, route: "jupiter", pumpMeta: null, isUpdating: false, error: null });
+        swapLogger.info("QuoteEngine", "Jupiter quote updated", { outAmount: result.quoteResponse.outAmount });
+      } else if (result.route === "pump" && result.pumpMeta) {
+        this.lastQuote = null;
+        this.emit({ quote: null, route: "pump", pumpMeta: result.pumpMeta, isUpdating: false, error: null });
+        swapLogger.info("QuoteEngine", "Pump route detected", { mint: result.pumpMeta.mint });
+      } else {
+        this.lastQuote = null;
+        this.emit({ quote: null, route: "none", pumpMeta: null, isUpdating: false, error: result.message || "No route available" });
+        swapLogger.info("QuoteEngine", "No route found", { reason: result.reason });
+      }
     } catch (error: any) {
       if (error.message === "Quote request cancelled") {
         return;
@@ -180,10 +223,10 @@ class QuoteEngine {
       const userMessage = getUserFriendlyErrorMessage(error);
       
       if (this.lastQuote) {
-        this.emit({ quote: this.lastQuote, isUpdating: false, error: null });
+        this.emit({ quote: this.lastQuote, route: this.lastRoute, pumpMeta: this.lastPumpMeta, isUpdating: false, error: null });
         swapLogger.transient("QuoteEngine", `Kept last quote after error: ${error.message}`);
       } else {
-        this.emit({ quote: null, isUpdating: false, error: userMessage });
+        this.emit({ quote: null, route: "none", pumpMeta: null, isUpdating: false, error: userMessage });
       }
     } finally {
       this.inFlight = false;
@@ -191,17 +234,16 @@ class QuoteEngine {
     }
   }
 
-  private async fetchWithRetry(params: QuoteParams, signal: AbortSignal): Promise<QuoteResponse> {
+  private async fetchWithRetry(params: QuoteParams, signal: AbortSignal): Promise<RouteQuoteResponse> {
     const baseUrl = getApiUrl();
     const urlParams = new URLSearchParams({
       inputMint: params.inputMint,
       outputMint: params.outputMint,
       amount: params.amount,
       slippageBps: params.slippageBps.toString(),
-      swapMode: "ExactIn",
     });
 
-    const url = `${baseUrl}/api/jupiter/quote?${urlParams.toString()}`;
+    const url = `${baseUrl}/api/swap/solana/route-quote?${urlParams.toString()}`;
     let lastError: Error | null = null;
 
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
@@ -226,8 +268,13 @@ class QuoteEngine {
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({ error: "Unknown error" }));
 
-          if (response.status === 400 && JSON.stringify(errorData).includes("No route")) {
-            throw new Error("No swap routes found. Try a larger amount or different tokens.");
+          if (response.status === 404) {
+            return {
+              ok: false,
+              route: "none",
+              reason: "NO_ROUTE",
+              message: errorData.message || "No swap routes found",
+            };
           }
 
           if (response.status === 429) {
@@ -240,7 +287,7 @@ class QuoteEngine {
             continue;
           }
 
-          throw new Error(`Quote failed (${response.status}): ${errorData.error || JSON.stringify(errorData)}`);
+          throw new Error(`Quote failed (${response.status}): ${errorData.error || errorData.message || JSON.stringify(errorData)}`);
         }
 
         return await response.json();
@@ -250,10 +297,6 @@ class QuoteEngine {
         }
 
         lastError = error;
-
-        if (error.message?.includes("No swap routes")) {
-          throw error;
-        }
 
         if (attempt < MAX_RETRIES) {
           await new Promise(r => setTimeout(r, RETRY_DELAYS[attempt] || 500));
@@ -333,13 +376,23 @@ class QuoteEngine {
       this.debounceTimer = null;
     }
     this.lastQuote = null;
+    this.lastRoute = "none";
+    this.lastPumpMeta = null;
     this.lastParamsHash = "";
     this.currentParams = null;
-    this.emit({ quote: null, isUpdating: false, error: null });
+    this.emit({ quote: null, route: "none", pumpMeta: null, isUpdating: false, error: null });
   }
 
   getLastQuote(): QuoteResponse | null {
     return this.lastQuote;
+  }
+
+  getLastRoute(): SwapRoute {
+    return this.lastRoute;
+  }
+
+  getLastPumpMeta(): PumpMeta | null {
+    return this.lastPumpMeta;
   }
 
   destroy() {
