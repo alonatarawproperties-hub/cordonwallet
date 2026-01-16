@@ -30,6 +30,7 @@ import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollV
 import { useWallet } from "@/lib/wallet-context";
 import { getMnemonic } from "@/lib/wallet-engine";
 import { deriveSolanaKeypair } from "@/lib/solana/keys";
+import { useSolanaPortfolio, SolanaAsset } from "@/hooks/useSolanaPortfolio";
 import {
   SwapSpeed,
   SPEED_CONFIGS,
@@ -74,6 +75,9 @@ export default function SwapScreen() {
   const { theme } = useTheme();
   const navigation = useNavigation<Navigation>();
   const { activeWallet } = useWallet();
+  
+  const solanaAddress = activeWallet?.addresses?.solana;
+  const { assets: solanaAssets, refresh: refreshPortfolio } = useSolanaPortfolio(solanaAddress);
 
   const [inputToken, setInputToken] = useState<TokenInfo | null>(null);
   const [outputToken, setOutputToken] = useState<TokenInfo | null>(null);
@@ -101,10 +105,27 @@ export default function SwapScreen() {
     swapResponse: SwapResponse;
   } | null>(null);
 
-  const [solBalance, setSolBalance] = useState<number>(0);
-
   const quoteTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const quoteIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  const getTokenBalance = useCallback((mint: string): number => {
+    if (!solanaAssets || solanaAssets.length === 0) return 0;
+    
+    if (mint === SOL_MINT) {
+      const solAsset = solanaAssets.find(a => a.isNative);
+      if (solAsset) {
+        return parseFloat(solAsset.balance.replace(/,/g, ""));
+      }
+    } else {
+      const tokenAsset = solanaAssets.find(a => a.mint?.toLowerCase() === mint.toLowerCase());
+      if (tokenAsset) {
+        return parseFloat(tokenAsset.balance.replace(/,/g, ""));
+      }
+    }
+    return 0;
+  }, [solanaAssets]);
+
+  const inputTokenBalance = inputToken ? getTokenBalance(inputToken.mint) : 0;
 
   useEffect(() => {
     const initTokens = async () => {
@@ -235,12 +256,13 @@ export default function SwapScreen() {
     if (!inputToken || !activeWallet) return;
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
+    const balance = getTokenBalance(inputToken.mint);
     if (inputToken.mint === SOL_MINT) {
       const reserveForFees = 0.01;
-      const maxAmount = Math.max(0, solBalance - reserveForFees);
+      const maxAmount = Math.max(0, balance - reserveForFees);
       setInputAmount(maxAmount.toFixed(6));
     } else {
-      Alert.alert("Max", "SPL token max balance coming soon");
+      setInputAmount(balance.toFixed(inputToken.decimals > 6 ? 6 : inputToken.decimals));
     }
   };
 
@@ -417,6 +439,7 @@ export default function SwapScreen() {
         );
         setInputAmount("");
         setQuote(null);
+        refreshPortfolio();
       } else if (result.status === "expired") {
         Alert.alert(
           "Transaction Expired",
@@ -664,6 +687,13 @@ export default function SwapScreen() {
                 <ThemedText type="caption" style={{ color: theme.accent, fontWeight: "700" }}>MAX</ThemedText>
               </Pressable>
             </View>
+            {inputToken && (
+              <View style={styles.balanceRow}>
+                <ThemedText type="caption" style={{ color: theme.textSecondary }}>
+                  Balance: {inputTokenBalance.toFixed(inputToken.decimals > 6 ? 6 : 4)} {inputToken.symbol}
+                </ThemedText>
+              </View>
+            )}
           </View>
 
           <Pressable style={styles.swapDirectionButton} onPress={swapTokens}>
@@ -961,6 +991,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.sm,
     borderRadius: BorderRadius.md,
+  },
+  balanceRow: {
+    marginTop: Spacing.xs,
   },
   outputRow: {
     minHeight: 48,

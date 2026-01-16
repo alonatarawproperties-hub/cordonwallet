@@ -1,8 +1,9 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { JUPITER_API_URL, POPULAR_TOKENS, SOL_MINT } from "@/constants/solanaSwap";
+import { POPULAR_TOKENS, SOL_MINT } from "@/constants/solanaSwap";
 
 const TOKEN_LIST_KEY = "solana_token_list_v1";
 const TOKEN_LIST_TTL_MS = 24 * 60 * 60 * 1000;
+const JUPITER_TOKENS_URL = "https://tokens.jup.ag/tokens?tags=verified";
 
 export interface TokenInfo {
   mint: string;
@@ -63,7 +64,7 @@ async function saveCacheToStorage(): Promise<void> {
 
 export async function fetchTokenList(): Promise<TokenInfo[]> {
   try {
-    const response = await fetch(`${JUPITER_API_URL}/tokens`);
+    const response = await fetch(JUPITER_TOKENS_URL);
     if (!response.ok) {
       throw new Error(`Jupiter token list fetch failed: ${response.status}`);
     }
