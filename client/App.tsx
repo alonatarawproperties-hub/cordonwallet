@@ -1,5 +1,7 @@
 import "react-native-get-random-values";
 import "react-native-url-polyfill/auto";
+import { Buffer } from "buffer";
+(global as any).Buffer = (global as any).Buffer || Buffer;
 
 import React from "react";
 import { StyleSheet, View } from "react-native";

@@ -1,0 +1,143 @@
+FIX SOLANA SWAP BLOCKING (OPTION A: CLIENT JUPITER, NON-CUSTODIAL)
+Problem: On Swap press, it shows “Blocked / Failed to decode transaction: Property ‘Buffer’ doesn’t exist” and security check safe:false.
+Root cause:
+1) Expo/RN missing Node Buffer → decoder fails → swap blocked.
+2) detectDrainerInstructions() is too blunt: blocks ALL System Assign + ALL Token SetAuthority, causing false positives on legit Jupiter swap transactions.
+Goal: Make swaps work while still blocking REAL drainers, using pubkey-aware rules.
+
+========================================
+STEP 1 — FIX BUFFER POLYFILL (MUST)
+========================================
+A) Install:
+npm i buffer
+
+B) Add Buffer polyfill at the earliest mobile entry BEFORE any solana/decoder imports.
+Find the earliest Expo entry used by this repo (client/index.js or client/App.tsx or client/main.tsx depending on setup).
+Add at the TOP:
+
+import 'react-native-url-polyfill/auto';
+import { Buffer } from 'buffer';
+(global as any).Buffer = (global as any).Buffer || Buffer;
+
+Also ensure this executes before importing @solana/web3.js or client/lib/solana/decoder.ts.
+
+========================================
+STEP 2 — MAKE DECODER PUBKEY-AWARE (NO RPC)
+========================================
+Update decoder signatures:
+- decodeSolanaTransaction(txBase64, ctx)
+- decodeSolanaTransactions(txBase64Array, ctx)
+ctx includes:
+{ userPubkey: string, intent?: 'swap'|'sign'|'unknown' }
+
+Update all callers that have wallet context to pass userPubkey:
+- WalletConnectHandler.tsx
+- SignRequestSheet.tsx
+- BrowserWebViewScreen.tsx
+- Swap screen (wherever it calls decode)
+
+Example:
+decodeSolanaTransaction(txBase64, { userPubkey: walletPublicKeyBase58, intent: 'swap' })
+
+========================================
+STEP 3 — INCLUDE ACCOUNTS IN INSTRUCTION DATA (REQUIRED)
+========================================
+Right now InstructionData only has {programId, data}. That is not enough.
+Update InstructionData:
+
+interface InstructionData {
+  programId: string;
+  data: Uint8Array;
+  accounts: string[]; // pubkeys touched by this instruction
+}
+
+When extracting instructions from a VersionedTransaction:
+- Resolve ALL account keys including ALT lookups.
+Use:
+const msgKeys = versionedTx.message.getAccountKeys({ accountKeysFromLookups: loadedAddresses });
+Then:
+const allKeys = [...msgKeys.staticAccountKeys, ...msgKeys.accountKeysFromLookups];
+
+Build instructionsData like:
+for each compiled instruction:
+  programId = allKeys[ix.programIdIndex].toBase58()
+  accounts = ix.accountKeyIndexes.map(i => allKeys[i].toBase58())
+  push { programId, data: ix.data, accounts }
+
+feePayerBase58 should be:
+allKeys[0].toBase58()
+
+Also compute signer set (base58):
+for i in allKeys indices:
+  if versionedTx.message.isAccountSigner(i) add allKeys[i].toBase58()
+
+========================================
+STEP 4 — REWRITE detectDrainerInstructions() WITH CLEAN RULESET
+========================================
+Replace your current “block-all” logic with pubkey-aware blocking:
+
+Inputs:
+detectDrainerInstructions(instructions, { userPubkey, feePayer, signerSet })
+
+Keep these constants:
+SYSTEM_PROGRAM_ID = 11111111111111111111111111111111
+TOKEN_PROGRAM_ID = Tokenkeg...
+
+A) SYSTEM Assign (instructionType u32=1):
+- Parse instructionType = little-endian u32 from bytes 0..3
+- If Assign:
+  targetAccount = ix.accounts[0] (if missing, do NOT block)
+  newOwnerPubkey = new PublicKey(ix.data.slice(4, 36)).toBase58()  (if length permits)
+  BLOCK ONLY IF:
+    targetAccount === userPubkey OR targetAccount === feePayer
+    AND newOwnerPubkey is NOT one of SAFE owners:
+      - SYSTEM_PROGRAM_ID
+      - TOKEN_PROGRAM_ID
+      - ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL (ATA program)
+Otherwise: allow (optionally warn)
+
+B) TOKEN SetAuthority (instructionType byte0=6):
+- Parse authorityType = byte1
+- Parse newAuthority option = byte2 (0 none, 1 some)
+- If option==1 parse newAuthority pubkey bytes (3..34)
+- currentAuthority = ix.accounts[1] (if missing, do NOT block)
+BLOCK ONLY IF:
+  currentAuthority === userPubkey
+  AND newAuthority != null
+  AND newAuthority !== userPubkey
+  AND (authorityType is 2 (AccountOwner) OR 3 (CloseAccount) OR ANY type for safety)
+Allow if:
+  newAuthority === null (revoking)
+  OR currentAuthority !== userPubkey
+
+IMPORTANT: We must NOT hard-block swaps just because SetAuthority exists somewhere that user is not authorizing.
+
+C) NEVER hard-block due to decode error:
+Wrap detectDrainerInstructions in try/catch in decoder. If detection throws, return safe:true with warning and allow signing.
+
+========================================
+STEP 5 — UPDATE BLOCKING ENFORCEMENT
+========================================
+At your enforcement section:
+const det = detectDrainerInstructions(...)
+if (det.isBlocked) block
+Change behavior:
+- If detect throws: allow with warning (do not block)
+- Only block when det.isBlocked === true (after new rules)
+
+========================================
+STEP 6 — VERIFY
+========================================
+Test:
+1) Open Swap, get Jupiter quote (already working).
+2) Press Swap → decoder should NOT crash (Buffer exists).
+3) Security check should pass for Jupiter swap tx.
+4) Confirm signing proceeds and tx is submitted.
+
+Add temporary debug logs:
+- console.log('Buffer exists:', typeof (global as any).Buffer)
+- console.log('feePayer', feePayerBase58, 'user', userPubkey)
+- console.log('blocked?', det.isBlocked, det.attackType)
+
+DELIVERABLE:
+Swaps no longer get blocked by decoder, and real drainers (Assign user wallet, SetAuthority by user to another key) still get blocked.

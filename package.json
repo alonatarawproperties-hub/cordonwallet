@@ -37,6 +37,7 @@
     "@walletconnect/utils": "^2.23.1",
     "@walletconnect/web3wallet": "^1.16.1",
     "bs58": "^6.0.0",
+    "buffer": "^6.0.3",
     "cookie-parser": "^1.4.7",
     "drizzle-orm": "^0.39.3",
     "drizzle-zod": "^0.7.0",
