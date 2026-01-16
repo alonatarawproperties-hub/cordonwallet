@@ -27,11 +27,6 @@ interface Props {
   onClose: () => void;
 }
 
-function shortenAddress(address: string): string {
-  if (!address || address.length < 12) return address || "";
-  return `${address.slice(0, 6)}...${address.slice(-4)}`;
-}
-
 export function WalletSwitcherSheet({ visible, onClose }: Props) {
   const { theme } = useTheme();
   const insets = useSafeAreaInsets();
@@ -103,18 +98,13 @@ export function WalletSwitcherSheet({ visible, onClose }: Props) {
                         </View>
                       ) : null}
                     </View>
-                    <View style={styles.addressRow}>
-                      {evmAddress ? (
-                        <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                          EVM: {shortenAddress(evmAddress)}
-                        </ThemedText>
-                      ) : null}
-                      {solanaAddress ? (
-                        <ThemedText type="small" style={{ color: theme.textSecondary, marginLeft: evmAddress ? Spacing.sm : 0 }}>
-                          SOL: {shortenAddress(solanaAddress)}
-                        </ThemedText>
-                      ) : null}
-                    </View>
+                    <ThemedText type="small" style={{ color: theme.textSecondary, marginTop: 2 }}>
+                      {evmAddress && solanaAddress 
+                        ? "Multi-chain wallet" 
+                        : solanaAddress 
+                          ? "Solana wallet" 
+                          : "EVM wallet"}
+                    </ThemedText>
                   </View>
                 </Pressable>
               );
@@ -221,10 +211,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     marginLeft: Spacing.sm,
-  },
-  addressRow: {
-    flexDirection: "row",
-    marginTop: 2,
   },
   emptyState: {
     alignItems: "center",
