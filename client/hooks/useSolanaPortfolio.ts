@@ -1,8 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { AppState, AppStateStatus } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { getApiUrl } from "@/lib/query-client";
 import { getCustomTokens, getHiddenTokens, CustomToken } from "@/lib/token-preferences";
 import { getPreloadedCache, clearPreloadedCache } from "@/lib/portfolio-cache";
+
+const POLLING_INTERVAL = 30000;
 
 interface SolBalance {
   lamports: number;
@@ -389,10 +392,28 @@ export function useSolanaPortfolio(address: string | undefined) {
     lastFetchRef.current = "";
     fetchBalances(false);
 
+    const pollInterval = setInterval(() => {
+      if (isMounted.current && address) {
+        console.log("[SolanaPortfolio] Auto-refresh triggered");
+        fetchBalances(true);
+      }
+    }, POLLING_INTERVAL);
+
+    const handleAppStateChange = (nextAppState: AppStateStatus) => {
+      if (nextAppState === "active" && isMounted.current && address) {
+        console.log("[SolanaPortfolio] App became active, refreshing");
+        fetchBalances(true);
+      }
+    };
+
+    const subscription = AppState.addEventListener("change", handleAppStateChange);
+
     return () => {
       isMounted.current = false;
+      clearInterval(pollInterval);
+      subscription.remove();
     };
-  }, [fetchBalances]);
+  }, [fetchBalances, address]);
 
   const refresh = useCallback(() => {
     fetchBalances(true);
