@@ -11,6 +11,8 @@ import {
   getSolanaTransactionHistory,
   estimateSolanaFee,
 } from "./solana-api";
+import { quoteRateLimiter, tokenListRateLimiter, swapBuildRateLimiter } from "./middleware/rateLimit";
+import { fetchWithBackoff } from "./lib/fetchWithBackoff";
 
 const ETHERSCAN_V2_API = "https://api.etherscan.io/v2/api";
 const COINGECKO_API = "https://api.coingecko.com/api/v3";
@@ -76,7 +78,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Jupiter API Proxy - Quote endpoint (public API, no auth required)
-  app.get("/api/jupiter/quote", async (req: Request, res: Response) => {
+  app.get("/api/jupiter/quote", quoteRateLimiter, async (req: Request, res: Response) => {
     try {
       const { inputMint, outputMint, amount, slippageBps, swapMode, onlyDirectRoutes } = req.query;
       
@@ -129,7 +131,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Jupiter API Proxy - Swap endpoint
-  app.post("/api/jupiter/swap", async (req: Request, res: Response) => {
+  app.post("/api/jupiter/swap", swapBuildRateLimiter, async (req: Request, res: Response) => {
     try {
       const body = req.body;
       
@@ -164,7 +166,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Jupiter Tokens API Proxy with fallbacks
-  app.get("/api/jupiter/tokens", async (req: Request, res: Response) => {
+  app.get("/api/jupiter/tokens", tokenListRateLimiter, async (req: Request, res: Response) => {
     const { tags } = req.query;
     
     const endpoints = [

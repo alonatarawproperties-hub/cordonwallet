@@ -25,7 +25,7 @@ export interface DecodedSolanaTransaction {
 
 export interface DecodeContext {
   userPubkey: string;
-  intent?: "swap" | "sign" | "unknown";
+  intent?: "swap" | "dapp" | "unknown";
 }
 
 const SYSTEM_PROGRAM_ID = "11111111111111111111111111111111";
@@ -40,6 +40,23 @@ const SAFE_OWNERS = new Set([
   TOKEN_PROGRAM_ID,
   ATA_PROGRAM_ID,
   "ComputeBudget111111111111111111111111111111",
+]);
+
+const JUPITER_PROGRAMS = new Set([
+  "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4",
+  "JUP4Fb2cqiRUcaTHdrPC8h2gNsA2ETXiPDD33WcGuJB",
+  "JUP3c2Uh3WA4Ng34tw6kPd2G4C5BB21Xo36Je1s32Ph",
+  "JUP2jxvXaqu7NQY1GmNF4m1vodw12LVXYxbFL2uJvfo",
+]);
+
+const SWAP_SAFE_PROGRAMS = new Set([
+  ...JUPITER_PROGRAMS,
+  "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc",
+  "9W959DqEETiGZocYWCQPaJ6sBmUzgfxXfqGeTEdp3aQP",
+  "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK",
+  "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8",
+  "SSwpkEEcbUqx4vtoEByFjSkhKdCT862DNVb52nZg1UZ",
+  "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P",
 ]);
 
 const KNOWN_PROGRAMS: Record<string, string> = {
@@ -74,6 +91,12 @@ interface DrainerContext {
   userPubkey: string;
   feePayer: string;
   signerSet: Set<string>;
+  intent: "swap" | "dapp" | "unknown";
+  txProgramIds: string[];
+}
+
+function isSwapSafeTransaction(programIds: string[]): boolean {
+  return programIds.some(id => SWAP_SAFE_PROGRAMS.has(id));
 }
 
 function detectDrainerInstructions(
@@ -81,6 +104,8 @@ function detectDrainerInstructions(
   ctx: DrainerContext
 ): DrainerDetection {
   try {
+    const isSwapContext = ctx.intent === "swap" || isSwapSafeTransaction(ctx.txProgramIds);
+    
     for (const ix of instructions) {
       if (ix.programId === SYSTEM_PROGRAM_ID && ix.data.length >= 4) {
         const instructionType =
@@ -99,11 +124,10 @@ function detectDrainerInstructions(
             }
           }
 
-          const isUserAccount =
-            targetAccount === ctx.userPubkey || targetAccount === ctx.feePayer;
+          const isUserMainAccount = targetAccount === ctx.userPubkey;
           const isSafeOwner = newOwnerPubkey && SAFE_OWNERS.has(newOwnerPubkey);
 
-          if (isUserAccount && !isSafeOwner) {
+          if (isUserMainAccount && !isSafeOwner) {
             return {
               isBlocked: true,
               attackType: "Assign",
@@ -151,6 +175,23 @@ function detectDrainerInstructions(
 
           if (newAuthority === ctx.userPubkey) {
             continue;
+          }
+
+          if (isSwapContext) {
+            const isJupiterRelated = ctx.txProgramIds.some(id => JUPITER_PROGRAMS.has(id));
+            const closeAuthorityType = 3;
+            if (isJupiterRelated && authorityType === closeAuthorityType) {
+              continue;
+            }
+          }
+
+          if (isSwapContext) {
+            return {
+              isBlocked: false,
+              attackType: "SetAuthority",
+              description:
+                "Warning: This swap transaction modifies token account authority. Review the transaction carefully before signing.",
+            };
           }
 
           return {
@@ -321,6 +362,8 @@ export function decodeSolanaTransaction(
       userPubkey,
       feePayer: feePayerBase58,
       signerSet,
+      intent: ctx?.intent || "unknown",
+      txProgramIds: programIds,
     };
 
     const drainerDetection = detectDrainerInstructions(instructionsData, drainerCtx);

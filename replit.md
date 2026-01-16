@@ -112,3 +112,45 @@ The project is organized into `/client` (frontend), `/server` (backend), and `/s
 ### Database
 
 - **PostgreSQL**: Used with Drizzle ORM.
+
+## Developer Notes
+
+### Swap Feature Testing
+
+**How to test swap:**
+1. Open the app in Expo Go
+2. Navigate to the Swap tab
+3. Enter a SOL amount (e.g., 0.01 SOL)
+4. Select output token (USDC, etc.)
+5. Verify quote appears without errors
+6. Test Standard/Fast/Turbo speed modes
+7. Confirm swap succeeds with transaction signature
+
+**Rate Limiting & 429 Errors:**
+- Client debounces quote requests by 450ms to prevent spam
+- Server rate limits: 20 quotes/10s, 5 token list fetches/minute
+- 429 errors are transient - the app retries automatically with exponential backoff
+- Token list is cached 12h client-side, 6h server-side
+- If you see "Network busy, retrying..." this is normal behavior during high load
+
+**Retry/Backoff Behavior:**
+- Quote requests: 3 retries with 300ms, 800ms, 1600ms delays + jitter
+- On 429/503: respects Retry-After header (capped at 5s)
+- Token list failures: silently uses cached list, never blocks the UI
+
+**Manual Mint Entry:**
+- If a token isn't in the list (e.g., pump token), paste the mint address directly
+- The app will try to fetch metadata; if it fails, it shows as "Unknown Token" but quote still works
+
+**Speed Modes:**
+- Standard: 0.0008 SOL fee cap, 200k compute units
+- Fast: 0.002 SOL fee cap, 400k compute units  
+- Turbo: 0.005 SOL fee cap, 800k compute units
+
+**QA Checklist:**
+- [ ] Typing amount quickly does not spam network
+- [ ] Token list loads instantly from cache
+- [ ] Quotes recover automatically under rate limit
+- [ ] Swap succeeds in Standard/Fast/Turbo modes
+- [ ] No red LogBox spam for 429/500 errors
+- [ ] Manual mint paste works for pump tokens
