@@ -11,15 +11,12 @@ import ActivityScreen from "@/screens/ActivityScreen";
 import SwapScreen from "@/screens/SwapScreen";
 import BrowserScreen from "@/screens/BrowserScreen";
 import BundlesScreen from "@/screens/BundlesScreen";
-import SettingsScreen from "@/screens/SettingsScreen";
-
 export type MainTabParamList = {
   Portfolio: undefined;
   Activity: undefined;
   Swap: undefined;
   Browser: undefined;
   Bundles: undefined;
-  Settings: undefined;
 };
 
 const Tab = createBottomTabNavigator<MainTabParamList>();
@@ -114,16 +111,6 @@ export default function MainTabNavigator() {
           headerTitle: "Bundles",
           tabBarIcon: ({ color, size }) => (
             <Feather name="layers" size={size} color={color} />
-          ),
-        }}
-      />
-      <Tab.Screen
-        name="Settings"
-        component={SettingsScreen}
-        options={{
-          headerTitle: "Settings",
-          tabBarIcon: ({ color, size }) => (
-            <Feather name="settings" size={size} color={color} />
           ),
         }}
       />
