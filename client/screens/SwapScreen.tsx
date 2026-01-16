@@ -94,7 +94,12 @@ async function loadRecentCustomTokens(): Promise<CustomTokenInfo[]> {
   try {
     const data = await AsyncStorage.getItem(CUSTOM_TOKENS_KEY);
     if (data) {
-      return JSON.parse(data);
+      const tokens: CustomTokenInfo[] = JSON.parse(data);
+      const validTokens = tokens.filter(t => t.symbol !== "UNKNOWN" && t.name !== "Unknown Token");
+      if (validTokens.length !== tokens.length) {
+        await AsyncStorage.setItem(CUSTOM_TOKENS_KEY, JSON.stringify(validTokens));
+      }
+      return validTokens;
     }
   } catch (err) {
     console.warn("[SwapScreen] Failed to load custom tokens:", err);
