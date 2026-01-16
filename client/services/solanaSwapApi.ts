@@ -32,6 +32,29 @@ export interface QuoteResult {
   message?: string;
 }
 
+export interface PumpMeta {
+  isPump: boolean;
+  isBondingCurve: boolean;
+  isGraduated: boolean;
+  mint: string;
+  updatedAt: number;
+}
+
+export interface RouteQuoteResult {
+  ok: boolean;
+  route: "jupiter" | "pump" | "none";
+  quoteResponse?: any;
+  pumpMeta?: PumpMeta;
+  normalized?: {
+    outAmount: string;
+    minOut: string;
+    priceImpactPct: number;
+    routePlan: any[];
+  };
+  reason?: string;
+  message?: string;
+}
+
 export interface BuildJupiterParams {
   userPublicKey: string;
   quote: any;
@@ -162,6 +185,34 @@ export async function isPumpToken(mint: string): Promise<boolean> {
   const result = await apiFetch<{ ok: boolean; isPump: boolean }>(`/solana/is-pump?mint=${mint}`);
   return result.isPump || false;
 }
+
+export async function routeQuote(params: QuoteParams): Promise<RouteQuoteResult> {
+  const queryParams = new URLSearchParams({
+    inputMint: params.inputMint,
+    outputMint: params.outputMint,
+    amount: params.amount,
+  });
+  
+  if (params.slippageBps !== undefined) {
+    queryParams.set("slippageBps", params.slippageBps.toString());
+  }
+  
+  return apiFetch<RouteQuoteResult>(`/solana/route-quote?${queryParams.toString()}`);
+}
+
+export async function getPumpMeta(mint: string): Promise<PumpMeta | null> {
+  try {
+    const result = await apiFetch<{ ok: boolean } & Partial<PumpMeta>>(`/solana/pump-meta/${mint}`);
+    if (result.ok && result.isPump !== undefined) {
+      return result as PumpMeta;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export const SOL_MINT = "So11111111111111111111111111111111111111112";
 
 export const PRIORITY_FEE_CAPS = {
   standard: 200_000,

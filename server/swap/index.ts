@@ -9,10 +9,59 @@ import { getQuote, buildSwapTransaction } from "./jupiter";
 import { buildPumpTransaction, isPumpToken } from "./pump";
 import { broadcastTransaction, getTransactionStatus } from "./broadcast";
 import { searchTokens, getToken, initTokenList } from "./tokenlist";
+import { getRouteQuote, getPumpMeta } from "./route";
 
 export const swapRouter = Router();
 
 initTokenList();
+
+swapRouter.get("/solana/route-quote", async (req: Request, res: Response) => {
+  try {
+    const parsed = QuoteParamsSchema.safeParse(req.query);
+    
+    if (!parsed.success) {
+      return res.status(400).json({
+        ok: false,
+        code: "BAD_REQUEST",
+        message: "Invalid parameters",
+        details: parsed.error.flatten(),
+      });
+    }
+    
+    const result = await getRouteQuote({
+      inputMint: parsed.data.inputMint,
+      outputMint: parsed.data.outputMint,
+      amount: parsed.data.amount,
+      slippageBps: parsed.data.slippageBps,
+    });
+    
+    if (result.ok) {
+      res.json(result);
+    } else {
+      const status = result.reason === "NO_ROUTE" ? 404 : 502;
+      res.status(status).json(result);
+    }
+  } catch (err: any) {
+    console.error("[Swap API] Route quote failed:", err);
+    res.status(500).json({
+      ok: false,
+      route: "none",
+      reason: "INTERNAL_ERROR",
+      message: err.message,
+    });
+  }
+});
+
+swapRouter.get("/solana/pump-meta/:mint", async (req: Request, res: Response) => {
+  try {
+    const { mint } = req.params;
+    const meta = await getPumpMeta(mint);
+    res.json({ ok: true, ...meta });
+  } catch (err: any) {
+    console.error("[Swap API] Pump meta failed:", err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
 
 swapRouter.get("/solana/tokens", async (req: Request, res: Response) => {
   try {
