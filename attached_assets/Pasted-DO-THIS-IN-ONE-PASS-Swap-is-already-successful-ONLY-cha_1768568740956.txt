@@ -1,0 +1,129 @@
+DO THIS IN ONE PASS. Swap is already successful. ONLY change quote refresh behavior to stop per-second updates and add proper Standard/Fast/Turbo cadence + typing debounce + dedupe + pause-on-background. No questions.
+
+TARGET UX
+- Standard: quote refresh every 12s
+- Fast: every 6s
+- Turbo: every 2.5s
+- While user is typing: NO polling; only fetch after 500ms pause (debounce)
+- No spam: cancel/ignore stale requests + dedupe identical params + never run concurrent quote fetches
+- Pause polling when Swap screen not focused or app backgrounded
+- UI microcopy: “Turbo uses higher priority fees (paid by you).”
+- Keep last quote visible (no flicker)
+
+REPO
+- /client Expo RN app
+- Quote fetching is currently too frequent (likely per-second)
+- Find and modify the single source that triggers quote fetching (swap store/hook)
+
+────────────────────────────────────────────
+STEP 1 — FIND THE QUOTE LOOP
+Search client code for:
+- setInterval(
+- refetchInterval
+- setTimeout(
+- poll / polling
+- refreshQuote / fetchQuote / getQuote
+Likely in:
+- client/store/swapStore.ts
+- client/hooks/useSwapQuote.ts
+- client/services/*quote*
+Identify where quote is requested and where it repeats.
+
+────────────────────────────────────────────
+STEP 2 — IMPLEMENT A QUOTE ENGINE (ONE SOURCE OF TRUTH)
+Create (or embed into swapStore) a small controller that manages:
+State:
+- speedMode: "standard"|"fast"|"turbo"
+- isTyping: boolean
+- lastInputAt: number
+- isFocused: boolean (React Navigation focus)
+- isAppActive: boolean (AppState)
+- inFlight: boolean
+- requestId: number
+- lastParamsHash: string
+- lastFetchAt: number
+- intervalId: any
+
+Functions:
+- computeInterval(speedMode):
+  standard=12000, fast=6000, turbo=2500
+- computeParamsHash(inputMint, outputMint, amount, slippageBps, speedMode):
+  `${inputMint}|${outputMint}|${amount}|${slippageBps}|${speedMode}`
+
+Rules:
+A) VALID TO FETCH only when:
+- amount > 0
+- inputMint + outputMint selected
+- isFocused === true
+- isAppActive === true
+
+B) Debounce while typing:
+- On amount change: set isTyping=true and set lastInputAt=Date.now()
+- Start/restart a 500ms debounce timer
+- After 500ms without changes: set isTyping=false and run fetchQuoteOnce()
+
+C) Polling (only when NOT typing):
+- When isTyping === false and inputs valid and focused/active:
+  - clear existing interval
+  - setInterval(fetchQuoteOnce, intervalMs based on speedMode)
+- When speedMode changes: restart interval immediately
+- When blur/background: clear interval and abort/ignore in-flight
+
+D) Dedupe + concurrency:
+- Before fetching:
+  - paramsHash = computeParamsHash(...)
+  - if inFlight === true: return
+  - if paramsHash === lastParamsHash AND (Date.now()-lastFetchAt) < 1200ms: return (hard anti-spam)
+- Start fetch:
+  - inFlight=true
+  - requestId++ and store local id
+  - await quote call
+  - only apply result if local id === current requestId
+  - set lastParamsHash=paramsHash, lastFetchAt=Date.now()
+  - inFlight=false in finally
+
+E) No flicker:
+- Do NOT clear existing quote while fetching
+- Show a subtle “Updating…” indicator (small) while inFlight and quote exists
+
+────────────────────────────────────────────
+STEP 3 — WIRE SCREEN FOCUS + APPSTATE
+In Swap screen (or central navigation hook):
+- Use useFocusEffect or navigation listeners:
+  - onFocus: set isFocused=true; fetchQuoteOnce(); startPollingIfAllowed()
+  - onBlur: set isFocused=false; stopPolling(); cancel in-flight (or ignore stale)
+- Use AppState listener:
+  - active => isAppActive=true; fetchQuoteOnce(); startPollingIfAllowed()
+  - background/inactive => isAppActive=false; stopPolling(); cancel/ignore
+
+────────────────────────────────────────────
+STEP 4 — UPDATE QUOTE CALL SITE (NO OTHER CHANGES)
+- Keep your existing quote API call (server-assisted).
+- Just ensure it is called ONLY via fetchQuoteOnce() governed by the Quote Engine.
+- Ensure failures do NOT become console.error spam:
+  - For 429: treat as silent/backoff (console.warn once max), keep last quote
+  - For other transient errors: console.warn + keep last quote
+  - Only show a user-facing message if there is no quote at all after repeated failures.
+
+Optional backoff:
+- If status==429: set a temporary cooldown of 2000ms before next fetch (don’t spam retries)
+
+────────────────────────────────────────────
+STEP 5 — UI MICROCOPY
+Where speed selector is rendered:
+- Add helper text below:
+  “Turbo uses higher priority fees (paid by you).”
+
+────────────────────────────────────────────
+STEP 6 — VERIFY
+- Standard updates ~every 12 seconds (NOT every second)
+- Fast ~6 seconds
+- Turbo ~2.5 seconds
+- While typing: only updates after 500ms pause
+- Background/blur: stops updates
+- No flicker; last quote stays visible
+
+DELIVERABLE
+- Implement the above, using existing files where quote is managed.
+- At the end, list the exact files you edited/created.
+- Do not ask questions; implement with these defaults.

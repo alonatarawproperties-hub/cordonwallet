@@ -143,9 +143,16 @@ The project is organized into `/client` (frontend), `/server` (backend), and `/s
 - The app will try to fetch metadata; if it fails, it shows as "Unknown Token" but quote still works
 
 **Speed Modes:**
-- Standard: 0.0008 SOL fee cap, 200k compute units
-- Fast: 0.002 SOL fee cap, 400k compute units  
-- Turbo: 0.005 SOL fee cap, 800k compute units
+- Standard: 0.0008 SOL fee cap, 200k compute units, quote refresh every 12s
+- Fast: 0.002 SOL fee cap, 400k compute units, quote refresh every 6s
+- Turbo: 0.005 SOL fee cap, 800k compute units, quote refresh every 2.5s
+
+**Quote Engine Behavior:**
+- While typing: NO polling; quote fetches after 500ms pause (debounce)
+- Polling pauses when Swap screen loses focus or app backgrounds
+- Last quote stays visible during updates (no flicker), shows "Updating..." indicator
+- Duplicate requests are deduplicated, stale responses are ignored
+- Rate limit 429s trigger a 2s cooldown before next fetch
 
 **QA Checklist:**
 - [ ] Typing amount quickly does not spam network
@@ -154,3 +161,5 @@ The project is organized into `/client` (frontend), `/server` (backend), and `/s
 - [ ] Swap succeeds in Standard/Fast/Turbo modes
 - [ ] No red LogBox spam for 429/500 errors
 - [ ] Manual mint paste works for pump tokens
+- [ ] Quote updates match speed mode cadence (Standard ~12s, Fast ~6s, Turbo ~2.5s)
+- [ ] Quote polling pauses when navigating away or backgrounding app

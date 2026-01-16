@@ -36,13 +36,13 @@ import {
   SPEED_CONFIGS,
   DEFAULT_SLIPPAGE_BPS,
   MAX_SLIPPAGE_BPS,
-  QUOTE_REFRESH_INTERVAL_MS,
-  QUOTE_DEBOUNCE_MS,
+  QUOTE_REFRESH_INTERVALS,
   SOL_MINT,
   USDC_MINT,
   LAMPORTS_PER_SOL,
   ADV_MAX_CAP_SOL,
 } from "@/constants/solanaSwap";
+import { getQuoteEngine, QuoteEngineState } from "@/lib/quoteEngine";
 import {
   TokenInfo,
   searchTokens,
@@ -53,7 +53,6 @@ import {
   getTokenByMint,
 } from "@/services/solanaTokenList";
 import {
-  getQuote,
   buildSwapTransaction,
   calculatePriceImpact,
   formatRoute,
@@ -105,8 +104,7 @@ export default function SwapScreen() {
     swapResponse: SwapResponse;
   } | null>(null);
 
-  const quoteTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const quoteIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const quoteEngineRef = useRef(getQuoteEngine());
 
   const getTokenBalance = useCallback((mint: string): number => {
     if (!solanaAssets || solanaAssets.length === 0) return 0;
@@ -137,88 +135,68 @@ export default function SwapScreen() {
     initTokens();
   }, []);
 
+  useEffect(() => {
+    const engine = quoteEngineRef.current;
+    
+    const handleQuoteUpdate = (state: QuoteEngineState) => {
+      if (state.quote) {
+        setQuote(state.quote);
+      }
+      setIsQuoting(state.isUpdating);
+      setQuoteError(state.error);
+    };
+    
+    engine.setCallback(handleQuoteUpdate);
+    
+    return () => {
+      engine.setCallback(null);
+    };
+  }, []);
+
   useFocusEffect(
     useCallback(() => {
+      const engine = quoteEngineRef.current;
+      engine.setFocused(true);
+      
       return () => {
-        if (quoteIntervalRef.current) {
-          clearInterval(quoteIntervalRef.current);
-        }
-        if (quoteTimeoutRef.current) {
-          clearTimeout(quoteTimeoutRef.current);
-        }
+        engine.setFocused(false);
       };
     }, [])
   );
 
-  const fetchQuote = useCallback(async () => {
+  useEffect(() => {
+    const engine = quoteEngineRef.current;
+    
     if (!inputToken || !outputToken || !inputAmount || parseFloat(inputAmount) <= 0) {
+      engine.clearQuote();
       setQuote(null);
       return;
     }
 
-    // Minimum swap amounts (in token units)
-    const MIN_SOL_SWAP = 0.001; // ~$0.15 worth
+    const MIN_SOL_SWAP = 0.001;
     const amount = parseFloat(inputAmount);
     
     if (inputToken.mint === SOL_MINT && amount < MIN_SOL_SWAP) {
       setQuoteError(`Minimum swap is ${MIN_SOL_SWAP} SOL`);
+      engine.clearQuote();
       setQuote(null);
       return;
     }
 
-    setIsQuoting(true);
-    setQuoteError(null);
-
-    try {
-      const amountBaseUnits = parseTokenAmount(inputAmount, inputToken.decimals).toString();
-      const result = await getQuote({
-        inputMint: inputToken.mint,
-        outputMint: outputToken.mint,
-        amount: amountBaseUnits,
-        slippageBps,
-      });
-      setQuote(result);
-      await addDebugLog("info", "Quote fetched", { route: formatRoute(result) });
-    } catch (error: any) {
-      setQuoteError(error.message || "Failed to get quote");
-      setQuote(null);
-      await addDebugLog("error", "Quote failed", { error: error.message });
-    } finally {
-      setIsQuoting(false);
-    }
-  }, [inputToken, outputToken, inputAmount, slippageBps]);
+    const amountBaseUnits = parseTokenAmount(inputAmount, inputToken.decimals).toString();
+    
+    engine.updateParams({
+      inputMint: inputToken.mint,
+      outputMint: outputToken.mint,
+      amount: amountBaseUnits,
+      slippageBps,
+      speedMode: speed,
+    });
+  }, [inputAmount, inputToken, outputToken, slippageBps, speed]);
 
   useEffect(() => {
-    if (quoteTimeoutRef.current) {
-      clearTimeout(quoteTimeoutRef.current);
-    }
-
-    if (inputAmount && parseFloat(inputAmount) > 0) {
-      quoteTimeoutRef.current = setTimeout(fetchQuote, QUOTE_DEBOUNCE_MS);
-    } else {
-      setQuote(null);
-    }
-
-    return () => {
-      if (quoteTimeoutRef.current) {
-        clearTimeout(quoteTimeoutRef.current);
-      }
-    };
-  }, [inputAmount, inputToken, outputToken, slippageBps]);
-
-  useFocusEffect(
-    useCallback(() => {
-      if (quote && inputAmount && parseFloat(inputAmount) > 0) {
-        quoteIntervalRef.current = setInterval(fetchQuote, QUOTE_REFRESH_INTERVAL_MS);
-      }
-
-      return () => {
-        if (quoteIntervalRef.current) {
-          clearInterval(quoteIntervalRef.current);
-        }
-      };
-    }, [fetchQuote, quote, inputAmount])
-  );
+    quoteEngineRef.current.setSpeedMode(speed);
+  }, [speed]);
 
   const handleTokenSearch = async (query: string) => {
     setTokenSearch(query);
@@ -740,12 +718,22 @@ export default function SwapScreen() {
               <Feather name="chevron-down" size={20} color={theme.textSecondary} />
             </Pressable>
             <View style={styles.outputRow}>
-              {isQuoting ? (
+              {quote ? (
+                <View style={styles.outputWithIndicator}>
+                  <ThemedText type="h3" style={{ color: "#22C55E" }}>
+                    {formatTokenAmount(formatBaseUnits(quote.outAmount, outputToken?.decimals || 6), outputToken?.decimals || 6)}
+                  </ThemedText>
+                  {isQuoting && (
+                    <View style={styles.updatingIndicator}>
+                      <ActivityIndicator size="small" color={theme.accent} />
+                      <ThemedText type="caption" style={{ color: theme.textSecondary, marginLeft: Spacing.xs }}>
+                        Updating...
+                      </ThemedText>
+                    </View>
+                  )}
+                </View>
+              ) : isQuoting ? (
                 <ActivityIndicator size="small" color={theme.accent} />
-              ) : quote ? (
-                <ThemedText type="h3" style={{ color: "#22C55E" }}>
-                  {formatTokenAmount(formatBaseUnits(quote.outAmount, outputToken?.decimals || 6), outputToken?.decimals || 6)}
-                </ThemedText>
               ) : (
                 <ThemedText type="h3" style={{ color: theme.textSecondary }}>0.0</ThemedText>
               )}
@@ -860,6 +848,11 @@ export default function SwapScreen() {
                 </Pressable>
               ))}
             </View>
+            {speed === "turbo" && (
+              <ThemedText type="caption" style={[styles.speedHint, { color: theme.textSecondary }]}>
+                Turbo uses higher priority fees (paid by you).
+              </ThemedText>
+            )}
           </View>
 
           <Pressable
@@ -1011,6 +1004,15 @@ const styles = StyleSheet.create({
     minHeight: 48,
     justifyContent: "center",
   },
+  outputWithIndicator: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+  },
+  updatingIndicator: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
   swapDirectionButton: {
     alignItems: "center",
     marginVertical: Spacing.xs,
@@ -1075,6 +1077,11 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.lg,
     alignItems: "center",
     borderWidth: 1,
+  },
+  speedHint: {
+    marginTop: Spacing.sm,
+    fontSize: 11,
+    textAlign: "center",
   },
   advancedToggle: {
     flexDirection: "row",

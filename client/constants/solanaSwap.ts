@@ -93,5 +93,13 @@ export const ALLOWED_PROGRAM_IDS = new Set([
 
 export const DEFAULT_SLIPPAGE_BPS = 50;
 export const MAX_SLIPPAGE_BPS = 1000;
-export const QUOTE_REFRESH_INTERVAL_MS = 1500;
-export const QUOTE_DEBOUNCE_MS = 300;
+
+export const QUOTE_DEBOUNCE_MS = 500;
+
+export const QUOTE_REFRESH_INTERVALS: Record<SwapSpeed, number> = {
+  standard: 12000,
+  fast: 6000,
+  turbo: 2500,
+};
+
+export const QUOTE_REFRESH_INTERVAL_MS = QUOTE_REFRESH_INTERVALS.standard;
