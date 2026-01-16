@@ -8,6 +8,7 @@ import { PortfolioHeaderTitle, PortfolioHeaderLeft, PortfolioHeaderRight } from 
 
 import PortfolioScreen from "@/screens/PortfolioScreen";
 import ActivityScreen from "@/screens/ActivityScreen";
+import SwapScreen from "@/screens/SwapScreen";
 import BrowserScreen from "@/screens/BrowserScreen";
 import BundlesScreen from "@/screens/BundlesScreen";
 import SettingsScreen from "@/screens/SettingsScreen";
@@ -15,6 +16,7 @@ import SettingsScreen from "@/screens/SettingsScreen";
 export type MainTabParamList = {
   Portfolio: undefined;
   Activity: undefined;
+  Swap: undefined;
   Browser: undefined;
   Bundles: undefined;
   Settings: undefined;
@@ -82,6 +84,16 @@ export default function MainTabNavigator() {
           headerTitle: "Activity",
           tabBarIcon: ({ color, size }) => (
             <Feather name="activity" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tab.Screen
+        name="Swap"
+        component={SwapScreen}
+        options={{
+          headerTitle: "Swap",
+          tabBarIcon: ({ color, size }) => (
+            <Feather name="repeat" size={size} color={color} />
           ),
         }}
       />

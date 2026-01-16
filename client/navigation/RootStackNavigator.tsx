@@ -33,6 +33,8 @@ import BrowserWebViewScreen from "@/screens/BrowserWebViewScreen";
 import ExportWalletScreen from "@/screens/ExportWalletScreen";
 import SeedPhraseExportScreen from "@/screens/SeedPhraseExportScreen";
 import PrivateKeyExportScreen from "@/screens/PrivateKeyExportScreen";
+import SwapHistoryScreen from "@/screens/SwapHistoryScreen";
+import SwapDebugScreen from "@/screens/SwapDebugScreen";
 import type { BootResult, InitialRoute } from "@/lib/bootstrap";
 
 export type TransactionDetailParams = {
@@ -102,6 +104,8 @@ export type RootStackParamList = {
   ExportWallet: { walletId: string; walletName: string };
   SeedPhraseExport: { walletId: string; walletName: string };
   PrivateKeyExport: { walletId: string; walletName: string };
+  SwapHistory: undefined;
+  SwapDebug: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -272,6 +276,16 @@ export default function RootStackNavigator() {
         name="PrivateKeyExport"
         component={PrivateKeyExportScreen}
         options={{ headerTitle: "Private Keys" }}
+      />
+      <Stack.Screen
+        name="SwapHistory"
+        component={SwapHistoryScreen}
+        options={{ headerTitle: "Swap History" }}
+      />
+      <Stack.Screen
+        name="SwapDebug"
+        component={SwapDebugScreen}
+        options={{ headerTitle: "Swap Debug" }}
       />
     </Stack.Navigator>
   );
