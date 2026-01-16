@@ -2,7 +2,11 @@ export const RPC_PRIMARY = process.env.EXPO_PUBLIC_SOLANA_RPC_HELIUS || process.
 export const WS_PRIMARY = process.env.EXPO_PUBLIC_SOLANA_WS_HELIUS || "";
 export const RPC_FALLBACK = process.env.EXPO_PUBLIC_SOLANA_RPC_TRITON || "https://api.mainnet-beta.solana.com";
 export const WS_FALLBACK = process.env.EXPO_PUBLIC_SOLANA_WS_TRITON || "";
-export const JUPITER_API_URL = process.env.EXPO_PUBLIC_JUPITER_API_URL || "https://quote-api.jup.ag";
+export const JUPITER_API_URLS = [
+  process.env.EXPO_PUBLIC_JUPITER_API_URL || "https://quote-api.jup.ag",
+  "https://api.jup.ag",
+];
+export const JUPITER_API_URL = JUPITER_API_URLS[0];
 
 export const STANDARD_CAP_SOL = 0.0008;
 export const FAST_CAP_SOL = 0.002;
