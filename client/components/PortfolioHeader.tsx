@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from "react";
-import { View, StyleSheet, Pressable, Image } from "react-native";
+import { View, StyleSheet, Pressable } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -15,14 +15,9 @@ import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
-function shortenAddress(address: string): string {
-  if (!address || address.length < 12) return address || "";
-  return `${address.slice(0, 6)}...${address.slice(-4)}`;
-}
-
 export function PortfolioHeaderTitle() {
   const { theme } = useTheme();
-  const { activeWallet, selectedNetwork } = useWallet();
+  const { activeWallet } = useWallet();
   const [switcherVisible, setSwitcherVisible] = useState(false);
 
   const handlePress = useCallback(() => {
@@ -31,34 +26,14 @@ export function PortfolioHeaderTitle() {
   }, []);
 
   const walletName = activeWallet?.name || "No Wallet";
-  const evmAddress = activeWallet?.addresses?.evm || activeWallet?.address;
-  const solanaAddress = activeWallet?.addresses?.solana;
-  
-  const displayAddress = selectedNetwork === "solana" && solanaAddress 
-    ? solanaAddress 
-    : evmAddress;
 
   return (
     <>
       <Pressable onPress={handlePress} style={styles.container}>
-        <Image
-          source={require("../../assets/images/icon.png")}
-          style={styles.icon}
-          resizeMode="contain"
-        />
-        <View style={styles.textContainer}>
-          <View style={styles.nameRow}>
-            <ThemedText style={styles.walletName} numberOfLines={1}>
-              {walletName}
-            </ThemedText>
-            <Feather name="chevron-down" size={16} color={theme.textSecondary} style={{ marginLeft: 2 }} />
-          </View>
-          {displayAddress ? (
-            <ThemedText style={[styles.address, { color: theme.textSecondary }]} numberOfLines={1}>
-              {shortenAddress(displayAddress)}
-            </ThemedText>
-          ) : null}
-        </View>
+        <ThemedText style={styles.walletName} numberOfLines={1}>
+          {walletName}
+        </ThemedText>
+        <Feather name="chevron-down" size={16} color={theme.text} style={{ marginLeft: 4 }} />
       </Pressable>
       <WalletSwitcherSheet 
         visible={switcherVisible} 
@@ -128,30 +103,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: Spacing.sm,
-  },
-  icon: {
-    width: 28,
-    height: 28,
-    borderRadius: 6,
-  },
-  textContainer: {
-    marginLeft: Spacing.xs,
-    alignItems: "flex-start",
-    maxWidth: 140,
-  },
-  nameRow: {
-    flexDirection: "row",
-    alignItems: "center",
   },
   walletName: {
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: "600",
-    maxWidth: 110,
-  },
-  address: {
-    fontSize: 11,
-    marginTop: -2,
+    maxWidth: 200,
   },
   headerButton: {
     padding: Spacing.xs,
