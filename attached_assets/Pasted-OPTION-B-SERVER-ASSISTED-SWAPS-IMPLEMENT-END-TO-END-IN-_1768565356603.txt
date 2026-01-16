@@ -1,0 +1,258 @@
+OPTION B (SERVER-ASSISTED SWAPS) — IMPLEMENT END-TO-END IN THIS REPO (Expo RN client + Express server)
+Goal: Make Cordon’s Solana swap production-grade, fast, and compatible with Pump tokens (bonding curve + graduated). This is STILL NON-CUSTODIAL: keys never leave device; server never signs.
+
+REPO FACTS:
+- /client = Expo RN app
+- /server = Express backend
+- existing: server/solana-api.ts (RPC wrapper), client/lib/solana/decoder.ts (drainer protection), client/lib/blockchain/keys.ts (local signing), WalletConnect v2 flows.
+- current issues seen: token list fetch can 500, quotes can 401 if wrong endpoint/key, swap tx blocked due to decoder crash/overblocking + missing Buffer.
+
+HIGH-LEVEL ARCHITECTURE (Option B):
+1) Client calls our server for Quote + Build Swap Transaction (unsigned).
+2) Client runs local security preview + signs locally (mnemonic keypair or WalletConnect).
+3) Client sends SIGNED tx to server; server broadcasts via Helius + Triton (dual send + retries) for speed.
+Server only builds/relays. NEVER stores keys. NEVER signs.
+
+========================================
+A) ENV + CONFIG (SERVER SECRETS)
+========================================
+Add to .env.example and document in server/swap/README.md:
+SOLANA_RPC_URL=<helius https url>              (primary)
+SOLANA_RPC_URL_FALLBACK=<triton https url>     (fallback; can be empty but keep)
+JUPITER_BASE_URL=https://quote-api.jup.ag
+JUPITER_QUOTE_PATH=/v6/quote
+JUPITER_SWAP_PATH=/v6/swap
+SWAP_TOKENLIST_PRIMARY=https://token.jup.ag/strict
+SWAP_TOKENLIST_FALLBACK=https://raw.githubusercontent.com/solana-labs/token-list/main/src/tokens/solana.tokenlist.json
+TOKENLIST_TTL_MS=21600000     (6h)
+JUPITER_TIMEOUT_MS=8000
+PUMP_MODE_ENABLED=true
+PUMPPORTAL_BASE_URL=https://pumpportal.fun
+PUMPPORTAL_API_KEY=           (optional; blank ok)
+MAX_BODY_BYTES=2000000
+
+Add server config module: server/swap/config.ts to read env safely.
+
+========================================
+B) SERVER: SWAP ROUTER MODULE
+========================================
+Create folder: server/swap/
+Create files:
+- server/swap/index.ts           (express router mount)
+- server/swap/jupiter.ts         (quote + swap tx build)
+- server/swap/tokenlist.ts       (cache + fallback + search)
+- server/swap/pump.ts            (bonding curve tx builder via PumpPortal or equivalent)
+- server/swap/broadcast.ts       (dual RPC send, retries, status check)
+- server/swap/types.ts           (zod schemas for request/response)
+- server/swap/README.md          (how to test)
+
+Mount router in server/index.ts:
+app.use("/api/swap", swapRouter);
+
+Add JSON body limit using MAX_BODY_BYTES.
+
+----------------------------------------
+B1) Token List Service (must be resilient)
+----------------------------------------
+Implement tokenlist.ts:
+- in-memory cache + Async file cache (e.g. server/.cache/tokenlist.json)
+- refresh every TOKENLIST_TTL_MS
+- fetch from PRIMARY first; if fails, fetch FALLBACK; if both fail, use last cached; if none, use minimal hardcoded list {SOL, USDC, USDT, wSOL, BONK}.
+- normalize items: { mint, symbol, name, decimals, logoURI }
+- provide searchTokens(query) and getToken(mint)
+
+Expose endpoint:
+GET /api/swap/solana/tokens?query=
+- if empty: return top ~250 by popular symbols (SOL/USDC/USDT/BONK/JUP/RAY/… + first N)
+- if query is mint-like: return exact match or {mint: query, symbol:"UNKNOWN", decimals: 0}
+- else: fuzzy match by symbol/name (startsWith contains)
+
+----------------------------------------
+B2) Jupiter Quote Endpoint (server-side)
+----------------------------------------
+Implement in jupiter.ts:
+
+GET /api/swap/solana/quote
+Query:
+- inputMint (string)
+- outputMint (string)
+- amount (string integer base units)
+- slippageBps (optional number, default 50)
+- swapMode (optional "ExactIn" default)
+Return:
+{ ok:true, route:"jupiter", quote:<raw>, normalized:{ outAmount, minOut, priceImpactPct, routePlan } }
+Errors must include:
+{ ok:false, code:"NO_ROUTE"|"UPSTREAM"|"BAD_REQUEST", message, details? }
+
+Call upstream:
+${JUPITER_BASE_URL}${JUPITER_QUOTE_PATH}?inputMint=...&outputMint=...&amount=...&slippageBps=...&swapMode=ExactIn
+Use AbortController with JUPITER_TIMEOUT_MS.
+DO NOT add Authorization headers (public endpoint). Log upstream status/body for non-200.
+
+If upstream returns “no route”, map to code NO_ROUTE.
+
+----------------------------------------
+B3) Jupiter Build Swap TX (unsigned)
+----------------------------------------
+POST /api/swap/solana/build
+Body:
+{
+  userPublicKey: string,
+  quote: object,                 // quote returned by our quote endpoint (raw quoteResponse)
+  speedMode: "standard"|"fast"|"turbo",
+  maxPriorityFeeLamports?: number,   // optional override cap
+  wrapAndUnwrapSol?: boolean         // default true
+}
+Server computes priority fee cap based on speedMode (and respects override):
+- standardCap = 200_000
+- fastCap = 1_000_000
+- turboCap = 3_000_000
+Hard max cap allowed: 10_000_000 (safety)
+
+Call upstream POST:
+${JUPITER_BASE_URL}${JUPITER_SWAP_PATH}
+Body (JSON):
+{
+  quoteResponse: quote,
+  userPublicKey,
+  wrapAndUnwrapSol: true,
+  dynamicComputeUnitLimit: true,
+  prioritizationFeeLamports: <capLamports>
+}
+Return:
+{ ok:true, route:"jupiter", swapTransactionBase64, lastValidBlockHeight?, prioritizationFeeLamports }
+
+If upstream fails, return ok:false with useful code+message.
+
+----------------------------------------
+B4) Pump Bonding Curve Build (for pre-graduation)
+----------------------------------------
+Create endpoint:
+POST /api/swap/solana/pump/build
+Body:
+{
+  userPublicKey: string,
+  mint: string,
+  side: "buy"|"sell",
+  amountSol?: number,          // buy uses SOL input
+  amountTokens?: number,       // sell uses token input
+  slippageBps?: number,
+  speedMode: "standard"|"fast"|"turbo",
+  maxPriorityFeeLamports?: number
+}
+Return:
+{ ok:true, route:"pump", swapTransactionBase64, meta:{...} }
+
+Implementation approach:
+- This route only used when JUPITER quote returns NO_ROUTE OR when token is detected as pump curve token.
+- Use PumpPortal “build tx” endpoint (unsigned transaction). Attach API key if present.
+- Apply priority fee cap similarly (speedMode) if PumpPortal supports it; if not, return tx and let client add compute budget on-chain if needed.
+- If PumpPortal not available / fails, return ok:false with code PUMP_UNAVAILABLE.
+
+----------------------------------------
+B5) Broadcast Signed Transaction (dual RPC: Helius + Triton)
+----------------------------------------
+POST /api/swap/solana/send
+Body:
+{ signedTransactionBase64: string, mode?: "standard"|"fast"|"turbo" }
+Return:
+{ ok:true, signature, rpc:"primary"|"fallback"|"both" }
+
+Implementation in broadcast.ts:
+- Decode base64 -> Uint8Array.
+- Send to primary immediately (skipPreflight=true). In parallel:
+  - if mode != "standard", also send to fallback after 300–500ms if no success.
+- Retry strategy:
+  - standard: retry up to 2 times within 6s
+  - fast: retry up to 4 times within 12s
+  - turbo: retry up to 6 times within 20s
+- If primary fails, attempt fallback. Collect errors and return best message.
+- Optionally: provide GET /api/swap/solana/status?sig= to poll confirmation (confirmed/finalized).
+
+========================================
+C) CLIENT: USE SERVER ENDPOINTS + LOCAL SIGNING
+========================================
+Create client/services/solanaSwapApi.ts:
+- quote(params) => GET /api/swap/solana/quote
+- buildJupiter(body) => POST /api/swap/solana/build
+- buildPump(body) => POST /api/swap/solana/pump/build
+- sendSignedTx(body) => POST /api/swap/solana/send
+Base URL should use your existing dev domain/proxy setup (same as other server calls).
+
+Update client/services/solanaTokenList.ts:
+- STOP fetching Jupiter token list directly.
+- Fetch from GET /api/swap/solana/tokens?query=
+- Cache results in AsyncStorage with TTL; keep offline fallback.
+
+Update Swap screen/store (where quote/swap is handled):
+Flow when user enters amount:
+1) call api.quote(...)
+2) render quote results
+On “Swap” tap:
+1) call api.buildJupiter({userPublicKey, quote, speedMode, maxPriorityFeeLamports})
+2) if quote/build returns NO_ROUTE, call api.buildPump(...)
+3) take swapTransactionBase64 from server
+4) run local security preview (decoder) with userPubkey
+5) if blocked -> stop, show reason
+6) sign locally:
+   - if internal wallet: use keypair from client/lib/blockchain/keys.ts and VersionedTransaction.deserialize
+   - if WalletConnect session: request solana_signTransaction and get signed bytes back
+7) send signed tx to api.sendSignedTx
+8) show signature + explorer link + update history
+
+========================================
+D) CLIENT: FIX DECODER (Buffer + false blocks) SO SWAPS ARE NOT BLOCKED
+========================================
+1) Install dependency at root:
+npm i buffer
+
+2) Add polyfill early:
+Create client/lib/polyfills/buffer.ts:
+import { Buffer } from "buffer";
+(global as any).Buffer = (global as any).Buffer || Buffer;
+
+Import it ONCE at the earliest entrypoint for mobile:
+- whichever is first executed (client/index.js or client/App.tsx). Ensure it runs before decoder/web3 imports.
+
+3) Make decoder pubkey-aware and less blunt:
+In client/lib/solana/decoder.ts:
+- Update public functions to accept userPubkey?: string.
+- Extend instruction extraction to include accounts:
+  interface InstructionData { programId: string; data: Uint8Array; accounts: number[]; }
+  Extract accounts indexes from compiled instructions (ix.accountKeyIndexes).
+- Also pass staticKeys array and feePayer pubkey to detection so it can map accounts[0] -> pubkey.
+- Rewrite detectDrainerInstructions to:
+  A) System Assign (u32=1): BLOCK ONLY if target account equals userPubkey OR feePayer and newOwner not in {System, Token, ATA}.
+  B) Token SetAuthority (byte0=6): BLOCK ONLY if the current authority account equals userPubkey AND newAuthority is non-null and not userPubkey.
+- Wrap detection in try/catch: if decode fails, return warning (preview unavailable) but DO NOT auto-block swaps.
+
+========================================
+E) PUMP TOKENS REQUIREMENT (must work)
+========================================
+In client swap flow:
+- Try Jupiter quote first.
+- If NO_ROUTE or quote/build fails for pump-like tokens, auto switch to Pump route:
+  - show “Route: Pump (Bonding Curve)” vs “Route: Jupiter (DEX)”
+- Ensure swap works whether token is:
+  - on bonding curve (pump route)
+  - graduated (Jupiter route)
+
+========================================
+F) UX + SPEED (Turbo)
+========================================
+Implement user-visible speed modes:
+- Standard / Fast / Turbo
+Map to priority fee caps (lamports) and show “Max priority fee” in confirmation.
+User shoulders priority fee (this is network cost). We only set caps for better inclusion.
+
+========================================
+G) TEST CHECKLIST (write in server/swap/README.md)
+========================================
+1) Quote SOL->USDC via /api/swap/solana/quote (200)
+2) Build Jupiter tx via /api/swap/solana/build (returns base64)
+3) Client decodes without Buffer error (no “Buffer doesn’t exist”)
+4) Client signs and POST /api/swap/solana/send returns signature
+5) Pump test: force NO_ROUTE (use a pump curve token) then /api/swap/solana/pump/build returns base64, sign+send succeeds
+6) Token list endpoint returns results even if upstream is down (uses cache/fallback)
+
+IMPLEMENT ALL ABOVE NOW, commit changes, and confirm Swap works in Expo Go (mainnet) using our paid Helius primary RPC and Triton fallback if configured.

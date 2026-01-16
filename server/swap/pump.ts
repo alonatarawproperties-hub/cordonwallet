@@ -1,0 +1,116 @@
+import { swapConfig, getPriorityFeeCap, SpeedMode } from "./config";
+import type { BuildResult } from "./types";
+
+export async function buildPumpTransaction(params: {
+  userPublicKey: string;
+  mint: string;
+  side: "buy" | "sell";
+  amountSol?: number;
+  amountTokens?: number;
+  slippageBps: number;
+  speedMode: SpeedMode;
+  maxPriorityFeeLamports?: number;
+}): Promise<BuildResult> {
+  const { 
+    userPublicKey, 
+    mint, 
+    side, 
+    amountSol, 
+    amountTokens, 
+    slippageBps,
+    speedMode, 
+    maxPriorityFeeLamports 
+  } = params;
+  
+  if (!swapConfig.pumpModeEnabled) {
+    return {
+      ok: false,
+      code: "PUMP_UNAVAILABLE",
+      message: "Pump trading is disabled",
+    };
+  }
+  
+  const priorityFeeCap = getPriorityFeeCap(speedMode, maxPriorityFeeLamports);
+  
+  console.log("[Pump] Build request:", { userPublicKey, mint, side, amountSol, amountTokens, speedMode });
+  
+  try {
+    const endpoint = side === "buy" 
+      ? `${swapConfig.pumpPortalBaseUrl}/api/trade-local`
+      : `${swapConfig.pumpPortalBaseUrl}/api/trade-local`;
+    
+    const body: any = {
+      publicKey: userPublicKey,
+      action: side,
+      mint,
+      denominatedInSol: side === "buy" ? "true" : "false",
+      amount: side === "buy" ? amountSol : amountTokens,
+      slippage: slippageBps / 100,
+      priorityFee: priorityFeeCap / 1_000_000_000,
+      pool: "pump",
+    };
+    
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      "Accept": "application/json",
+    };
+    
+    if (swapConfig.pumpPortalApiKey) {
+      headers["Authorization"] = `Bearer ${swapConfig.pumpPortalApiKey}`;
+    }
+    
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    
+    clearTimeout(timeout);
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("[Pump] Build error:", response.status, errorText);
+      
+      return {
+        ok: false,
+        code: "PUMP_UNAVAILABLE",
+        message: `Pump API error: ${response.status}`,
+        details: errorText,
+      };
+    }
+    
+    const data = await response.arrayBuffer();
+    const base64 = Buffer.from(data).toString("base64");
+    
+    return {
+      ok: true,
+      route: "pump",
+      swapTransactionBase64: base64,
+      prioritizationFeeLamports: priorityFeeCap,
+    };
+  } catch (err: any) {
+    console.error("[Pump] Build failed:", err);
+    
+    if (err.name === "AbortError") {
+      return {
+        ok: false,
+        code: "PUMP_UNAVAILABLE",
+        message: "Pump API request timed out",
+      };
+    }
+    
+    return {
+      ok: false,
+      code: "PUMP_UNAVAILABLE",
+      message: err.message || "Failed to build pump transaction",
+    };
+  }
+}
+
+export function isPumpToken(mint: string): boolean {
+  return mint.toLowerCase().endsWith("pump");
+}
