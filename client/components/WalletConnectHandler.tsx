@@ -59,10 +59,12 @@ export function WalletConnectHandler({ children }: { children: React.ReactNode }
 
     const { parsed } = currentRequest;
     
+    const userPubkey = activeWallet?.addresses?.solana || "";
+    
     if (parsed.method === "solana_signTransaction") {
       const solanaReq = parsed as SolanaSignTransactionRequest;
       if (solanaReq.transaction) {
-        const decoded = decodeSolanaTransaction(solanaReq.transaction);
+        const decoded = decodeSolanaTransaction(solanaReq.transaction, { userPubkey, intent: "sign" });
         if (decoded.drainerDetection?.isBlocked) {
           console.warn("[WC] DRAINER BLOCKED:", decoded.drainerDetection.attackType);
           setIsDrainerBlocked(true);
@@ -72,7 +74,7 @@ export function WalletConnectHandler({ children }: { children: React.ReactNode }
     } else if (parsed.method === "solana_signAllTransactions") {
       const solanaReq = parsed as SolanaSignAllTransactionsRequest;
       if (solanaReq.transactions?.length > 0) {
-        const decoded = decodeSolanaTransactions(solanaReq.transactions);
+        const decoded = decodeSolanaTransactions(solanaReq.transactions, { userPubkey, intent: "sign" });
         if (decoded.drainerDetection?.isBlocked) {
           console.warn("[WC] DRAINER BLOCKED in batch:", decoded.drainerDetection.attackType);
           setIsDrainerBlocked(true);

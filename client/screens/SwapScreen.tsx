@@ -314,7 +314,7 @@ export default function SwapScreen() {
         return;
       }
 
-      if (isDrainerTransaction(swapResponse.swapTransaction)) {
+      if (isDrainerTransaction(swapResponse.swapTransaction, solanaAddr)) {
         await addDebugLog("error", "Drainer detected");
         Alert.alert("Blocked", "This transaction contains suspicious instructions.");
         setIsSwapping(false);

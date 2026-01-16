@@ -1,4 +1,4 @@
-import { Transaction, VersionedTransaction } from "@solana/web3.js";
+import { Transaction, VersionedTransaction, PublicKey } from "@solana/web3.js";
 
 export interface DrainerDetection {
   isBlocked: boolean;
@@ -23,11 +23,24 @@ export interface DecodedSolanaTransaction {
   drainerDetection: DrainerDetection;
 }
 
+export interface DecodeContext {
+  userPubkey: string;
+  intent?: "swap" | "sign" | "unknown";
+}
+
 const SYSTEM_PROGRAM_ID = "11111111111111111111111111111111";
 const TOKEN_PROGRAM_ID = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
+const ATA_PROGRAM_ID = "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL";
 
 const SYSTEM_INSTRUCTION_ASSIGN = 1;
 const TOKEN_INSTRUCTION_SET_AUTHORITY = 6;
+
+const SAFE_OWNERS = new Set([
+  SYSTEM_PROGRAM_ID,
+  TOKEN_PROGRAM_ID,
+  ATA_PROGRAM_ID,
+  "ComputeBudget111111111111111111111111111111",
+]);
 
 const KNOWN_PROGRAMS: Record<string, string> = {
   "11111111111111111111111111111111": "System Program",
@@ -54,69 +67,153 @@ const KNOWN_PROGRAMS: Record<string, string> = {
 interface InstructionData {
   programId: string;
   data: Uint8Array;
+  accounts: string[];
 }
 
-function detectDrainerInstructions(instructions: InstructionData[]): DrainerDetection {
-  for (const ix of instructions) {
-    if (ix.programId === SYSTEM_PROGRAM_ID && ix.data.length >= 4) {
-      const instructionType = ix.data[0] | (ix.data[1] << 8) | (ix.data[2] << 16) | (ix.data[3] << 24);
-      if (instructionType === SYSTEM_INSTRUCTION_ASSIGN) {
-        return {
-          isBlocked: true,
-          attackType: "Assign",
-          description: "BLOCKED: This transaction attempts to change your wallet's owner. This is a known wallet drainer attack that would give an attacker permanent control of your funds.",
-        };
+interface DrainerContext {
+  userPubkey: string;
+  feePayer: string;
+  signerSet: Set<string>;
+}
+
+function detectDrainerInstructions(
+  instructions: InstructionData[],
+  ctx: DrainerContext
+): DrainerDetection {
+  try {
+    for (const ix of instructions) {
+      if (ix.programId === SYSTEM_PROGRAM_ID && ix.data.length >= 4) {
+        const instructionType =
+          ix.data[0] | (ix.data[1] << 8) | (ix.data[2] << 16) | (ix.data[3] << 24);
+
+        if (instructionType === SYSTEM_INSTRUCTION_ASSIGN) {
+          const targetAccount = ix.accounts[0];
+          if (!targetAccount) continue;
+
+          let newOwnerPubkey: string | null = null;
+          if (ix.data.length >= 36) {
+            try {
+              newOwnerPubkey = new PublicKey(ix.data.slice(4, 36)).toBase58();
+            } catch {
+              newOwnerPubkey = null;
+            }
+          }
+
+          const isUserAccount =
+            targetAccount === ctx.userPubkey || targetAccount === ctx.feePayer;
+          const isSafeOwner = newOwnerPubkey && SAFE_OWNERS.has(newOwnerPubkey);
+
+          if (isUserAccount && !isSafeOwner) {
+            return {
+              isBlocked: true,
+              attackType: "Assign",
+              description:
+                "BLOCKED: This transaction attempts to change your wallet's owner. This is a known wallet drainer attack that would give an attacker permanent control of your funds.",
+            };
+          }
+        }
+      }
+
+      if (ix.programId === TOKEN_PROGRAM_ID && ix.data.length >= 1) {
+        const instructionType = ix.data[0];
+
+        if (instructionType === TOKEN_INSTRUCTION_SET_AUTHORITY) {
+          const currentAuthority = ix.accounts[1];
+          if (!currentAuthority) continue;
+
+          if (currentAuthority !== ctx.userPubkey) {
+            continue;
+          }
+
+          let authorityType: number | null = null;
+          let hasNewAuthority = false;
+          let newAuthority: string | null = null;
+
+          if (ix.data.length >= 2) {
+            authorityType = ix.data[1];
+          }
+
+          if (ix.data.length >= 3) {
+            hasNewAuthority = ix.data[2] === 1;
+          }
+
+          if (hasNewAuthority && ix.data.length >= 35) {
+            try {
+              newAuthority = new PublicKey(ix.data.slice(3, 35)).toBase58();
+            } catch {
+              newAuthority = null;
+            }
+          }
+
+          if (!hasNewAuthority || newAuthority === null) {
+            continue;
+          }
+
+          if (newAuthority === ctx.userPubkey) {
+            continue;
+          }
+
+          return {
+            isBlocked: true,
+            attackType: "SetAuthority",
+            description:
+              "BLOCKED: This transaction attempts to change ownership of your token account. This is a known wallet drainer attack that would give an attacker control of your tokens.",
+          };
+        }
       }
     }
-    
-    if (ix.programId === TOKEN_PROGRAM_ID && ix.data.length >= 1) {
-      const instructionType = ix.data[0];
-      if (instructionType === TOKEN_INSTRUCTION_SET_AUTHORITY) {
-        return {
-          isBlocked: true,
-          attackType: "SetAuthority",
-          description: "BLOCKED: This transaction attempts to change ownership of your token account. This is a known wallet drainer attack that would give an attacker control of your tokens.",
-        };
-      }
-    }
+
+    return {
+      isBlocked: false,
+      attackType: null,
+      description: "",
+    };
+  } catch (err) {
+    console.warn("[Decoder] detectDrainerInstructions error, allowing tx:", err);
+    return {
+      isBlocked: false,
+      attackType: null,
+      description: "Detection error - proceeding with caution",
+    };
   }
-  
-  return {
-    isBlocked: false,
-    attackType: null,
-    description: "",
-  };
 }
 
 function base64ToBytes(base64: string): Uint8Array {
+  if (typeof Buffer !== "undefined") {
+    return new Uint8Array(Buffer.from(base64, "base64"));
+  }
+  
   const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
   const lookup = new Uint8Array(256);
   for (let i = 0; i < chars.length; i++) {
     lookup[chars.charCodeAt(i)] = i;
   }
-  
+
   let bufferLength = Math.floor(base64.length * 0.75);
   if (base64[base64.length - 1] === "=") bufferLength--;
   if (base64[base64.length - 2] === "=") bufferLength--;
-  
+
   const bytes = new Uint8Array(bufferLength);
   let p = 0;
-  
+
   for (let i = 0; i < base64.length; i += 4) {
     const encoded1 = lookup[base64.charCodeAt(i)];
     const encoded2 = lookup[base64.charCodeAt(i + 1)];
     const encoded3 = lookup[base64.charCodeAt(i + 2)];
     const encoded4 = lookup[base64.charCodeAt(i + 3)];
-    
+
     bytes[p++] = (encoded1 << 2) | (encoded2 >> 4);
     if (p < bufferLength) bytes[p++] = ((encoded2 & 15) << 4) | (encoded3 >> 2);
     if (p < bufferLength) bytes[p++] = ((encoded3 & 3) << 6) | (encoded4 & 63);
   }
-  
+
   return bytes;
 }
 
-export function decodeSolanaTransaction(txBase64: string): DecodedSolanaTransaction {
+export function decodeSolanaTransaction(
+  txBase64: string,
+  ctx?: DecodeContext
+): DecodedSolanaTransaction {
   try {
     const txBytes = base64ToBytes(txBase64);
     const programIds: string[] = [];
@@ -124,30 +221,57 @@ export function decodeSolanaTransaction(txBase64: string): DecodedSolanaTransact
     let instructionCount = 0;
     let hasLookupTables = false;
     let unresolvedLookupPrograms = 0;
-    
+    let feePayerBase58 = "";
+    const signerSet = new Set<string>();
+
     try {
       const versionedTx = VersionedTransaction.deserialize(txBytes);
       const staticKeys = versionedTx.message.staticAccountKeys;
-      instructionCount = versionedTx.message.compiledInstructions.length;
-      
-      const lookups = (versionedTx.message as any).addressTableLookups;
-      hasLookupTables = lookups && lookups.length > 0;
-      
-      for (const ix of versionedTx.message.compiledInstructions) {
-        if (ix.programIdIndex < staticKeys.length) {
-          const programId = staticKeys[ix.programIdIndex].toBase58();
-          if (!programIds.includes(programId)) {
-            programIds.push(programId);
-          }
-          instructionsData.push({
-            programId,
-            data: ix.data,
-          });
-        } else {
-          unresolvedLookupPrograms++;
+
+      if (staticKeys.length > 0) {
+        feePayerBase58 = staticKeys[0].toBase58();
+      }
+
+      for (let i = 0; i < staticKeys.length; i++) {
+        if (versionedTx.message.isAccountSigner(i)) {
+          signerSet.add(staticKeys[i].toBase58());
         }
       }
-      
+
+      instructionCount = versionedTx.message.compiledInstructions.length;
+
+      const lookups = (versionedTx.message as any).addressTableLookups;
+      hasLookupTables = lookups && lookups.length > 0;
+
+      const allKeys: PublicKey[] = [...staticKeys];
+
+      for (const ix of versionedTx.message.compiledInstructions) {
+        let programId: string;
+        if (ix.programIdIndex < allKeys.length) {
+          programId = allKeys[ix.programIdIndex].toBase58();
+        } else {
+          unresolvedLookupPrograms++;
+          continue;
+        }
+
+        if (!programIds.includes(programId)) {
+          programIds.push(programId);
+        }
+
+        const accounts: string[] = [];
+        for (const accIdx of ix.accountKeyIndexes) {
+          if (accIdx < allKeys.length) {
+            accounts.push(allKeys[accIdx].toBase58());
+          }
+        }
+
+        instructionsData.push({
+          programId,
+          data: ix.data,
+          accounts,
+        });
+      }
+
       if (programIds.length === 0 && hasLookupTables) {
         for (const key of staticKeys) {
           const addr = key.toBase58();
@@ -160,27 +284,50 @@ export function decodeSolanaTransaction(txBase64: string): DecodedSolanaTransact
       try {
         const legacyTx = Transaction.from(txBytes);
         instructionCount = legacyTx.instructions.length;
-        
+
+        if (legacyTx.feePayer) {
+          feePayerBase58 = legacyTx.feePayer.toBase58();
+        }
+
         for (const ix of legacyTx.instructions) {
           const programId = ix.programId.toBase58();
           if (!programIds.includes(programId)) {
             programIds.push(programId);
           }
+
+          const accounts = ix.keys.map((k) => k.pubkey.toBase58());
+          for (const k of ix.keys) {
+            if (k.isSigner) {
+              signerSet.add(k.pubkey.toBase58());
+            }
+          }
+
           instructionsData.push({
             programId,
             data: ix.data,
+            accounts,
           });
         }
       } catch {
-        return createFallbackResult("Transaction format not recognized. Review with caution.", "High");
+        return createFallbackResult(
+          "Transaction format not recognized. Review with caution.",
+          "High"
+        );
       }
     }
-    
-    const drainerDetection = detectDrainerInstructions(instructionsData);
+
+    const userPubkey = ctx?.userPubkey || feePayerBase58;
+    const drainerCtx: DrainerContext = {
+      userPubkey,
+      feePayer: feePayerBase58,
+      signerSet,
+    };
+
+    const drainerDetection = detectDrainerInstructions(instructionsData, drainerCtx);
     if (drainerDetection.isBlocked) {
       return createBlockedResult(drainerDetection);
     }
-    
+
     if (programIds.length === 0) {
       if (hasLookupTables) {
         return {
@@ -191,44 +338,60 @@ export function decodeSolanaTransaction(txBase64: string): DecodedSolanaTransact
           drainerDetection: {
             isBlocked: false,
             attackType: null,
-            description: "Transaction uses lookup tables that cannot be fully verified. Exercise extreme caution - drainer attacks may be hidden in unresolved instructions.",
+            description:
+              "Transaction uses lookup tables that cannot be fully verified. Exercise extreme caution - drainer attacks may be hidden in unresolved instructions.",
           },
         };
       }
       return createFallbackResult("No programs identified. Review carefully.", "High");
     }
-    
-    return analyzeTransaction(programIds, instructionCount, hasLookupTables, unresolvedLookupPrograms);
+
+    return analyzeTransaction(
+      programIds,
+      instructionCount,
+      hasLookupTables,
+      unresolvedLookupPrograms
+    );
   } catch (err) {
-    return createFallbackResult("Transaction could not be decoded. Review with caution.", "High");
+    console.warn("[Decoder] decodeSolanaTransaction error:", err);
+    return createFallbackResult(
+      "Transaction could not be decoded. Review with caution.",
+      "High"
+    );
   }
 }
 
-export function decodeSolanaTransactions(txBase64Array: string[]): DecodedSolanaTransaction {
+export function decodeSolanaTransactions(
+  txBase64Array: string[],
+  ctx?: DecodeContext
+): DecodedSolanaTransaction {
   const allProgramIds: string[] = [];
   let totalInstructions = 0;
   let decodeFailures = 0;
   let hasAnyHighRisk = false;
   let hasAnyLookupTables = false;
   let totalUnresolvedLookups = 0;
-  
+
   for (const txBase64 of txBase64Array) {
-    const decoded = decodeSolanaTransaction(txBase64);
-    
+    const decoded = decodeSolanaTransaction(txBase64, ctx);
+
     if (decoded.riskLevel === "Blocked") {
       return decoded;
     }
-    
+
     if (decoded.hasLookupTables) {
       hasAnyLookupTables = true;
     }
     totalUnresolvedLookups += decoded.unresolvedLookupPrograms;
-    
+
     if (decoded.riskLevel === "High") {
       hasAnyHighRisk = true;
     }
-    
-    if (decoded.programLabels[0] === "Unable to decode" || decoded.programIds.length === 0) {
+
+    if (
+      decoded.programLabels[0] === "Unable to decode" ||
+      decoded.programIds.length === 0
+    ) {
       decodeFailures++;
     } else {
       totalInstructions += decoded.instructionCount;
@@ -239,16 +402,21 @@ export function decodeSolanaTransactions(txBase64Array: string[]): DecodedSolana
       }
     }
   }
-  
+
   if (allProgramIds.length === 0) {
     return createFallbackResult(
       `Could not decode any of ${txBase64Array.length} transactions. Review source carefully before signing.`,
       "High"
     );
   }
-  
-  const result = analyzeTransaction(allProgramIds, totalInstructions, hasAnyLookupTables, totalUnresolvedLookups);
-  
+
+  const result = analyzeTransaction(
+    allProgramIds,
+    totalInstructions,
+    hasAnyLookupTables,
+    totalUnresolvedLookups
+  );
+
   if (hasAnyHighRisk) {
     result.riskLevel = "High";
     if (decodeFailures > 0) {
@@ -260,11 +428,13 @@ export function decodeSolanaTransactions(txBase64Array: string[]): DecodedSolana
     result.riskLevel = result.riskLevel === "Low" ? "Medium" : result.riskLevel;
     result.riskReason = `${result.riskReason} (${decodeFailures} of ${txBase64Array.length} transactions could not be fully decoded)`;
   }
-  
+
   return result;
 }
 
-function createBlockedResult(drainerDetection: DrainerDetection): DecodedSolanaTransaction {
+function createBlockedResult(
+  drainerDetection: DrainerDetection
+): DecodedSolanaTransaction {
   return {
     instructionCount: 1,
     programIds: [],
@@ -283,7 +453,10 @@ function createBlockedResult(drainerDetection: DrainerDetection): DecodedSolanaT
   };
 }
 
-function createFallbackResult(reason: string, riskLevel: "Low" | "Medium" | "High" = "Medium"): DecodedSolanaTransaction {
+function createFallbackResult(
+  reason: string,
+  riskLevel: "Low" | "Medium" | "High" = "Medium"
+): DecodedSolanaTransaction {
   return {
     instructionCount: 1,
     programIds: [],
@@ -303,46 +476,55 @@ function createFallbackResult(reason: string, riskLevel: "Low" | "Medium" | "Hig
 }
 
 function analyzeTransaction(
-  programIds: string[], 
+  programIds: string[],
   instructionCount: number,
   hasLookupTables = false,
   unresolvedLookupPrograms = 0
 ): DecodedSolanaTransaction {
-  const programLabels = programIds.map(id => KNOWN_PROGRAMS[id] || shortenAddress(id));
-  const unknownProgramIds = programIds.filter(id => !KNOWN_PROGRAMS[id]);
-  
-  const usesSystemProgram = programIds.includes("11111111111111111111111111111111");
-  const usesTokenProgram = programIds.includes("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
-  const usesATAProgram = programIds.includes("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
-  const hasUnknownPrograms = unknownProgramIds.length > 0 || unresolvedLookupPrograms > 0;
-  
-  const hasDex = programIds.some(id => 
-    KNOWN_PROGRAMS[id]?.includes("Jupiter") || 
-    KNOWN_PROGRAMS[id]?.includes("Raydium") ||
-    KNOWN_PROGRAMS[id]?.includes("Orca") ||
-    KNOWN_PROGRAMS[id]?.includes("Swap")
+  const programLabels = programIds.map(
+    (id) => KNOWN_PROGRAMS[id] || shortenAddress(id)
   );
-  
-  const isSimpleTransfer = 
-    instructionCount <= 2 && 
-    (usesSystemProgram || usesTokenProgram) && 
+  const unknownProgramIds = programIds.filter((id) => !KNOWN_PROGRAMS[id]);
+
+  const usesSystemProgram = programIds.includes(SYSTEM_PROGRAM_ID);
+  const usesTokenProgram = programIds.includes(TOKEN_PROGRAM_ID);
+  const usesATAProgram = programIds.includes(ATA_PROGRAM_ID);
+  const hasUnknownPrograms =
+    unknownProgramIds.length > 0 || unresolvedLookupPrograms > 0;
+
+  const hasDex = programIds.some(
+    (id) =>
+      KNOWN_PROGRAMS[id]?.includes("Jupiter") ||
+      KNOWN_PROGRAMS[id]?.includes("Raydium") ||
+      KNOWN_PROGRAMS[id]?.includes("Orca") ||
+      KNOWN_PROGRAMS[id]?.includes("Swap")
+  );
+
+  const isSimpleTransfer =
+    instructionCount <= 2 &&
+    (usesSystemProgram || usesTokenProgram) &&
     !hasUnknownPrograms &&
     !hasLookupTables;
-  
+
   let riskLevel: "Low" | "Medium" | "High";
   let riskReason: string;
-  
+
   if (isSimpleTransfer) {
     riskLevel = "Low";
     if (usesTokenProgram) {
       riskReason = "Simple SPL token transfer using official Token Program.";
     } else {
-      riskReason = "Simple SOL transfer using System Program. No approvals or contract calls.";
+      riskReason =
+        "Simple SOL transfer using System Program. No approvals or contract calls.";
     }
   } else if (hasLookupTables && unresolvedLookupPrograms > 0) {
     riskLevel = "High";
     if (hasDex) {
-      const dexName = programLabels.find(l => l.includes("Jupiter") || l.includes("Raydium") || l.includes("Orca")) || "DEX";
+      const dexName =
+        programLabels.find(
+          (l) =>
+            l.includes("Jupiter") || l.includes("Raydium") || l.includes("Orca")
+        ) || "DEX";
       riskReason = `${dexName} swap with ${unresolvedLookupPrograms} unverifiable program(s) via address lookups. Cannot fully validate - review source carefully.`;
     } else {
       riskReason = `V0 transaction with ${unresolvedLookupPrograms} unverifiable program(s). Cannot fully validate - review source carefully.`;
@@ -350,7 +532,8 @@ function analyzeTransaction(
   } else if (hasUnknownPrograms) {
     if (hasDex && unknownProgramIds.length <= 1) {
       riskLevel = "Medium";
-      riskReason = "DEX swap with additional program calls. Verify the transaction source.";
+      riskReason =
+        "DEX swap with additional program calls. Verify the transaction source.";
     } else {
       riskLevel = "High";
       riskReason = `Transaction calls ${unknownProgramIds.length} unknown program(s). Review carefully.`;
@@ -367,7 +550,7 @@ function analyzeTransaction(
       riskReason = "Transaction uses known Solana programs.";
     }
   }
-  
+
   return {
     instructionCount,
     programIds,

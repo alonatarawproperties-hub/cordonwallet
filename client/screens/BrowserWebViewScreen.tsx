@@ -849,7 +849,8 @@ export default function BrowserWebViewScreen() {
         const txBase64 = btoa(String.fromCharCode(...txBytes));
         
         const { decodeSolanaTransaction } = await import("@/lib/solana/decoder");
-        const decoded = decodeSolanaTransaction(txBase64);
+        const userPubkey = activeWallet?.addresses?.solana || "";
+        const decoded = decodeSolanaTransaction(txBase64, { userPubkey, intent: "sign" });
         
         if (decoded.drainerDetection?.isBlocked) {
           console.warn("[BrowserWebView] DRAINER BLOCKED:", decoded.drainerDetection.attackType);

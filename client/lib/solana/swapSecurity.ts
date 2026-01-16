@@ -163,22 +163,47 @@ export function validateSwapParams(params: {
   };
 }
 
-export function isDrainerTransaction(txBase64: string): boolean {
+const SAFE_OWNERS = new Set([
+  "11111111111111111111111111111111",
+  "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+  "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
+  "ComputeBudget111111111111111111111111111111",
+]);
+
+export function isDrainerTransaction(txBase64: string, userPubkey: string): boolean {
   try {
     const txBuffer = Buffer.from(txBase64, "base64");
     const transaction = VersionedTransaction.deserialize(txBuffer);
     const message = transaction.message;
     const staticKeys = message.staticAccountKeys;
+    const feePayer = staticKeys[0]?.toBase58() || "";
     
     for (const ix of message.compiledInstructions) {
       const programId = staticKeys[ix.programIdIndex].toBase58();
+      const accounts = ix.accountKeyIndexes.map(i => staticKeys[i]?.toBase58() || "");
       
       if (programId === "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA" ||
           programId === "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb") {
         const data = ix.data;
-        if (data.length > 0) {
-          const instructionType = data[0];
-          if (instructionType === 6 || instructionType === 7) {
+        if (data.length > 0 && data[0] === 6) {
+          const currentAuthority = accounts[1];
+          if (!currentAuthority || currentAuthority !== userPubkey) {
+            continue;
+          }
+          
+          const hasNewAuthority = data.length >= 3 && data[2] === 1;
+          if (!hasNewAuthority) continue;
+          
+          let newAuthority: string | null = null;
+          if (data.length >= 35) {
+            try {
+              newAuthority = new PublicKey(data.slice(3, 35)).toBase58();
+            } catch {
+              newAuthority = null;
+            }
+          }
+          
+          if (newAuthority && newAuthority !== userPubkey) {
             return true;
           }
         }
@@ -187,11 +212,24 @@ export function isDrainerTransaction(txBase64: string): boolean {
       if (programId === "11111111111111111111111111111111") {
         const data = ix.data;
         if (data.length >= 4) {
-          const instructionType = data.slice(0, 4);
-          if (instructionType[0] === 1 && instructionType[1] === 0 && 
-              instructionType[2] === 0 && instructionType[3] === 0) {
-            const numAccounts = ix.accountKeyIndexes.length;
-            if (numAccounts === 2) {
+          const instructionType = data[0] | (data[1] << 8) | (data[2] << 16) | (data[3] << 24);
+          if (instructionType === 1) {
+            const targetAccount = accounts[0];
+            if (!targetAccount) continue;
+            
+            const isUserAccount = targetAccount === userPubkey || targetAccount === feePayer;
+            if (!isUserAccount) continue;
+            
+            let newOwner: string | null = null;
+            if (data.length >= 36) {
+              try {
+                newOwner = new PublicKey(data.slice(4, 36)).toBase58();
+              } catch {
+                newOwner = null;
+              }
+            }
+            
+            if (!newOwner || !SAFE_OWNERS.has(newOwner)) {
               return true;
             }
           }
@@ -200,7 +238,8 @@ export function isDrainerTransaction(txBase64: string): boolean {
     }
     
     return false;
-  } catch {
-    return true;
+  } catch (err) {
+    console.warn("[SwapSecurity] isDrainerTransaction error, allowing:", err);
+    return false;
   }
 }
