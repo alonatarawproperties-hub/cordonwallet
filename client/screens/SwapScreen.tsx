@@ -156,6 +156,16 @@ export default function SwapScreen() {
       return;
     }
 
+    // Minimum swap amounts (in token units)
+    const MIN_SOL_SWAP = 0.001; // ~$0.15 worth
+    const amount = parseFloat(inputAmount);
+    
+    if (inputToken.mint === SOL_MINT && amount < MIN_SOL_SWAP) {
+      setQuoteError(`Minimum swap is ${MIN_SOL_SWAP} SOL`);
+      setQuote(null);
+      return;
+    }
+
     setIsQuoting(true);
     setQuoteError(null);
 

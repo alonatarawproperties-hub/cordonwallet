@@ -67,17 +67,48 @@ export async function getQuote(request: QuoteRequest): Promise<QuoteResponse> {
     url.searchParams.set("onlyDirectRoutes", "true");
   }
   
-  const response = await fetch(url.toString(), {
-    method: "GET",
-    headers: { "Accept": "application/json" },
-  });
+  // Retry logic for transient network failures
+  const maxRetries = 2;
+  let lastError: Error | null = null;
   
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Jupiter quote failed: ${response.status} - ${errorText}`);
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
+      
+      const response = await fetch(url.toString(), {
+        method: "GET",
+        headers: { "Accept": "application/json" },
+        signal: controller.signal,
+      });
+      
+      clearTimeout(timeoutId);
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        // Check for common Jupiter errors
+        if (response.status === 400 && errorText.includes("No routes found")) {
+          throw new Error("No swap routes found. Try a larger amount or different tokens.");
+        }
+        throw new Error(`Quote failed (${response.status}): ${errorText}`);
+      }
+      
+      return response.json();
+    } catch (error: any) {
+      lastError = error;
+      if (error.name === "AbortError") {
+        lastError = new Error("Request timed out. Please try again.");
+      }
+      // Only retry on network errors, not on response errors
+      if (attempt < maxRetries && (error.message?.includes("Network") || error.name === "AbortError")) {
+        await new Promise(r => setTimeout(r, 500 * (attempt + 1)));
+        continue;
+      }
+      throw lastError;
+    }
   }
   
-  return response.json();
+  throw lastError || new Error("Failed to get quote");
 }
 
 export async function buildSwapTransaction(
