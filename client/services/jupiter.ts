@@ -71,8 +71,8 @@ export async function getQuote(request: QuoteRequest): Promise<QuoteResponse> {
     params.set("onlyDirectRoutes", "true");
   }
   
-  const url = `${baseUrl}/api/swap/solana/quote?${params.toString()}`;
-  console.log("[Jupiter] Requesting quote via new swap API");
+  const url = `${baseUrl}/api/jupiter/quote?${params.toString()}`;
+  console.log("[Jupiter] Requesting quote via server proxy");
   
   const maxRetries = 2;
   let lastError: Error | null = null;
@@ -93,19 +93,19 @@ export async function getQuote(request: QuoteRequest): Promise<QuoteResponse> {
       clearTimeout(timeoutId);
       console.log("[Jupiter] Response status:", response.status);
       
-      const data = await response.json();
-      
-      if (!response.ok || !data.ok) {
-        console.log("[Jupiter] Error response:", data);
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: "Unknown error" }));
+        console.log("[Jupiter] Error response:", errorData);
         
-        if (data.code === "NO_ROUTE" || (data.message && data.message.includes("No route"))) {
+        if (response.status === 400 && JSON.stringify(errorData).includes("No routes")) {
           throw new Error("No swap routes found. Try a larger amount or different tokens.");
         }
-        throw new Error(`Quote failed: ${data.message || data.error || "Unknown error"}`);
+        throw new Error(`Quote failed (${response.status}): ${errorData.error || JSON.stringify(errorData)}`);
       }
       
-      console.log("[Jupiter] Quote success, output:", data.normalized?.outAmount);
-      return data.quote;
+      const data = await response.json();
+      console.log("[Jupiter] Quote success, output:", data.outAmount);
+      return data;
     } catch (error: any) {
       console.log("[Jupiter] Fetch error:", error.name, error.message);
       lastError = error;
@@ -114,7 +114,7 @@ export async function getQuote(request: QuoteRequest): Promise<QuoteResponse> {
         lastError = new Error("Request timed out. Please try again.");
       }
       
-      if (error.message?.includes("Quote failed") || error.message?.includes("No routes") || error.message?.includes("No swap")) {
+      if (error.message?.includes("Quote failed") || error.message?.includes("No routes")) {
         throw error;
       }
       
@@ -128,10 +128,6 @@ export async function getQuote(request: QuoteRequest): Promise<QuoteResponse> {
   throw lastError || new Error("Failed to get quote. Check your network connection.");
 }
 
-function speedToMode(speed: SwapSpeed): "standard" | "fast" | "turbo" {
-  return speed;
-}
-
 export async function buildSwapTransaction(
   quoteResponse: QuoteResponse,
   userPublicKey: string,
@@ -140,19 +136,27 @@ export async function buildSwapTransaction(
 ): Promise<SwapResponse> {
   const config = SPEED_CONFIGS[mode];
   const capSol = customCapSol ?? config.capSol;
-  const maxPriorityFeeLamports = Math.floor(capSol * LAMPORTS_PER_SOL);
+  
+  let prioritizationFeeLamports: number | "auto" = "auto";
+  if (mode === "turbo") {
+    prioritizationFeeLamports = Math.floor(capSol * LAMPORTS_PER_SOL * 0.8);
+  } else if (mode === "fast") {
+    prioritizationFeeLamports = Math.floor(capSol * LAMPORTS_PER_SOL * 0.5);
+  }
+  
+  const request: SwapRequest = {
+    quoteResponse,
+    userPublicKey,
+    wrapAndUnwrapSol: true,
+    useSharedAccounts: true,
+    dynamicComputeUnitLimit: true,
+    skipUserAccountsRpcCalls: false,
+    prioritizationFeeLamports,
+  };
   
   const baseUrl = getApiUrl();
-  const url = `${baseUrl}/api/swap/solana/build`;
-  console.log("[Jupiter] Building swap transaction via new swap API");
-  
-  const body = {
-    userPublicKey,
-    quote: quoteResponse,
-    speedMode: speedToMode(mode),
-    maxPriorityFeeLamports,
-    wrapAndUnwrapSol: true,
-  };
+  const url = `${baseUrl}/api/jupiter/swap`;
+  console.log("[Jupiter] Building swap transaction via server proxy");
   
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 30000);
@@ -164,23 +168,18 @@ export async function buildSwapTransaction(
         "Accept": "application/json",
         "Content-Type": "application/json",
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify(request),
       signal: controller.signal,
     });
     
     clearTimeout(timeoutId);
     
-    const data = await response.json();
-    
-    if (!response.ok || !data.ok) {
-      throw new Error(`Swap build failed: ${data.message || data.error || "Unknown error"}`);
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ error: "Unknown error" }));
+      throw new Error(`Swap build failed (${response.status}): ${errorData.error || JSON.stringify(errorData)}`);
     }
     
-    return {
-      swapTransaction: data.swapTransactionBase64,
-      lastValidBlockHeight: data.lastValidBlockHeight || 0,
-      prioritizationFeeLamports: data.prioritizationFeeLamports,
-    };
+    return response.json();
   } catch (error: any) {
     clearTimeout(timeoutId);
     if (error.name === "AbortError") {
@@ -188,37 +187,6 @@ export async function buildSwapTransaction(
     }
     throw error;
   }
-}
-
-export async function sendSignedTransaction(
-  signedTxBase64: string,
-  mode: SwapSpeed = "standard"
-): Promise<{ signature: string; rpc: string }> {
-  const baseUrl = getApiUrl();
-  const url = `${baseUrl}/api/swap/solana/send`;
-  
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Accept": "application/json",
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      signedTransactionBase64: signedTxBase64,
-      mode: speedToMode(mode),
-    }),
-  });
-  
-  const data = await response.json();
-  
-  if (!response.ok || !data.ok) {
-    throw new Error(`Send failed: ${data.message || data.error || "Unknown error"}`);
-  }
-  
-  return {
-    signature: data.signature,
-    rpc: data.rpc,
-  };
 }
 
 export function calculatePriceImpact(quoteResponse: QuoteResponse): {
