@@ -1,0 +1,262 @@
+BUILD SOLANA SWAP (CORDON TURBO SWAP) — SOLANA ONLY
+Repo structure: /client (Expo RN), /server (Express), /shared, drizzle present.
+We already have:
+- client/lib/blockchain/keys.ts for mnemonic -> Solana Keypair
+- client/lib/solana/decoder.ts for tx decoding / drainer protection
+- server/solana-api.ts for Solana RPC wrapper (Helius is currently used)
+
+Goal:
+Implement a fully functional Solana swap feature using Jupiter API + trader-grade broadcaster.
+Edge: Turbo mode for congested fair launches (higher inclusion probability).
+Non-custodial: user signs locally, user pays network+priority fees.
+
+====================================================
+0) CONFIG / ENV
+====================================================
+Add these env vars and wire them up:
+
+Root .env.example:
+SOLANA_RPC_HELIUS=https://<helius>
+SOLANA_WS_HELIUS=wss://<helius>
+SOLANA_RPC_TRITON=https://<triton>     (can be empty now)
+SOLANA_WS_TRITON=wss://<triton>        (optional)
+JUPITER_API_URL=https://quote-api.jup.ag
+
+In server, prefer using SOLANA_RPC_HELIUS as default RPC. Keep existing SOLANA_RPC_URL fallback if present.
+
+Create shared config module:
+client/constants/solanaSwap.ts:
+- export RPC_PRIMARY, WS_PRIMARY, RPC_FALLBACK, WS_FALLBACK, JUPITER_API_URL
+- export default fee caps:
+  STANDARD_CAP_SOL = 0.0008
+  FAST_CAP_SOL = 0.002
+  TURBO_CAP_SOL = 0.005
+  ADV_MAX_CAP_SOL = 0.02
+
+If TRITON is empty, fallback RPC should be Solana public mainnet (last resort) BUT still keep interface.
+
+====================================================
+1) ADD NAV + SCREENS
+====================================================
+Create screens:
+- client/screens/SwapScreen.tsx
+- client/screens/SwapHistoryScreen.tsx
+- client/screens/SwapDebugScreen.tsx (hidden)
+
+Add to navigation:
+- client/navigation/ (where tabs are defined)
+Add a new bottom tab: “Swap”
+Add “History” accessible from Swap screen header button.
+
+SwapScreen UI:
+- Token In selector
+- Token Out selector
+- Amount input + “Max”
+- Quote card:
+  - Estimated out
+  - Min received
+  - Price impact
+  - Route summary (simple)
+  - Slippage setting (default 50 bps)
+- Speed segmented control: Standard / Fast / Turbo
+- “Advanced” drawer: Max Priority Fee Cap slider (up to 0.02 SOL) with warning
+- CTA: Swap
+
+Confirmation modal:
+- Must show decoded human summary BEFORE signing:
+  - in/out tokens, amounts
+  - slippage + min received
+  - network fee estimate
+  - max priority fee cap (SOL + USD estimate ok)
+  - destination = user wallet
+- Turbo microcopy: “Turbo increases priority fees + broadcast intensity to improve landing during congestion. Fees paid by you.”
+
+SwapHistoryScreen:
+- show list of swaps (pending/processed/confirmed/failed)
+- show signature + copy + “Open in explorer”
+
+SwapDebugScreen:
+- tap app version 7x in Settings to open
+- shows:
+  - RPC health (latency for primary and fallback)
+  - last 20 swap logs
+  - current mode + computed microLamports/CU + cap
+
+====================================================
+2) TOKEN LIST + METADATA CACHE
+====================================================
+Create:
+- client/services/solanaTokenList.ts
+Responsibilities:
+- Fetch a token list (Jupiter token list endpoint is acceptable)
+- Cache in AsyncStorage with TTL (e.g., 24h)
+- Provide:
+  - getTokenByMint(mint)
+  - searchTokens(query)
+  - getPopularTokens()
+- Store decimals, symbol, name, logoURI.
+
+Also implement:
+- client/services/solanaBalances.ts
+- Fetch SOL + SPL token balances for wallet
+- Cache lightly and refresh on focus.
+
+====================================================
+3) JUPITER QUOTE + SWAP TX BUILD (NO SDK, USE HTTP)
+====================================================
+Create:
+client/services/jupiter.ts
+- getQuote({inputMint, outputMint, amountBaseUnits, slippageBps})
+- buildSwapTx({quoteResponse, userPublicKey, mode})
+Use fetch against JUPITER_API_URL.
+Return base64 swapTransaction.
+
+Quote streaming:
+- debounce input changes 300ms
+- refresh quote every 1.5s while amount > 0 and screen focused
+
+====================================================
+4) FEE CONTROLLER (CAPS + COMPUTE BUDGET)
+====================================================
+Create:
+client/lib/solana/feeController.ts
+Input:
+- mode: 'standard'|'fast'|'turbo'
+- maxCapSol (from presets or advanced slider)
+Output:
+- computeUnitPriceMicroLamports
+- computeUnitLimit
+- maxCapSol
+
+Implementation:
+- Always insert ComputeBudget instructions into the tx before signing:
+  - setComputeUnitPrice(microLamports)
+  - setComputeUnitLimit(units)
+- Must ensure computed priority fee DOES NOT exceed cap.
+- First version heuristic is OK:
+  - Standard uses lowest microLamports/CU within cap
+  - Fast uses ~2–3x Standard
+  - Turbo uses ~5–10x Standard but bounded by cap
+- Show cap transparently to user.
+
+====================================================
+5) SECURITY GATE (USE EXISTING DECODER + ALLOWLIST)
+====================================================
+We already have client/lib/solana/decoder.ts. Extend or wrap it:
+
+Create:
+client/lib/solana/swapSecurity.ts
+- decodeAndValidateSwapTx(txBase64, expectedUserPubkey, expectedOutputMint)
+Must enforce:
+- fee payer is user
+- destination is user (ATA)
+- allowlist program IDs only:
+  - SystemProgram
+  - ComputeBudgetProgram
+  - SPL Token program
+  - Associated Token program
+  - Token-2022 program (if it appears)
+  - Jupiter swap-related program IDs (collect by observing decoded tx during test and store in a constant allowlist)
+If unknown program is present:
+- block signing, show “Blocked for safety: unexpected program detected.”
+
+Use this security gate before showing the confirm modal.
+
+====================================================
+6) SIGNING (USE EXISTING KEYS)
+====================================================
+Signing must happen locally using:
+- client/lib/blockchain/keys.ts (your mnemonic-derived solana Keypair)
+Use @solana/web3.js VersionedTransaction:
+- deserialize from base64
+- add compute budget instructions (fee controller)
+- run swapSecurity decode+allowlist
+- user confirms
+- sign with Keypair
+Return raw signed bytes (Uint8Array)
+
+====================================================
+7) TX BROADCASTER (HELIOUS PRIMARY + TRITON FALLBACK)
+====================================================
+Create:
+client/services/txBroadcaster.ts
+
+Config: rpcPrimary (Helius), rpcFallback (Triton or public fallback), wsPrimary, wsFallback optional
+
+Behavior:
+- sendRawTransaction to Helius immediately
+- start signature status subscription (websocket primary)
+- if no “processed” within 400–700ms -> also send to fallback
+- rebroadcast loop:
+  - Standard: up to 6s (interval ~1200ms)
+  - Fast: up to 12s (interval ~1000ms)
+  - Turbo: up to 20s (interval ~800–1000ms)
+- UI completion rules:
+  - Standard: complete only at CONFIRMED
+  - Fast/Turbo: complete at PROCESSED + show “Finalizing…” until CONFIRMED/FINALIZED
+
+Error handling:
+- classify errors:
+  - blockhash expired / not found -> requires rebuild + re-sign
+  - slippage exceeded -> re-quote + prompt retry
+  - insufficient funds -> show fix
+  - RPC timeout -> continue rebroadcast
+- Blockhash expiry rebuild policy:
+  - Standard: 1 rebuild prompt
+  - Fast: 2 rebuild prompts
+  - Turbo: 3 rebuild prompts
+To rebuild:
+- call Jupiter buildSwapTx again (fresh tx)
+- run security gate again
+- prompt user to re-sign (new signature required)
+
+====================================================
+8) SERVER SUPPORT (OPTIONAL BUT RECOMMENDED)
+====================================================
+We already have server/solana-api.ts.
+Add a simple endpoint that the client can call for:
+- getRecentPriorityFeeHints (optional v1)
+- rpcHealth (optional v1)
+But swaps can be fully client-driven. Only add server endpoints if you can do so fast and safely.
+
+====================================================
+9) LOCAL STORAGE + METRICS
+====================================================
+Create:
+client/services/swapStore.ts
+Store each swap attempt with:
+- time
+- in/out mints
+- amount
+- mode
+- capSol
+- signature
+- status (submitted/processed/confirmed/failed)
+- timings:
+  quoteLatencyMs
+  buildLatencyMs
+  tapToSubmittedMs
+  submittedToProcessedMs
+  processedToConfirmedMs
+- failureReason category
+
+Show in History + Debug.
+
+====================================================
+10) TEST PLAN (WRITE IN README)
+====================================================
+Add SWAP_TESTING.md with:
+- SOL -> USDC small amount (Standard/Fast/Turbo)
+- USDC -> SOL
+- token with no ATA
+- slippage exceed test
+- fallback path test (temporarily set Helius URL invalid)
+- unknown program block test (mock tx or simulate)
+- blockhash rebuild test (force delay then rebuild prompt)
+
+Deliverable definition:
+- A working Swap tab with Jupiter routing
+- Turbo mode with fee caps + dual broadcast + rebroadcast + rebuild prompts
+- Security gate blocks unknown program IDs
+- Swap history + explorer links
+- No placeholders
