@@ -258,7 +258,9 @@ export default function SwapScreen() {
 
     const balance = getTokenBalance(inputToken.mint);
     if (inputToken.mint === SOL_MINT) {
-      const reserveForFees = 0.01;
+      // Use smaller reserve for small balances (0.0005 SOL minimum for tx fee)
+      const minReserve = 0.0005;
+      const reserveForFees = balance > 0.02 ? 0.01 : minReserve;
       const maxAmount = Math.max(0, balance - reserveForFees);
       setInputAmount(maxAmount.toFixed(6));
     } else {
