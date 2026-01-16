@@ -109,7 +109,6 @@ export type RootStackParamList = {
   SwapDebug: undefined;
   TokenSelect: {
     mode: "input" | "output";
-    onSelect: (token: any) => void;
     excludeMint?: string;
   };
 };

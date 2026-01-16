@@ -73,6 +73,8 @@ type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
 const CUSTOM_TOKENS_KEY = "swap_custom_tokens";
 const MAX_CUSTOM_TOKENS = 25;
+const RECENTLY_USED_KEY = "swap_recently_used_tokens";
+const MAX_RECENTLY_USED = 8;
 
 interface CustomTokenInfo extends TokenInfo {
   verified: boolean;
@@ -118,6 +120,35 @@ async function saveCustomToken(token: CustomTokenInfo, existing: CustomTokenInfo
   return updated;
 }
 
+async function loadRecentlyUsedTokens(): Promise<TokenInfo[]> {
+  try {
+    const data = await AsyncStorage.getItem(RECENTLY_USED_KEY);
+    if (data) return JSON.parse(data);
+  } catch (err) {
+    console.warn("[SwapScreen] Failed to load recently used:", err);
+  }
+  return [];
+}
+
+async function addToRecentlyUsed(token: TokenInfo, existing: TokenInfo[]): Promise<TokenInfo[]> {
+  const filtered = existing.filter(t => t.mint !== token.mint);
+  const updated = [token, ...filtered].slice(0, MAX_RECENTLY_USED);
+  try {
+    await AsyncStorage.setItem(RECENTLY_USED_KEY, JSON.stringify(updated));
+  } catch (err) {
+    console.warn("[SwapScreen] Failed to save recently used:", err);
+  }
+  return updated;
+}
+
+async function clearRecentlyUsedTokens(): Promise<void> {
+  try {
+    await AsyncStorage.removeItem(RECENTLY_USED_KEY);
+  } catch (err) {
+    console.warn("[SwapScreen] Failed to clear recently used:", err);
+  }
+}
+
 export default function SwapScreen() {
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
@@ -155,6 +186,7 @@ export default function SwapScreen() {
   const [customTokenError, setCustomTokenError] = useState<string | null>(null);
   const [customTokenResult, setCustomTokenResult] = useState<CustomTokenInfo | null>(null);
   const [recentCustomTokens, setRecentCustomTokens] = useState<CustomTokenInfo[]>([]);
+  const [recentlyUsedTokens, setRecentlyUsedTokens] = useState<TokenInfo[]>([]);
 
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [pendingSwap, setPendingSwap] = useState<{
@@ -263,6 +295,7 @@ export default function SwapScreen() {
 
   useEffect(() => {
     loadRecentCustomTokens().then(setRecentCustomTokens);
+    loadRecentlyUsedTokens().then(setRecentlyUsedTokens);
   }, []);
 
   const isMintMode = useMemo(() => isLikelySolanaMint(tokenSearch), [tokenSearch]);
@@ -329,7 +362,7 @@ export default function SwapScreen() {
     setShowTokenModal(true);
   };
 
-  const selectToken = (token: TokenInfo) => {
+  const selectToken = async (token: TokenInfo) => {
     if (tokenModalType === "input") {
       if (outputToken?.mint === token.mint) {
         setOutputToken(inputToken);
@@ -345,6 +378,9 @@ export default function SwapScreen() {
     setQuote(null);
     setSwapRoute("none");
     setPumpMeta(null);
+    
+    const updated = await addToRecentlyUsed(token, recentlyUsedTokens);
+    setRecentlyUsedTokens(updated);
   };
 
   const swapTokens = () => {
@@ -825,49 +861,114 @@ export default function SwapScreen() {
     );
   };
 
-  const renderTokenModal = () => (
-    <Modal visible={showTokenModal} transparent animationType="slide" onRequestClose={() => setShowTokenModal(false)}>
-      <KeyboardAvoidingView 
-        style={styles.modalOverlay} 
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        keyboardVerticalOffset={0}
-      >
-        <Pressable style={styles.modalBackdrop} onPress={() => setShowTokenModal(false)} />
-        <View style={[styles.tokenModal, { backgroundColor: theme.backgroundDefault, paddingBottom: insets.bottom + Spacing.md }]}>
-          <View style={styles.tokenModalHeader}>
-            <ThemedText type="h3">Select Token</ThemedText>
-            <Pressable 
-              onPress={() => setShowTokenModal(false)} 
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              style={styles.closeButton}
-            >
-              <Feather name="x" size={24} color={theme.text} />
-            </Pressable>
-          </View>
+  const getModalTokenBalance = useCallback((mint: string): { balance: number; usdValue: number } => {
+    if (!solanaAssets || solanaAssets.length === 0) return { balance: 0, usdValue: 0 };
+    
+    let asset;
+    if (mint === SOL_MINT) {
+      asset = solanaAssets.find(a => a.isNative);
+    } else {
+      asset = solanaAssets.find(a => a.mint?.toLowerCase() === mint.toLowerCase());
+    }
+    
+    if (asset) {
+      const bal = parseFloat(asset.balance.replace(/,/g, ""));
+      const price = asset.priceUsd || 0;
+      return { balance: bal, usdValue: bal * price };
+    }
+    return { balance: 0, usdValue: 0 };
+  }, [solanaAssets]);
 
-          <View style={[styles.searchContainer, { backgroundColor: theme.backgroundSecondary }]}>
-            <Feather name="search" size={18} color={theme.textSecondary} style={styles.searchIcon} />
-            <TextInput
-              style={[styles.tokenSearchInput, { color: theme.text }]}
-              placeholder="Search by name or paste address"
-              placeholderTextColor={theme.textSecondary}
-              value={tokenSearch}
-              onChangeText={handleTokenSearch}
-              autoCapitalize="none"
-              autoCorrect={false}
+  const handleClearRecentlyUsed = async () => {
+    await clearRecentlyUsedTokens();
+    setRecentlyUsedTokens([]);
+  };
+
+  const filteredRecentlyUsed = useMemo(() => {
+    const excludeMint = tokenModalType === "input" ? outputToken?.mint : inputToken?.mint;
+    return recentlyUsedTokens.filter(t => t.mint !== excludeMint);
+  }, [recentlyUsedTokens, tokenModalType, inputToken, outputToken]);
+
+  const renderTokenModal = () => (
+    <Modal visible={showTokenModal} transparent={false} animationType="slide" onRequestClose={() => setShowTokenModal(false)} presentationStyle="fullScreen">
+      <View style={[styles.fullScreenModal, { backgroundColor: theme.backgroundDefault }]}>
+        <View style={[styles.fullScreenHeader, { paddingTop: insets.top + Spacing.sm }]}>
+          <Pressable style={styles.headerBackButton} onPress={() => setShowTokenModal(false)}>
+            <Feather name="arrow-left" size={24} color={theme.text} />
+          </Pressable>
+          <ThemedText type="body" style={styles.headerTitle}>
+            {tokenModalType === "input" ? "You Pay" : "You Receive"}
+          </ThemedText>
+          <View style={styles.headerSpacer} />
+        </View>
+
+        <View style={[styles.searchContainer, { backgroundColor: theme.backgroundSecondary, marginHorizontal: Spacing.lg }]}>
+          <Feather name="search" size={18} color={theme.textSecondary} style={styles.searchIcon} />
+          <TextInput
+            style={[styles.tokenSearchInput, { color: theme.text }]}
+            placeholder="Search by name or paste address"
+            placeholderTextColor={theme.textSecondary}
+            value={tokenSearch}
+            onChangeText={handleTokenSearch}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+        </View>
+
+        {filteredRecentlyUsed.length > 0 && !tokenSearch && (
+          <View style={styles.recentSection}>
+            <View style={styles.recentHeader}>
+              <ThemedText type="caption" style={{ color: theme.textSecondary }}>Recently used</ThemedText>
+              <Pressable onPress={handleClearRecentlyUsed}>
+                <ThemedText type="caption" style={{ color: theme.accent }}>Clear all</ThemedText>
+              </Pressable>
+            </View>
+            <FlatList
+              horizontal
+              data={filteredRecentlyUsed}
+              keyExtractor={(item) => item.mint}
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.recentChipsContainer}
+              renderItem={({ item }) => (
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.recentChip,
+                    { 
+                      backgroundColor: pressed ? theme.accent + "30" : theme.backgroundSecondary,
+                      borderColor: theme.border,
+                    }
+                  ]}
+                  onPress={() => selectToken(item)}
+                >
+                  {item.logoURI ? (
+                    <Image source={{ uri: item.logoURI }} style={styles.recentChipLogo} />
+                  ) : (
+                    <View style={[styles.recentChipLogoPlaceholder, { backgroundColor: theme.accent + "20" }]}>
+                      <ThemedText type="caption" style={{ fontSize: 8, color: theme.accent }}>
+                        {item.symbol.slice(0, 2)}
+                      </ThemedText>
+                    </View>
+                  )}
+                  <ThemedText type="caption" style={{ fontWeight: "600" }}>{item.symbol}</ThemedText>
+                </Pressable>
+              )}
             />
           </View>
+        )}
 
-          {renderCustomTokenRow()}
-          {renderRecentCustomTokens()}
+        {renderCustomTokenRow()}
+        {renderRecentCustomTokens()}
 
-          {!isMintMode && (
-            <FlatList
-              data={tokenResults}
-              keyExtractor={(item) => item.mint}
-              keyboardShouldPersistTaps="handled"
-              showsVerticalScrollIndicator={false}
-              renderItem={({ item }) => (
+        {!isMintMode && (
+          <FlatList
+            data={tokenResults}
+            keyExtractor={(item) => item.mint}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={{ paddingBottom: insets.bottom + Spacing.lg, paddingHorizontal: Spacing.lg }}
+            renderItem={({ item }) => {
+              const { balance, usdValue } = getModalTokenBalance(item.mint);
+              return (
                 <Pressable
                   style={({ pressed }) => [
                     styles.tokenItem, 
@@ -888,14 +989,23 @@ export default function SwapScreen() {
                     <ThemedText type="body" style={{ fontWeight: "600" }}>{item.symbol}</ThemedText>
                     <ThemedText type="caption" style={{ color: theme.textSecondary }}>{item.name}</ThemedText>
                   </View>
+                  {balance > 0 ? (
+                    <View style={styles.tokenBalanceColumn}>
+                      <ThemedText type="body" style={{ fontWeight: "600", textAlign: "right" }}>
+                        {balance.toLocaleString(undefined, { maximumFractionDigits: 4 })}
+                      </ThemedText>
+                      <ThemedText type="caption" style={{ color: theme.textSecondary, textAlign: "right" }}>
+                        ${usdValue.toFixed(2)}
+                      </ThemedText>
+                    </View>
+                  ) : null}
                 </Pressable>
-              )}
-              style={styles.tokenList}
-              contentContainerStyle={styles.tokenListContent}
-            />
-          )}
-        </View>
-      </KeyboardAvoidingView>
+              );
+            }}
+            style={styles.tokenList}
+          />
+        )}
+      </View>
     </Modal>
   );
 
@@ -1616,5 +1726,65 @@ const styles = StyleSheet.create({
     padding: Spacing.md,
     borderRadius: BorderRadius.lg,
     alignItems: "center",
+  },
+  fullScreenModal: {
+    flex: 1,
+  },
+  fullScreenHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: Spacing.lg,
+    paddingBottom: Spacing.md,
+  },
+  headerBackButton: {
+    padding: Spacing.sm,
+    marginLeft: -Spacing.sm,
+  },
+  headerTitle: {
+    flex: 1,
+    textAlign: "center",
+    fontSize: 17,
+    fontWeight: "600",
+  },
+  headerSpacer: {
+    width: 40,
+  },
+  recentSection: {
+    paddingTop: Spacing.md,
+  },
+  recentHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: Spacing.lg,
+    marginBottom: Spacing.sm,
+  },
+  recentChipsContainer: {
+    paddingHorizontal: Spacing.lg,
+    gap: Spacing.sm,
+  },
+  recentChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.full,
+    borderWidth: 1,
+    gap: Spacing.xs,
+  },
+  recentChipLogo: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+  },
+  recentChipLogoPlaceholder: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  tokenBalanceColumn: {
+    alignItems: "flex-end",
   },
 });
