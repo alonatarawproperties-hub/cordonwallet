@@ -52,6 +52,7 @@ import {
   parseTokenAmount,
   formatBaseUnits,
   getTokenByMint,
+  getTokenLogoUri,
 } from "@/services/solanaTokenList";
 import {
   buildSwapTransaction,
@@ -858,12 +859,14 @@ export default function SwapScreen() {
       .map(a => {
         const bal = parseFloat(a.balance.replace(/,/g, ""));
         const usdValue = bal * (a.priceUsd || 0);
+        const mint = a.isNative ? SOL_MINT : a.mint || "";
+        const logoURI = a.logoUrl || getTokenLogoUri(mint);
         return {
-          mint: a.isNative ? SOL_MINT : a.mint || "",
+          mint,
           symbol: a.symbol,
           name: a.name,
           decimals: a.decimals || 9,
-          logoURI: a.logoUrl,
+          logoURI,
           balance: bal,
           usdValue,
           verified: true,
