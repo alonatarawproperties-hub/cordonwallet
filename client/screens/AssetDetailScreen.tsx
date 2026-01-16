@@ -226,12 +226,60 @@ export default function AssetDetailScreen({ route }: Props) {
       if (chainId === 0) {
         const solanaAddr = activeWallet.addresses?.solana || "";
         if (solanaAddr) {
+          // Fetch from blockchain API for Solana transaction history
+          try {
+            const apiUrl = getApiUrl();
+            const url = new URL(`/api/solana/history/${solanaAddr}`, apiUrl);
+            url.searchParams.set("limit", "30");
+            const response = await fetch(url.toString());
+            
+            if (response.ok) {
+              const solanaHistory = await response.json();
+              // Convert Solana API response to TxRecord format and filter by token
+              allTxs = solanaHistory
+                .filter((tx: any) => {
+                  if (isNative && tx.tokenSymbol === "SOL") return true;
+                  if (!isNative && address && tx.tokenMint === address) return true;
+                  if (!isNative && tx.tokenSymbol === tokenSymbol) return true;
+                  return false;
+                })
+                .map((tx: any) => ({
+                  id: tx.signature,
+                  hash: tx.signature,
+                  chainId: 0,
+                  activityType: tx.type === "send" ? "send" : tx.type === "receive" ? "receive" : "send",
+                  tokenSymbol: tx.tokenSymbol || tokenSymbol,
+                  tokenAddress: tx.tokenMint || address,
+                  amount: tx.amount || "0",
+                  from: tx.from || "",
+                  to: tx.to || "",
+                  status: tx.err ? "failed" : "confirmed",
+                  createdAt: tx.blockTime ? tx.blockTime * 1000 : Date.now(),
+                  explorerUrl: `https://solscan.io/tx/${tx.signature}`,
+                } as TxRecord));
+            }
+          } catch (apiError) {
+            console.error("Failed to fetch Solana history from API:", apiError);
+          }
+          
+          // Also merge with local transactions for pending/recent ones
           const localTxs = await getTransactionsByWallet(solanaAddr);
-          allTxs = localTxs.filter(tx => 
+          const localFiltered = localTxs.filter(tx => 
             tx.chainId === 0 && 
             (tx.tokenSymbol === tokenSymbol || 
              (address && tx.tokenAddress?.toLowerCase() === address.toLowerCase()))
           );
+          
+          // Merge and dedupe by hash
+          const seenHashes = new Set(allTxs.map(tx => tx.hash));
+          for (const localTx of localFiltered) {
+            if (!seenHashes.has(localTx.hash)) {
+              allTxs.push(localTx);
+            }
+          }
+          
+          // Sort by timestamp descending
+          allTxs.sort((a, b) => b.createdAt - a.createdAt);
         }
       } else {
         const history = await fetchTransactionHistory(activeWallet.address, chainId);
