@@ -1,10 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { AppState, AppStateStatus } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { getNativeBalance, getERC20Balance, isBalanceError, BalanceResult } from "@/lib/blockchain/balances";
 import { getTokensForChain } from "@/lib/blockchain/tokens";
 import { supportedChains, getChainById } from "@/lib/blockchain/chains";
 import { getApiUrl } from "@/lib/query-client";
 import { getPreloadedCache, clearPreloadedCache, savePortfolioDisplayCache } from "@/lib/portfolio-cache";
+
+const POLLING_INTERVAL = 30000;
 
 export interface MultiChainAsset {
   symbol: string;
@@ -310,10 +313,28 @@ export function useAllChainsPortfolio(address: string | undefined) {
     lastFetchRef.current = "";
     fetchAllBalances(false);
 
+    const pollInterval = setInterval(() => {
+      if (isMounted.current && address) {
+        console.log("[EVMPortfolio] Auto-refresh triggered");
+        fetchAllBalances(true);
+      }
+    }, POLLING_INTERVAL);
+
+    const handleAppStateChange = (nextAppState: AppStateStatus) => {
+      if (nextAppState === "active" && isMounted.current && address) {
+        console.log("[EVMPortfolio] App became active, refreshing");
+        fetchAllBalances(true);
+      }
+    };
+
+    const subscription = AppState.addEventListener("change", handleAppStateChange);
+
     return () => {
       isMounted.current = false;
+      clearInterval(pollInterval);
+      subscription.remove();
     };
-  }, [fetchAllBalances]);
+  }, [fetchAllBalances, address]);
 
   const refresh = useCallback(() => {
     fetchAllBalances(true);

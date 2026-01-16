@@ -1,5 +1,5 @@
-import { useState, useCallback, useRef } from "react";
-import { View, StyleSheet, SectionList, Pressable, RefreshControl } from "react-native";
+import { useState, useCallback, useRef, useEffect } from "react";
+import { View, StyleSheet, SectionList, Pressable, RefreshControl, AppState, AppStateStatus } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
@@ -362,6 +362,25 @@ export default function ActivityScreen() {
     useCallback(() => {
       setLoading(true);
       loadTransactions();
+
+      const pollInterval = setInterval(() => {
+        console.log("[Activity] Auto-refresh triggered");
+        loadTransactions(true);
+      }, 30000);
+
+      const handleAppState = (nextState: AppStateStatus) => {
+        if (nextState === "active") {
+          console.log("[Activity] App became active, refreshing");
+          loadTransactions(true);
+        }
+      };
+
+      const subscription = AppState.addEventListener("change", handleAppState);
+
+      return () => {
+        clearInterval(pollInterval);
+        subscription.remove();
+      };
     }, [loadTransactions])
   );
 
