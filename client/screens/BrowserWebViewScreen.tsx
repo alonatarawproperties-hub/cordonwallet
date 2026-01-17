@@ -20,6 +20,8 @@ import { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { useExternalAuth, AuthStatus } from "@/context/ExternalAuthContext";
 import { useWallet } from "@/lib/wallet-context";
 import { getApiUrl } from "@/lib/query-client";
+import { BrowserConnectSheet } from "@/components/BrowserConnectSheet";
+import { BrowserSignSheet } from "@/components/BrowserSignSheet";
 
 const GOOGLE_DISCOVERY = {
   authorizationEndpoint: "https://accounts.google.com/o/oauth2/v2/auth",
@@ -472,6 +474,27 @@ export default function BrowserWebViewScreen() {
   const [urlInput, setUrlInput] = useState(route.params.url);
   const [isEditing, setIsEditing] = useState(false);
 
+  const [connectSheet, setConnectSheet] = useState<{
+    visible: boolean;
+    chain: "solana" | "evm";
+    requestId: number;
+    walletAddress: string;
+  } | null>(null);
+
+  const [signSheet, setSignSheet] = useState<{
+    visible: boolean;
+    chain: "solana" | "evm";
+    signType: "message" | "transaction";
+    requestId: number;
+    message?: string;
+    transactionData?: string;
+    isDrainerBlocked?: boolean;
+    drainerType?: "SetAuthority" | "Assign";
+    sendAfterSign?: boolean;
+  } | null>(null);
+
+  const [isSigning, setIsSigning] = useState(false);
+
   const loadingProgress = useSharedValue(0);
 
   const progressStyle = useAnimatedStyle(() => ({
@@ -743,35 +766,12 @@ export default function BrowserWebViewScreen() {
         
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
         
-        const siteName = pageTitle || currentUrl;
-        Alert.alert(
-          "Connect Wallet",
-          `${siteName} wants to connect to your Cordon wallet.`,
-          [
-            {
-              text: "Deny",
-              style: "cancel",
-              onPress: () => {
-                const response = { error: "User rejected connection" };
-                webViewRef.current?.injectJavaScript(`
-                  window.cordon._handleResponse(${data.requestId}, ${JSON.stringify(response)});
-                  true;
-                `);
-              }
-            },
-            {
-              text: "Connect",
-              onPress: () => {
-                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                const response = { publicKey: solanaAddress };
-                webViewRef.current?.injectJavaScript(`
-                  window.cordon._handleResponse(${data.requestId}, ${JSON.stringify(response)});
-                  true;
-                `);
-              }
-            }
-          ]
-        );
+        setConnectSheet({
+          visible: true,
+          chain: "solana",
+          requestId: data.requestId,
+          walletAddress: solanaAddress,
+        });
       } else if (data.type === "cordon_solana_signMessage") {
         console.log("[BrowserWebView] Solana sign message request");
         const messageBytes = new Uint8Array(data.message);
@@ -790,47 +790,13 @@ export default function BrowserWebViewScreen() {
         
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
         
-        Alert.alert(
-          "Sign Message",
-          `${siteName} wants you to sign:\n\n"${messageText.slice(0, 100)}${messageText.length > 100 ? '...' : ''}"`,
-          [
-            {
-              text: "Reject",
-              style: "cancel",
-              onPress: () => {
-                const response = { error: "User rejected signing" };
-                webViewRef.current?.injectJavaScript(`
-                  window.cordon._handleResponse(${data.requestId}, ${JSON.stringify(response)});
-                  true;
-                `);
-              }
-            },
-            {
-              text: "Sign",
-              onPress: async () => {
-                try {
-                  const { signSolanaMessage } = await import("@/lib/blockchain/transactions");
-                  const bs58 = await import("bs58");
-                  const signatureBase58 = await signSolanaMessage({ walletId: walletId!, message: messageText });
-                  const signatureBytes = bs58.default.decode(signatureBase58);
-                  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                  const solanaAddress = activeWallet?.addresses?.solana;
-                  const response = { signature: Array.from(signatureBytes), publicKey: solanaAddress };
-                  webViewRef.current?.injectJavaScript(`
-                    window.cordon._handleResponse(${data.requestId}, ${JSON.stringify(response)});
-                    true;
-                  `);
-                } catch (error: any) {
-                  const response = { error: error.message || "Signing failed" };
-                  webViewRef.current?.injectJavaScript(`
-                    window.cordon._handleResponse(${data.requestId}, ${JSON.stringify(response)});
-                    true;
-                  `);
-                }
-              }
-            }
-          ]
-        );
+        setSignSheet({
+          visible: true,
+          chain: "solana",
+          signType: "message",
+          requestId: data.requestId,
+          message: messageText,
+        });
       } else if (data.type === "cordon_solana_signTransaction" || data.type === "cordon_solana_signAndSendTransaction") {
         console.log("[BrowserWebView] Solana sign transaction request");
         const siteName = pageTitle || currentUrl;
@@ -850,90 +816,28 @@ export default function BrowserWebViewScreen() {
         
         const { decodeSolanaTransaction } = await import("@/lib/solana/decoder");
         const userPubkey = activeWallet?.addresses?.solana || "";
-        const decoded = decodeSolanaTransaction(txBase64, { userPubkey, intent: "sign" });
+        const decoded = decodeSolanaTransaction(txBase64, { userPubkey });
         
-        if (decoded.drainerDetection?.isBlocked) {
-          console.warn("[BrowserWebView] DRAINER BLOCKED:", decoded.drainerDetection.attackType);
+        const isBlocked = decoded.drainerDetection?.isBlocked === true;
+        const drainerType = decoded.drainerDetection?.attackType as "SetAuthority" | "Assign" | undefined;
+        
+        if (isBlocked) {
+          console.warn("[BrowserWebView] DRAINER BLOCKED:", drainerType);
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-          Alert.alert(
-            "Wallet Drainer Blocked",
-            decoded.drainerDetection.attackType === "SetAuthority"
-              ? "This transaction tries to change your token account ownership. If signed, an attacker would gain permanent control of your tokens.\n\nCordon has blocked this transaction for your protection."
-              : "This transaction tries to reassign your wallet to a malicious program. If signed, you would permanently lose access to your funds.\n\nCordon has blocked this transaction for your protection.",
-            [{ text: "OK", style: "cancel" }]
-          );
-          const response = { error: "Transaction blocked: Wallet drainer detected" };
-          webViewRef.current?.injectJavaScript(`
-            window.cordon._handleResponse(${data.requestId}, ${JSON.stringify(response)});
-            true;
-          `);
-          return;
+        } else {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
         }
         
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-        
-        Alert.alert(
-          "Sign Transaction",
-          `${siteName} wants you to sign a Solana transaction.`,
-          [
-            {
-              text: "Reject",
-              style: "cancel",
-              onPress: () => {
-                const response = { error: "User rejected transaction" };
-                webViewRef.current?.injectJavaScript(`
-                  window.cordon._handleResponse(${data.requestId}, ${JSON.stringify(response)});
-                  true;
-                `);
-              }
-            },
-            {
-              text: "Sign",
-              onPress: async () => {
-                try {
-                  const { signSolanaTransaction } = await import("@/lib/blockchain/transactions");
-                  const txBytes = new Uint8Array(data.transaction);
-                  const txBase64 = btoa(String.fromCharCode(...txBytes));
-                  const signedTxBase64 = await signSolanaTransaction({ walletId: walletId!, transaction: txBase64 });
-                  
-                  if (data.type === "cordon_solana_signAndSendTransaction") {
-                    const apiUrl = getApiUrl();
-                    const sendUrl = new URL("/api/solana/send-signed-transaction", apiUrl);
-                    const sendResponse = await fetch(sendUrl.toString(), {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ transactionBase64: signedTxBase64 }),
-                    });
-                    const sendResult = await sendResponse.json();
-                    if (sendResult.error) {
-                      throw new Error(sendResult.error);
-                    }
-                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                    const response = { signature: sendResult.signature };
-                    webViewRef.current?.injectJavaScript(`
-                      window.cordon._handleResponse(${data.requestId}, ${JSON.stringify(response)});
-                      true;
-                    `);
-                  } else {
-                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                    const signedBytes = atob(signedTxBase64).split('').map(c => c.charCodeAt(0));
-                    const response = { signedTransaction: signedBytes };
-                    webViewRef.current?.injectJavaScript(`
-                      window.cordon._handleResponse(${data.requestId}, ${JSON.stringify(response)});
-                      true;
-                    `);
-                  }
-                } catch (error: any) {
-                  const response = { error: error.message || "Transaction failed" };
-                  webViewRef.current?.injectJavaScript(`
-                    window.cordon._handleResponse(${data.requestId}, ${JSON.stringify(response)});
-                    true;
-                  `);
-                }
-              }
-            }
-          ]
-        );
+        setSignSheet({
+          visible: true,
+          chain: "solana",
+          signType: "transaction",
+          requestId: data.requestId,
+          transactionData: txBase64,
+          isDrainerBlocked: isBlocked,
+          drainerType: drainerType,
+          sendAfterSign: data.type === "cordon_solana_signAndSendTransaction",
+        });
       } else if (data.type === "cordon_evm_connect") {
         console.log("[BrowserWebView] EVM connect request");
         const evmAddress = activeWallet?.addresses?.evm;
@@ -948,36 +852,13 @@ export default function BrowserWebViewScreen() {
         }
         
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-        const siteName = pageTitle || currentUrl;
         
-        Alert.alert(
-          "Connect Wallet",
-          `${siteName} wants to connect to your Cordon wallet.`,
-          [
-            {
-              text: "Deny",
-              style: "cancel",
-              onPress: () => {
-                const response = { error: "User rejected connection" };
-                webViewRef.current?.injectJavaScript(`
-                  window.cordon._handleResponse(${data.requestId}, ${JSON.stringify(response)});
-                  true;
-                `);
-              }
-            },
-            {
-              text: "Connect",
-              onPress: () => {
-                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                const response = { accounts: [evmAddress], chainId: "0x89" };
-                webViewRef.current?.injectJavaScript(`
-                  window.cordon._handleResponse(${data.requestId}, ${JSON.stringify(response)});
-                  true;
-                `);
-              }
-            }
-          ]
-        );
+        setConnectSheet({
+          visible: true,
+          chain: "evm",
+          requestId: data.requestId,
+          walletAddress: evmAddress,
+        });
       } else if (data.type === "cordon_evm_signMessage") {
         console.log("[BrowserWebView] EVM sign message request");
         const siteName = pageTitle || currentUrl;
@@ -1005,43 +886,13 @@ export default function BrowserWebViewScreen() {
         
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
         
-        Alert.alert(
-          "Sign Message",
-          `${siteName} wants you to sign:\n\n"${messageText.slice(0, 100)}${messageText.length > 100 ? '...' : ''}"`,
-          [
-            {
-              text: "Reject",
-              style: "cancel",
-              onPress: () => {
-                const response = { error: "User rejected signing" };
-                webViewRef.current?.injectJavaScript(`
-                  window.cordon._handleResponse(${data.requestId}, ${JSON.stringify(response)});
-                  true;
-                `);
-              }
-            },
-            {
-              text: "Sign",
-              onPress: async () => {
-                try {
-                  const { signPersonalMessage } = await import("@/lib/blockchain/transactions");
-                  const signature = await signPersonalMessage({ walletId: walletId!, message: data.message });
-                  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                  webViewRef.current?.injectJavaScript(`
-                    window.cordon._handleResponse(${data.requestId}, ${JSON.stringify(signature)});
-                    true;
-                  `);
-                } catch (error: any) {
-                  const response = { error: error.message || "Signing failed" };
-                  webViewRef.current?.injectJavaScript(`
-                    window.cordon._handleResponse(${data.requestId}, ${JSON.stringify(response)});
-                    true;
-                  `);
-                }
-              }
-            }
-          ]
-        );
+        setSignSheet({
+          visible: true,
+          chain: "evm",
+          signType: "message",
+          requestId: data.requestId,
+          message: messageText,
+        });
       } else if (data.type === "cordon_evm_sendTransaction") {
         console.log("[BrowserWebView] EVM send transaction request");
         const siteName = pageTitle || currentUrl;
@@ -1057,51 +908,14 @@ export default function BrowserWebViewScreen() {
         }
         
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-        const tx = data.transaction;
         
-        Alert.alert(
-          "Send Transaction",
-          `${siteName} wants to send a transaction${tx.value ? ` of ${parseInt(tx.value, 16) / 1e18} ETH` : ''}.`,
-          [
-            {
-              text: "Reject",
-              style: "cancel",
-              onPress: () => {
-                const response = { error: "User rejected transaction" };
-                webViewRef.current?.injectJavaScript(`
-                  window.cordon._handleResponse(${data.requestId}, ${JSON.stringify(response)});
-                  true;
-                `);
-              }
-            },
-            {
-              text: "Send",
-              onPress: async () => {
-                try {
-                  const { sendRawTransaction } = await import("@/lib/blockchain/transactions");
-                  const result = await sendRawTransaction({
-                    walletId: walletId!,
-                    chainId: 137,
-                    to: tx.to,
-                    data: tx.data || "0x",
-                    value: tx.value ? BigInt(tx.value) : 0n,
-                  });
-                  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                  webViewRef.current?.injectJavaScript(`
-                    window.cordon._handleResponse(${data.requestId}, ${JSON.stringify(result.hash)});
-                    true;
-                  `);
-                } catch (error: any) {
-                  const response = { error: error.message || "Transaction failed" };
-                  webViewRef.current?.injectJavaScript(`
-                    window.cordon._handleResponse(${data.requestId}, ${JSON.stringify(response)});
-                    true;
-                  `);
-                }
-              }
-            }
-          ]
-        );
+        setSignSheet({
+          visible: true,
+          chain: "evm",
+          signType: "transaction",
+          requestId: data.requestId,
+          message: `Transaction to ${data.transaction?.to?.slice(0, 10)}...`,
+        });
       } else if (data.type === "cordon_evm_switchChain") {
         console.log("[BrowserWebView] EVM switch chain request");
         const response = { chainId: data.chainId };
@@ -1239,6 +1053,135 @@ export default function BrowserWebViewScreen() {
     }
   })();
 
+  const handleConnectApprove = useCallback(async () => {
+    if (!connectSheet) return;
+    
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    
+    if (connectSheet.chain === "solana") {
+      const response = { publicKey: connectSheet.walletAddress };
+      webViewRef.current?.injectJavaScript(`
+        window.cordon._handleResponse(${connectSheet.requestId}, ${JSON.stringify(response)});
+        true;
+      `);
+    } else {
+      const response = { accounts: [connectSheet.walletAddress], chainId: "0x89" };
+      webViewRef.current?.injectJavaScript(`
+        window.cordon._handleResponse(${connectSheet.requestId}, ${JSON.stringify(response)});
+        true;
+      `);
+    }
+    
+    setConnectSheet(null);
+  }, [connectSheet]);
+
+  const handleConnectDeny = useCallback(() => {
+    if (!connectSheet) return;
+    
+    const response = { error: "User rejected connection" };
+    webViewRef.current?.injectJavaScript(`
+      window.cordon._handleResponse(${connectSheet.requestId}, ${JSON.stringify(response)});
+      true;
+    `);
+    
+    setConnectSheet(null);
+  }, [connectSheet]);
+
+  const handleSignApprove = useCallback(async () => {
+    if (!signSheet) return;
+    
+    const walletId = activeWallet?.id;
+    if (!walletId) {
+      setSignSheet(null);
+      return;
+    }
+    
+    setIsSigning(true);
+    
+    try {
+      if (signSheet.chain === "solana") {
+        if (signSheet.signType === "message") {
+          const { signSolanaMessage } = await import("@/lib/blockchain/transactions");
+          const bs58 = await import("bs58");
+          const signatureBase58 = await signSolanaMessage({ walletId, message: signSheet.message! });
+          const signatureBytes = bs58.default.decode(signatureBase58);
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          const solanaAddress = activeWallet?.addresses?.solana;
+          const response = { signature: Array.from(signatureBytes), publicKey: solanaAddress };
+          webViewRef.current?.injectJavaScript(`
+            window.cordon._handleResponse(${signSheet.requestId}, ${JSON.stringify(response)});
+            true;
+          `);
+        } else if (signSheet.signType === "transaction") {
+          const { signSolanaTransaction } = await import("@/lib/blockchain/transactions");
+          const signedTxBase64 = await signSolanaTransaction({ walletId, transaction: signSheet.transactionData! });
+          
+          if (signSheet.sendAfterSign) {
+            const apiUrl = getApiUrl();
+            const sendUrl = new URL("/api/solana/send-signed-transaction", apiUrl);
+            const sendResponse = await fetch(sendUrl.toString(), {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ transactionBase64: signedTxBase64 }),
+            });
+            const sendResult = await sendResponse.json();
+            if (sendResult.error) throw new Error(sendResult.error);
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            const response = { signature: sendResult.signature };
+            webViewRef.current?.injectJavaScript(`
+              window.cordon._handleResponse(${signSheet.requestId}, ${JSON.stringify(response)});
+              true;
+            `);
+          } else {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            const signedBytes = atob(signedTxBase64).split('').map(c => c.charCodeAt(0));
+            const response = { signedTransaction: signedBytes };
+            webViewRef.current?.injectJavaScript(`
+              window.cordon._handleResponse(${signSheet.requestId}, ${JSON.stringify(response)});
+              true;
+            `);
+          }
+        }
+      } else {
+        if (signSheet.signType === "message") {
+          const { signPersonalMessage } = await import("@/lib/blockchain/transactions");
+          const signature = await signPersonalMessage({ walletId, message: signSheet.message! });
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          webViewRef.current?.injectJavaScript(`
+            window.cordon._handleResponse(${signSheet.requestId}, ${JSON.stringify(signature)});
+            true;
+          `);
+        } else if (signSheet.signType === "transaction") {
+          throw new Error("EVM transaction signing from browser not yet supported");
+        }
+      }
+    } catch (error: any) {
+      const response = { error: error.message || "Signing failed" };
+      webViewRef.current?.injectJavaScript(`
+        window.cordon._handleResponse(${signSheet.requestId}, ${JSON.stringify(response)});
+        true;
+      `);
+    } finally {
+      setIsSigning(false);
+      setSignSheet(null);
+    }
+  }, [signSheet, activeWallet]);
+
+  const handleSignReject = useCallback(() => {
+    if (!signSheet) return;
+    
+    const response = signSheet.isDrainerBlocked
+      ? { error: "Transaction blocked: Wallet drainer detected" }
+      : { error: "User rejected signing" };
+    
+    webViewRef.current?.injectJavaScript(`
+      window.cordon._handleResponse(${signSheet.requestId}, ${JSON.stringify(response)});
+      true;
+    `);
+    
+    setSignSheet(null);
+  }, [signSheet]);
+
   return (
     <View style={[styles.container, { backgroundColor: theme.backgroundRoot }]}>
       <View style={[styles.header, { paddingTop: insets.top, backgroundColor: theme.backgroundDefault }]}>
@@ -1375,6 +1318,31 @@ export default function BrowserWebViewScreen() {
           </View>
         </View>
       </Modal>
+
+      <BrowserConnectSheet
+        visible={connectSheet?.visible ?? false}
+        siteName={pageTitle || "Unknown Site"}
+        siteUrl={currentUrl}
+        chain={connectSheet?.chain ?? "solana"}
+        walletAddress={connectSheet?.walletAddress ?? ""}
+        onConnect={handleConnectApprove}
+        onDeny={handleConnectDeny}
+      />
+
+      <BrowserSignSheet
+        visible={signSheet?.visible ?? false}
+        siteName={pageTitle || "Unknown Site"}
+        siteUrl={currentUrl}
+        chain={signSheet?.chain ?? "solana"}
+        signType={signSheet?.signType ?? "message"}
+        message={signSheet?.message}
+        transactionData={signSheet?.transactionData}
+        isSigning={isSigning}
+        isDrainerBlocked={signSheet?.isDrainerBlocked}
+        drainerType={signSheet?.drainerType}
+        onSign={handleSignApprove}
+        onReject={handleSignReject}
+      />
     </View>
   );
 }
