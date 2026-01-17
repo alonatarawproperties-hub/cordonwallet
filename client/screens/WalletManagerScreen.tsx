@@ -162,52 +162,32 @@ export default function WalletManagerScreen() {
         </View>
 
         <View style={[styles.walletActions, { borderTopColor: theme.border }]}>
-          {!isSolanaOnly ? (
-            <>
-              <Pressable 
-                style={styles.actionButton}
-                onPress={() => handleCopyAddress(evmAddress)}
-              >
-                <Feather name="copy" size={16} color={theme.accent} />
-                <ThemedText type="small" style={{ color: theme.accent }}>Copy EVM</ThemedText>
-              </Pressable>
-              <View style={[styles.actionDivider, { backgroundColor: theme.border }]} />
-            </>
-          ) : null}
-          {solanaAddress ? (
-            <>
-              <Pressable 
-                style={styles.actionButton}
-                onPress={() => handleCopyAddress(solanaAddress)}
-              >
-                <Feather name="copy" size={16} color="#9945FF" />
-                <ThemedText type="small" style={{ color: "#9945FF" }}>Copy SOL</ThemedText>
-              </Pressable>
-              <View style={[styles.actionDivider, { backgroundColor: theme.border }]} />
-            </>
-          ) : null}
           <Pressable 
             style={styles.actionButton}
             onPress={() => openRenameModal(item.id, item.name)}
           >
-            <Feather name="edit-2" size={16} color={theme.textSecondary} />
-            <ThemedText type="small" style={{ color: theme.textSecondary }}>Rename</ThemedText>
+            <View style={[styles.actionIconCircle, { backgroundColor: theme.accent + "15" }]}>
+              <Feather name="edit-2" size={16} color={theme.accent} />
+            </View>
+            <ThemedText type="caption" style={{ color: theme.textSecondary }}>Rename</ThemedText>
           </Pressable>
-          <View style={[styles.actionDivider, { backgroundColor: theme.border }]} />
           <Pressable 
             style={styles.actionButton}
             onPress={() => navigation.navigate("ExportWallet", { walletId: item.id, walletName: item.name })}
           >
-            <Feather name="shield" size={16} color={theme.warning} />
-            <ThemedText type="small" style={{ color: theme.warning }}>Backup</ThemedText>
+            <View style={[styles.actionIconCircle, { backgroundColor: theme.warning + "15" }]}>
+              <Feather name="shield" size={16} color={theme.warning} />
+            </View>
+            <ThemedText type="caption" style={{ color: theme.textSecondary }}>Backup</ThemedText>
           </Pressable>
-          <View style={[styles.actionDivider, { backgroundColor: theme.border }]} />
           <Pressable 
             style={styles.actionButton}
             onPress={() => handleRemoveWallet(item.id, item.name)}
           >
-            <Feather name="trash-2" size={16} color={theme.danger} />
-            <ThemedText type="small" style={{ color: theme.danger }}>Remove</ThemedText>
+            <View style={[styles.actionIconCircle, { backgroundColor: theme.danger + "15" }]}>
+              <Feather name="trash-2" size={16} color={theme.danger} />
+            </View>
+            <ThemedText type="caption" style={{ color: theme.textSecondary }}>Remove</ThemedText>
           </Pressable>
         </View>
       </Pressable>
@@ -382,17 +362,24 @@ const styles = StyleSheet.create({
   walletActions: {
     flexDirection: "row",
     borderTopWidth: 1,
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.sm,
+    justifyContent: "space-around",
   },
   actionButton: {
-    flex: 1,
-    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    padding: Spacing.md,
-    gap: Spacing.sm,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    gap: Spacing.xs,
   },
-  actionDivider: {
-    width: 1,
+  actionIconCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 2,
   },
   footer: {
     marginTop: Spacing["2xl"],
