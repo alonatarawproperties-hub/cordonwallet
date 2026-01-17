@@ -122,65 +122,15 @@ function getTunnelUrl(): string | null {
 }
 
 function serveExpoManifest(platform: string, req: Request, res: Response) {
-  const metadataPath = path.resolve(process.cwd(), "static-build", "metadata.json");
-  const appJsonPath = path.resolve(process.cwd(), "app.json");
+  const manifestPath = path.resolve(process.cwd(), "static-build", platform, "manifest.json");
 
-  if (!fs.existsSync(metadataPath)) {
-    return res.status(404).json({ error: `Static build not found. Run expo export first.` });
+  if (!fs.existsSync(manifestPath)) {
+    return res.status(404).json({ error: `Static build not found for ${platform}. Run build script first.` });
   }
 
   try {
-    const metadata = JSON.parse(fs.readFileSync(metadataPath, "utf-8"));
-    const appJson = JSON.parse(fs.readFileSync(appJsonPath, "utf-8"));
-    const expo = appJson.expo || {};
-
-    const platformData = metadata.fileMetadata[platform];
-    if (!platformData) {
-      return res.status(404).json({ error: `No bundle for platform: ${platform}` });
-    }
-
-    // Build the host URL
-    const forwardedProto = req.header("x-forwarded-proto") || req.protocol || "https";
-    const forwardedHost = req.header("x-forwarded-host") || req.get("host");
-    const baseUrl = `${forwardedProto}://${forwardedHost}`;
-
-    // Build Expo manifest - sdkVersion is CRITICAL for Expo Go compatibility
-    const sdkVersion = "54.0.0";
-    const runtimeVersion = expo.runtimeVersion || `exposdk:${sdkVersion}`;
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf-8"));
     
-    const manifest = {
-      id: `@anonymous/${expo.slug || "app"}`,
-      createdAt: new Date().toISOString(),
-      runtimeVersion: runtimeVersion,
-      sdkVersion: sdkVersion,
-      launchAsset: {
-        key: "bundle",
-        contentType: "application/javascript",
-        url: `${baseUrl}/${platformData.bundle}`,
-      },
-      assets: (platformData.assets || []).map((asset: { path: string; ext: string }) => ({
-        key: asset.path.split("/").pop(),
-        contentType: asset.ext === "ttf" ? "font/ttf" : `image/${asset.ext}`,
-        url: `${baseUrl}/${asset.path}`,
-      })),
-      metadata: {},
-      extra: {
-        expoClient: {
-          name: expo.name || "App",
-          slug: expo.slug || "app",
-          version: expo.version || "1.0.0",
-          orientation: expo.orientation || "portrait",
-          icon: expo.icon,
-          scheme: expo.scheme,
-          userInterfaceStyle: expo.userInterfaceStyle || "automatic",
-          ios: expo.ios || {},
-          android: expo.android || {},
-          web: expo.web || {},
-          extra: expo.extra || {},
-        },
-      },
-    };
-
     res.setHeader("expo-protocol-version", "1");
     res.setHeader("expo-sfv-version", "0");
     res.setHeader("content-type", "application/json");
