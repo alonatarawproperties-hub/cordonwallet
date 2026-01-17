@@ -7,7 +7,7 @@ import { supportedChains, getChainById } from "@/lib/blockchain/chains";
 import { getApiUrl } from "@/lib/query-client";
 import { getPreloadedCache, clearPreloadedCache, savePortfolioDisplayCache } from "@/lib/portfolio-cache";
 
-const POLLING_INTERVAL = 30000;
+const POLLING_INTERVAL = 60000; // 60 seconds - less disruptive
 
 export interface MultiChainAsset {
   symbol: string;

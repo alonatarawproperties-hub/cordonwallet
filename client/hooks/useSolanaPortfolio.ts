@@ -5,7 +5,7 @@ import { getApiUrl } from "@/lib/query-client";
 import { getCustomTokens, getHiddenTokens, CustomToken } from "@/lib/token-preferences";
 import { getPreloadedCache, clearPreloadedCache } from "@/lib/portfolio-cache";
 
-const POLLING_INTERVAL = 30000;
+const POLLING_INTERVAL = 60000; // 60 seconds - less disruptive
 
 interface SolBalance {
   lamports: number;
