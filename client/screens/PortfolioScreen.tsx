@@ -22,6 +22,10 @@ import type { ChainType } from "@/components/ChainSelector";
 import { getCustomTokens, getHiddenTokens, CustomToken, buildCustomTokenMap } from "@/lib/token-preferences";
 import { savePortfolioDisplayCache } from "@/lib/portfolio-cache";
 import { AnimatedRefreshIndicator } from "@/components/AnimatedRefreshIndicator";
+import { TokenSecurityBadge } from "@/components/TokenSecurityBadge";
+import { TokenSecurityModal } from "@/components/TokenSecurityModal";
+import { analyzeTokenSecurity, TokenSecurityAssessment, RiskLevel } from "@/lib/token-security";
+import { getSolanaConnection } from "@/lib/solana/rpc";
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
@@ -123,10 +127,14 @@ function AssetRow({
   asset,
   theme,
   onPress,
+  securityRisk,
+  onSecurityPress,
 }: {
   asset: UnifiedAsset;
   theme: ReturnType<typeof useTheme>["theme"];
   onPress: () => void;
+  securityRisk?: RiskLevel;
+  onSecurityPress?: () => void;
 }) {
   const scale = useSharedValue(1);
 
@@ -194,6 +202,13 @@ function AssetRow({
           </ThemedText>
         ) : null}
       </View>
+      {securityRisk && onSecurityPress ? (
+        <TokenSecurityBadge 
+          riskLevel={securityRisk} 
+          onPress={onSecurityPress}
+          size="small"
+        />
+      ) : null}
       <Feather name="chevron-right" size={18} color={theme.textSecondary} style={{ opacity: 0.6 }} />
     </AnimatedPressable>
   );
@@ -209,6 +224,9 @@ export default function PortfolioScreen() {
   const [customTokens, setCustomTokens] = useState<CustomToken[]>([]);
   const [hiddenTokens, setHiddenTokens] = useState<string[]>([]);
   const stableAssetsRef = useRef<UnifiedAsset[]>([]);
+  const [securityAssessments, setSecurityAssessments] = useState<Map<string, TokenSecurityAssessment>>(new Map());
+  const [selectedSecurityAsset, setSelectedSecurityAsset] = useState<{ assessment: TokenSecurityAssessment; name: string; symbol: string } | null>(null);
+  const [securityModalVisible, setSecurityModalVisible] = useState(false);
 
   const walletType = activeWallet?.walletType || "multi-chain";
   const evmAddress = activeWallet?.addresses?.evm || activeWallet?.address;
@@ -375,6 +393,54 @@ export default function PortfolioScreen() {
     }
   }, [lastUpdated, isLoading, isRefreshing, evmPortfolio.assets, solanaPortfolio.assets, evmAddress, solanaAddress]);
 
+  useEffect(() => {
+    const analyzeSolanaTokens = async () => {
+      const solanaAssets = assets.filter(a => a.chainType === "solana" && "mint" in a && a.mint);
+      if (solanaAssets.length === 0) return;
+
+      try {
+        const connection = getSolanaConnection();
+        const newAssessments = new Map(securityAssessments);
+        
+        for (const asset of solanaAssets) {
+          const mint = (asset as any).mint as string;
+          if (!mint || newAssessments.has(mint)) continue;
+          
+          try {
+            const assessment = await analyzeTokenSecurity(connection, mint);
+            newAssessments.set(mint, assessment);
+          } catch (e) {
+            console.warn(`Failed to analyze ${asset.symbol}:`, e);
+          }
+        }
+        
+        if (newAssessments.size > securityAssessments.size) {
+          setSecurityAssessments(newAssessments);
+        }
+      } catch (e) {
+        console.warn("Security analysis failed:", e);
+      }
+    };
+
+    if (!isLoading && assets.length > 0) {
+      analyzeSolanaTokens();
+    }
+  }, [assets, isLoading]);
+
+  const handleSecurityPress = useCallback((asset: UnifiedAsset) => {
+    if (asset.chainType !== "solana" || !("mint" in asset)) return;
+    const mint = (asset as any).mint as string;
+    const assessment = securityAssessments.get(mint);
+    if (assessment) {
+      setSelectedSecurityAsset({
+        assessment,
+        name: asset.name,
+        symbol: asset.symbol,
+      });
+      setSecurityModalVisible(true);
+    }
+  }, [securityAssessments]);
+
   return (
     <ScrollView
       style={{ flex: 1, backgroundColor: theme.backgroundRoot }}
@@ -517,14 +583,20 @@ export default function PortfolioScreen() {
             </ThemedText>
           </View>
         ) : assets.length > 0 ? (
-          assets.map((asset, index) => (
-            <AssetRow
-              key={`${asset.chainType}-${asset.chainId}-${asset.isNative ? "native" : ("address" in asset ? asset.address : ("mint" in asset ? asset.mint : ""))}-${index}`}
-              asset={asset}
-              theme={theme}
-              onPress={() => handleAssetPress(asset)}
-            />
-          ))
+          assets.map((asset, index) => {
+            const mint = asset.chainType === "solana" && "mint" in asset ? (asset as any).mint as string : undefined;
+            const assessment = mint ? securityAssessments.get(mint) : undefined;
+            return (
+              <AssetRow
+                key={`${asset.chainType}-${asset.chainId}-${asset.isNative ? "native" : ("address" in asset ? asset.address : ("mint" in asset ? asset.mint : ""))}-${index}`}
+                asset={asset}
+                theme={theme}
+                onPress={() => handleAssetPress(asset)}
+                securityRisk={assessment?.overallRisk}
+                onSecurityPress={() => handleSecurityPress(asset)}
+              />
+            );
+          })
         ) : null}
 
         <Pressable
@@ -536,6 +608,14 @@ export default function PortfolioScreen() {
           </ThemedText>
         </Pressable>
       </View>
+
+      <TokenSecurityModal
+        visible={securityModalVisible}
+        onClose={() => setSecurityModalVisible(false)}
+        assessment={selectedSecurityAsset?.assessment || null}
+        tokenName={selectedSecurityAsset?.name}
+        tokenSymbol={selectedSecurityAsset?.symbol}
+      />
     </ScrollView>
   );
 }
