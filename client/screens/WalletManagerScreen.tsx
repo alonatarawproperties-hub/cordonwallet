@@ -163,31 +163,25 @@ export default function WalletManagerScreen() {
 
         <View style={[styles.walletActions, { borderTopColor: theme.border }]}>
           <Pressable 
-            style={styles.actionButton}
+            style={[styles.actionButton, { backgroundColor: theme.accent + "12" }]}
             onPress={() => openRenameModal(item.id, item.name)}
           >
-            <View style={[styles.actionIconCircle, { backgroundColor: theme.accent + "15" }]}>
-              <Feather name="edit-2" size={16} color={theme.accent} />
-            </View>
-            <ThemedText type="caption" style={{ color: theme.textSecondary }}>Rename</ThemedText>
+            <Feather name="edit-2" size={14} color={theme.accent} />
+            <ThemedText type="caption" style={{ color: theme.accent }}>Rename</ThemedText>
           </Pressable>
           <Pressable 
-            style={styles.actionButton}
+            style={[styles.actionButton, { backgroundColor: theme.warning + "12" }]}
             onPress={() => navigation.navigate("ExportWallet", { walletId: item.id, walletName: item.name })}
           >
-            <View style={[styles.actionIconCircle, { backgroundColor: theme.warning + "15" }]}>
-              <Feather name="shield" size={16} color={theme.warning} />
-            </View>
-            <ThemedText type="caption" style={{ color: theme.textSecondary }}>Backup</ThemedText>
+            <Feather name="shield" size={14} color={theme.warning} />
+            <ThemedText type="caption" style={{ color: theme.warning }}>Backup</ThemedText>
           </Pressable>
           <Pressable 
-            style={styles.actionButton}
+            style={[styles.actionButton, { backgroundColor: theme.danger + "12" }]}
             onPress={() => handleRemoveWallet(item.id, item.name)}
           >
-            <View style={[styles.actionIconCircle, { backgroundColor: theme.danger + "15" }]}>
-              <Feather name="trash-2" size={16} color={theme.danger} />
-            </View>
-            <ThemedText type="caption" style={{ color: theme.textSecondary }}>Remove</ThemedText>
+            <Feather name="trash-2" size={14} color={theme.danger} />
+            <ThemedText type="caption" style={{ color: theme.danger }}>Remove</ThemedText>
           </Pressable>
         </View>
       </Pressable>
@@ -362,24 +356,18 @@ const styles = StyleSheet.create({
   walletActions: {
     flexDirection: "row",
     borderTopWidth: 1,
-    paddingVertical: Spacing.md,
-    paddingHorizontal: Spacing.sm,
-    justifyContent: "space-around",
-  },
-  actionButton: {
-    alignItems: "center",
-    justifyContent: "center",
     paddingVertical: Spacing.sm,
     paddingHorizontal: Spacing.md,
-    gap: Spacing.xs,
+    gap: Spacing.md,
   },
-  actionIconCircle: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+  actionButton: {
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 2,
+    paddingVertical: Spacing.xs,
+    paddingHorizontal: Spacing.sm,
+    gap: 6,
+    borderRadius: BorderRadius.sm,
   },
   footer: {
     marginTop: Spacing["2xl"],
