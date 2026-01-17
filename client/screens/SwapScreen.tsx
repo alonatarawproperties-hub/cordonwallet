@@ -99,6 +99,7 @@ type Props = NativeStackScreenProps<RootStackParamList, "Swap">;
 
 const CUSTOM_TOKENS_KEY = "swap_custom_tokens";
 const MAX_CUSTOM_TOKENS = 25;
+const SHOW_CORDON_FEE_UI = false; // hidden in open beta
 
 interface CustomTokenInfo extends TokenInfo {
   verified: boolean;
@@ -1695,51 +1696,53 @@ export default function SwapScreen({ route }: Props) {
             ) : null}
           </View>
 
-          <View style={[styles.successFeeSection, { backgroundColor: theme.glass, borderColor: theme.glassBorder }]}>
-            <View style={styles.successFeeHeader}>
-              <View style={{ flex: 1 }}>
-                <ThemedText type="small" style={{ color: theme.text, fontWeight: "600" }}>
-                  Cordon Success Fee
-                </ThemedText>
-                <ThemedText type="caption" style={{ color: theme.textSecondary, marginTop: 2 }}>
-                  {successFeeLamports > 0 
-                    ? `${getSuccessFeeSol(speed, isPro, successFeeEnabled)} SOL — charged only if swap confirms.`
-                    : "Free for Pro users"}
-                </ThemedText>
-              </View>
-              <Pressable
-                style={[
-                  styles.successFeeToggle,
-                  { backgroundColor: successFeeEnabled && !isPro ? theme.accent : theme.backgroundSecondary },
-                ]}
-                onPress={() => {
-                  if (isPro) {
-                    setSuccessFeeEnabled(!successFeeEnabled);
-                  }
-                }}
-                disabled={!isPro}
-              >
-                <View
+          {SHOW_CORDON_FEE_UI ? (
+            <View style={[styles.successFeeSection, { backgroundColor: theme.glass, borderColor: theme.glassBorder }]}>
+              <View style={styles.successFeeHeader}>
+                <View style={{ flex: 1 }}>
+                  <ThemedText type="small" style={{ color: theme.text, fontWeight: "600" }}>
+                    Cordon Success Fee
+                  </ThemedText>
+                  <ThemedText type="caption" style={{ color: theme.textSecondary, marginTop: 2 }}>
+                    {successFeeLamports > 0 
+                      ? `${getSuccessFeeSol(speed, isPro, successFeeEnabled)} SOL — charged only if swap confirms.`
+                      : "Free for Pro users"}
+                  </ThemedText>
+                </View>
+                <Pressable
                   style={[
-                    styles.successFeeKnob,
-                    { 
-                      backgroundColor: "#fff",
-                      transform: [{ translateX: successFeeEnabled && !isPro ? 18 : 2 }],
-                    },
+                    styles.successFeeToggle,
+                    { backgroundColor: successFeeEnabled && !isPro ? theme.accent : theme.backgroundSecondary },
                   ]}
-                />
-              </Pressable>
+                  onPress={() => {
+                    if (isPro) {
+                      setSuccessFeeEnabled(!successFeeEnabled);
+                    }
+                  }}
+                  disabled={!isPro}
+                >
+                  <View
+                    style={[
+                      styles.successFeeKnob,
+                      { 
+                        backgroundColor: "#fff",
+                        transform: [{ translateX: successFeeEnabled && !isPro ? 18 : 2 }],
+                      },
+                    ]}
+                  />
+                </Pressable>
+              </View>
+              {!isPro ? (
+                <ThemedText type="caption" style={{ color: theme.textSecondary, marginTop: Spacing.sm }}>
+                  This does not affect slippage or swap price.
+                </ThemedText>
+              ) : (
+                <ThemedText type="caption" style={{ color: theme.success, marginTop: Spacing.sm }}>
+                  Pro member — success fee waived.
+                </ThemedText>
+              )}
             </View>
-            {!isPro ? (
-              <ThemedText type="caption" style={{ color: theme.textSecondary, marginTop: Spacing.sm }}>
-                This does not affect slippage or swap price.
-              </ThemedText>
-            ) : (
-              <ThemedText type="caption" style={{ color: theme.success, marginTop: Spacing.sm }}>
-                Pro member — success fee waived.
-              </ThemedText>
-            )}
-          </View>
+          ) : null}
 
           <Pressable
             style={({ pressed }) => [
