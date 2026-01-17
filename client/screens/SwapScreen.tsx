@@ -46,7 +46,9 @@ import {
   USDC_MINT,
   LAMPORTS_PER_SOL,
   ADV_MAX_CAP_SOL,
+  RPC_PRIMARY,
 } from "@/constants/solanaSwap";
+import { Connection } from "@solana/web3.js";
 import { getQuoteEngine, QuoteEngineState, SwapRoute, PumpMeta } from "@/lib/quoteEngine";
 import {
   TokenInfo,
@@ -72,6 +74,14 @@ import { decodeAndValidateSwapTx, isDrainerTransaction } from "@/lib/solana/swap
 import { broadcastTransaction, classifyError, getExplorerUrl } from "@/services/txBroadcaster";
 import { addSwapRecord, updateSwapStatus, addDebugLog, SwapTimings } from "@/services/swapStore";
 import { getApiUrl } from "@/lib/query-client";
+import {
+  estimateFeeReserveLamports,
+  lamportsToSolString,
+  solToLamports,
+  FeeReserveResult,
+  formatFeeBreakdown,
+} from "@/lib/solana/feeReserve";
+import { likelyNeedsAtaRent } from "@/lib/solana/ataCheck";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
@@ -179,6 +189,8 @@ export default function SwapScreen({ route }: Props) {
   } | null>(null);
   const [showSlippageModal, setShowSlippageModal] = useState(false);
   const [slippageInputText, setSlippageInputText] = useState("");
+  const [needsAtaRent, setNeedsAtaRent] = useState(true);
+  const [showFeeDetails, setShowFeeDetails] = useState(false);
 
   const quoteEngineRef = useRef(getQuoteEngine());
 
@@ -200,6 +212,60 @@ export default function SwapScreen({ route }: Props) {
   }, [solanaAssets]);
 
   const inputTokenBalance = inputToken ? getTokenBalance(inputToken.mint) : 0;
+
+  const hasOutputTokenInWallet = useMemo(() => {
+    if (!outputToken || !solanaAssets) return false;
+    if (outputToken.mint === SOL_MINT) return true;
+    return solanaAssets.some(a => a.mint?.toLowerCase() === outputToken.mint.toLowerCase());
+  }, [outputToken, solanaAssets]);
+
+  useEffect(() => {
+    const checkAta = async () => {
+      if (!outputToken || !activeWallet?.addresses?.solana) {
+        setNeedsAtaRent(true);
+        return;
+      }
+      if (outputToken.mint === SOL_MINT || hasOutputTokenInWallet) {
+        setNeedsAtaRent(false);
+        return;
+      }
+      try {
+        const connection = new Connection(RPC_PRIMARY, { commitment: "confirmed" });
+        const needs = await likelyNeedsAtaRent({
+          owner: activeWallet.addresses.solana,
+          mint: outputToken.mint,
+          hasTokenInWalletList: hasOutputTokenInWallet,
+          connection,
+        });
+        setNeedsAtaRent(needs);
+      } catch {
+        setNeedsAtaRent(true);
+      }
+    };
+    checkAta();
+  }, [outputToken?.mint, activeWallet?.addresses?.solana, hasOutputTokenInWallet]);
+
+  const solBalanceLamports = useMemo(() => {
+    const solBalance = getTokenBalance(SOL_MINT);
+    return solToLamports(solBalance);
+  }, [getTokenBalance]);
+
+  const priorityCapLamports = useMemo(() => {
+    const capSol = customCapSol ?? SPEED_CONFIGS[speed].capSol;
+    return solToLamports(capSol);
+  }, [customCapSol, speed]);
+
+  const feeReserve: FeeReserveResult = useMemo(() => {
+    return estimateFeeReserveLamports({
+      solBalanceLamports,
+      priorityCapLamports,
+      needsAtaRent,
+    });
+  }, [solBalanceLamports, priorityCapLamports, needsAtaRent]);
+
+  const spendableSol = feeReserve.spendableLamports / LAMPORTS_PER_SOL;
+  const isInputSol = inputToken?.mint === SOL_MINT;
+  const insufficientSolForFees = solBalanceLamports < feeReserve.reserveLamports;
 
   // Header with slippage button
   useLayoutEffect(() => {
@@ -423,11 +489,19 @@ export default function SwapScreen({ route }: Props) {
 
     const balance = getTokenBalance(inputToken.mint);
     if (inputToken.mint === SOL_MINT) {
-      // Use smaller reserve for small balances (0.0005 SOL minimum for tx fee)
-      const minReserve = 0.0005;
-      const reserveForFees = balance > 0.02 ? 0.01 : minReserve;
-      const maxAmount = Math.max(0, balance - reserveForFees);
-      setInputAmount(maxAmount.toFixed(6));
+      if (spendableSol <= 0) {
+        Alert.alert(
+          "Insufficient SOL",
+          `You need at least ${lamportsToSolString(feeReserve.reserveLamports)} SOL to cover fees for this swap.`
+        );
+        setInputAmount("0");
+        return;
+      }
+      const formatted = spendableSol.toFixed(6).replace(/\.?0+$/, "");
+      setInputAmount(formatted);
+      if (__DEV__) {
+        console.log("[Swap] MAX pressed - spendable:", spendableSol, "reserve:", lamportsToSolString(feeReserve.reserveLamports));
+      }
     } else {
       setInputAmount(balance.toFixed(inputToken.decimals > 6 ? 6 : inputToken.decimals));
     }
@@ -1323,6 +1397,32 @@ export default function SwapScreen({ route }: Props) {
                 <ThemedText type="caption" style={{ color: theme.textSecondary }}>
                   Balance: {inputTokenBalance.toFixed(inputToken.decimals > 6 ? 6 : 4)} {inputToken.symbol}
                 </ThemedText>
+                {isInputSol ? (
+                  <Pressable 
+                    style={{ flexDirection: "row", alignItems: "center", gap: 4 }}
+                    onPress={() => setShowFeeDetails(!showFeeDetails)}
+                  >
+                    <ThemedText type="caption" style={{ color: theme.accent }}>
+                      Spendable: {spendableSol.toFixed(4)}
+                    </ThemedText>
+                    <Feather name={showFeeDetails ? "chevron-up" : "info"} size={12} color={theme.accent} />
+                  </Pressable>
+                ) : null}
+              </View>
+            ) : null}
+            {isInputSol && showFeeDetails ? (
+              <View style={[styles.feeDetailsCard, { backgroundColor: theme.glass, borderColor: theme.glassBorder }]}>
+                <ThemedText type="caption" style={{ color: theme.textSecondary, marginBottom: Spacing.xs }}>
+                  Reserved for fees (max):
+                </ThemedText>
+                {formatFeeBreakdown(feeReserve.breakdown).map((line, i) => (
+                  <ThemedText key={i} type="caption" style={{ color: theme.textSecondary, paddingLeft: Spacing.sm }}>
+                    {line}
+                  </ThemedText>
+                ))}
+                <ThemedText type="caption" style={{ color: theme.text, fontWeight: "600", marginTop: Spacing.xs }}>
+                  Total: {lamportsToSolString(feeReserve.reserveLamports)} SOL
+                </ThemedText>
               </View>
             ) : null}
           </View>
@@ -1469,6 +1569,15 @@ export default function SwapScreen({ route }: Props) {
             <Feather name="alert-circle" size={18} color={theme.danger} />
             <ThemedText type="small" style={{ color: theme.danger, marginLeft: Spacing.sm, flex: 1 }}>
               {quoteError}
+            </ThemedText>
+          </View>
+        ) : null}
+
+        {insufficientSolForFees && !isInputSol ? (
+          <View style={[styles.insufficientBanner, { backgroundColor: theme.danger + "15" }]}>
+            <Feather name="alert-triangle" size={16} color={theme.danger} />
+            <ThemedText type="caption" style={{ color: theme.danger, flex: 1 }}>
+              Not enough SOL to cover network fees. Need at least {lamportsToSolString(feeReserve.reserveLamports)} SOL.
             </ThemedText>
           </View>
         ) : null}
@@ -1759,6 +1868,23 @@ const styles = StyleSheet.create({
   },
   balanceRow: {
     marginTop: Spacing.sm,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  feeDetailsCard: {
+    marginTop: Spacing.sm,
+    padding: Spacing.sm,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+  },
+  insufficientBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: Spacing.sm,
+    borderRadius: BorderRadius.md,
+    marginTop: Spacing.md,
+    gap: Spacing.xs,
   },
   outputRow: {
     minHeight: 40,
