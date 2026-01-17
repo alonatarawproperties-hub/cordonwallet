@@ -29,6 +29,10 @@ export default function WalletManagerScreen() {
   const [renameModalVisible, setRenameModalVisible] = useState(false);
   const [renameWalletId, setRenameWalletId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
+  
+  const [actionSheetVisible, setActionSheetVisible] = useState(false);
+  const [selectedWalletId, setSelectedWalletId] = useState<string | null>(null);
+  const [selectedWalletName, setSelectedWalletName] = useState("");
 
   const handleCopyAddress = async (address: string) => {
     await Clipboard.setStringAsync(address);
@@ -36,9 +40,12 @@ export default function WalletManagerScreen() {
   };
 
   const openRenameModal = (walletId: string, currentName: string) => {
-    setRenameWalletId(walletId);
-    setRenameValue(currentName);
-    setRenameModalVisible(true);
+    setActionSheetVisible(false);
+    setTimeout(() => {
+      setRenameWalletId(walletId);
+      setRenameValue(currentName);
+      setRenameModalVisible(true);
+    }, 200);
   };
 
   const handleSaveRename = async () => {
@@ -58,52 +65,54 @@ export default function WalletManagerScreen() {
   };
 
   const handleRemoveWallet = (walletId: string, walletName: string) => {
-    Alert.alert(
-      "Remove Wallet",
-      `Are you sure you want to remove "${walletName}"? Make sure you have backed up the seed phrase.`,
-      [
-        { text: "Cancel", style: "cancel" },
-        { 
-          text: "Remove", 
-          style: "destructive",
-          onPress: async () => {
-            await deleteSeedPhrase(walletId);
-            await removeWallet(walletId);
-            if (wallets.length <= 1) {
-              navigation.reset({
-                index: 0,
-                routes: [{ name: "Welcome" }],
-              });
+    setActionSheetVisible(false);
+    setTimeout(() => {
+      Alert.alert(
+        "Remove Wallet",
+        `Are you sure you want to remove "${walletName}"? Make sure you have backed up the seed phrase.`,
+        [
+          { text: "Cancel", style: "cancel" },
+          { 
+            text: "Remove", 
+            style: "destructive",
+            onPress: async () => {
+              await deleteSeedPhrase(walletId);
+              await removeWallet(walletId);
+              if (wallets.length <= 1) {
+                navigation.reset({
+                  index: 0,
+                  routes: [{ name: "Welcome" }],
+                });
+              }
             }
-          }
-        },
-      ]
-    );
+          },
+        ]
+      );
+    }, 200);
   };
 
   const truncate = (addr: string) => `${addr.slice(0, 6)}...${addr.slice(-4)}`;
 
   const showWalletMenu = (walletId: string, walletName: string) => {
-    Alert.alert(
-      walletName,
-      undefined,
-      [
-        {
-          text: "Rename",
-          onPress: () => openRenameModal(walletId, walletName),
-        },
-        {
-          text: "Backup Seed Phrase",
-          onPress: () => navigation.navigate("ExportWallet", { walletId, walletName }),
-        },
-        {
-          text: "Remove Wallet",
-          style: "destructive",
-          onPress: () => handleRemoveWallet(walletId, walletName),
-        },
-        { text: "Cancel", style: "cancel" },
-      ]
-    );
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setSelectedWalletId(walletId);
+    setSelectedWalletName(walletName);
+    setActionSheetVisible(true);
+  };
+
+  const closeActionSheet = () => {
+    setActionSheetVisible(false);
+    setSelectedWalletId(null);
+    setSelectedWalletName("");
+  };
+
+  const handleBackupSeedPhrase = () => {
+    if (selectedWalletId && selectedWalletName) {
+      setActionSheetVisible(false);
+      setTimeout(() => {
+        navigation.navigate("ExportWallet", { walletId: selectedWalletId, walletName: selectedWalletName });
+      }, 200);
+    }
   };
 
   const renderWallet = ({ item }: { item: typeof wallets[0] }) => {
@@ -211,6 +220,57 @@ export default function WalletManagerScreen() {
         ItemSeparatorComponent={() => <View style={{ height: Spacing.md }} />}
       />
       
+      {/* Custom Action Sheet */}
+      <Modal
+        visible={actionSheetVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={closeActionSheet}
+      >
+        <Pressable style={styles.actionSheetOverlay} onPress={closeActionSheet}>
+          <View style={[styles.actionSheetContainer, { paddingBottom: insets.bottom + Spacing.lg }]}>
+            <View style={[styles.actionSheetContent, { backgroundColor: theme.backgroundDefault }]}>
+              <View style={styles.actionSheetHandle} />
+              <ThemedText type="body" style={[styles.actionSheetTitle, { color: theme.textSecondary }]}>
+                {selectedWalletName}
+              </ThemedText>
+              
+              <Pressable 
+                style={[styles.actionSheetButton, { backgroundColor: theme.backgroundSecondary }]}
+                onPress={() => selectedWalletId && openRenameModal(selectedWalletId, selectedWalletName)}
+              >
+                <Feather name="edit-2" size={18} color={theme.text} />
+                <ThemedText type="body" style={{ fontWeight: "500" }}>Rename</ThemedText>
+              </Pressable>
+              
+              <Pressable 
+                style={[styles.actionSheetButton, { backgroundColor: theme.backgroundSecondary }]}
+                onPress={handleBackupSeedPhrase}
+              >
+                <Feather name="key" size={18} color={theme.text} />
+                <ThemedText type="body" style={{ fontWeight: "500" }}>Backup Seed Phrase</ThemedText>
+              </Pressable>
+              
+              <Pressable 
+                style={[styles.actionSheetButton, { backgroundColor: theme.backgroundSecondary }]}
+                onPress={() => selectedWalletId && handleRemoveWallet(selectedWalletId, selectedWalletName)}
+              >
+                <Feather name="trash-2" size={18} color={theme.danger} />
+                <ThemedText type="body" style={{ fontWeight: "500", color: theme.danger }}>Remove Wallet</ThemedText>
+              </Pressable>
+            </View>
+            
+            <Pressable 
+              style={[styles.actionSheetCancelButton, { backgroundColor: theme.backgroundDefault }]}
+              onPress={closeActionSheet}
+            >
+              <ThemedText type="body" style={{ fontWeight: "600" }}>Cancel</ThemedText>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Modal>
+      
+      {/* Rename Modal */}
       <Modal
         visible={renameModalVisible}
         transparent
@@ -323,6 +383,46 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.full,
     borderWidth: 1,
     gap: Spacing.sm,
+  },
+  actionSheetOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.6)",
+    justifyContent: "flex-end",
+  },
+  actionSheetContainer: {
+    paddingHorizontal: Spacing.md,
+    gap: Spacing.sm,
+  },
+  actionSheetContent: {
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.lg,
+    gap: Spacing.sm,
+  },
+  actionSheetHandle: {
+    width: 36,
+    height: 4,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    borderRadius: 2,
+    alignSelf: "center",
+    marginBottom: Spacing.sm,
+  },
+  actionSheetTitle: {
+    textAlign: "center",
+    marginBottom: Spacing.sm,
+    fontSize: 13,
+  },
+  actionSheetButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: Spacing.lg,
+    borderRadius: BorderRadius.md,
+    gap: Spacing.md,
+  },
+  actionSheetCancelButton: {
+    padding: Spacing.lg,
+    borderRadius: BorderRadius.lg,
+    alignItems: "center",
+    justifyContent: "center",
   },
   modalOverlay: {
     flex: 1,
