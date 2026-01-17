@@ -6,7 +6,6 @@ import {
   Pressable,
   TextInput,
   ActivityIndicator,
-  Alert,
   Modal,
   FlatList,
   Image,
@@ -29,6 +28,7 @@ import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
+import { useThemedAlert } from "@/components/ThemedAlert";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import { useWallet } from "@/lib/wallet-context";
 import { getMnemonic } from "@/lib/wallet-engine";
@@ -141,6 +141,7 @@ export default function SwapScreen({ route }: Props) {
   const { theme } = useTheme();
   const navigation = useNavigation<Navigation>();
   const { activeWallet } = useWallet();
+  const { showAlert } = useThemedAlert();
   
   const solanaAddress = activeWallet?.addresses?.solana;
   const { assets: solanaAssets, refresh: refreshPortfolio } = useSolanaPortfolio(solanaAddress);
@@ -490,7 +491,7 @@ export default function SwapScreen({ route }: Props) {
     const balance = getTokenBalance(inputToken.mint);
     if (inputToken.mint === SOL_MINT) {
       if (spendableSol <= 0) {
-        Alert.alert(
+        showAlert(
           "Insufficient SOL",
           `You need at least ${lamportsToSolString(feeReserve.reserveLamports)} SOL to cover fees for this swap.`
         );
@@ -516,7 +517,7 @@ export default function SwapScreen({ route }: Props) {
 
     const solanaAddr = activeWallet.addresses?.solana;
     if (!solanaAddr) {
-      Alert.alert("Error", "No Solana address found");
+      showAlert("Error", "No Solana address found");
       return;
     }
 
@@ -574,7 +575,7 @@ export default function SwapScreen({ route }: Props) {
 
       if (!securityResult.safe) {
         await addDebugLog("error", "Security check failed", securityResult);
-        Alert.alert("Blocked", securityResult.errors.join("\n"));
+        showAlert("Blocked", securityResult.errors.join("\n"));
         setIsSwapping(false);
         setSwapStatus("");
         return;
@@ -582,7 +583,7 @@ export default function SwapScreen({ route }: Props) {
 
       if (isDrainerTransaction(swapResponse.swapTransaction, solanaAddr)) {
         await addDebugLog("error", "Drainer detected");
-        Alert.alert("Blocked", "This transaction contains suspicious instructions.");
+        showAlert("Blocked", "This transaction contains suspicious instructions.");
         setIsSwapping(false);
         setSwapStatus("");
         return;
@@ -598,7 +599,7 @@ export default function SwapScreen({ route }: Props) {
       setSwapStatus("");
     } catch (error: any) {
       await addDebugLog("error", "Build failed", { error: error.message });
-      Alert.alert("Error", error.message || "Failed to build swap");
+      showAlert("Error", error.message || "Failed to build swap");
       setIsSwapping(false);
       setSwapStatus("");
     }
@@ -620,7 +621,7 @@ export default function SwapScreen({ route }: Props) {
 
       const mnemonic = await getMnemonic(activeWallet.id);
       if (!mnemonic) {
-        Alert.alert("Error", "Please unlock your wallet first");
+        showAlert("Error", "Please unlock your wallet first");
         setIsSwapping(false);
         return;
       }
@@ -704,7 +705,7 @@ export default function SwapScreen({ route }: Props) {
       );
 
       if (result.status === "confirmed" || result.status === "finalized") {
-        Alert.alert(
+        showAlert(
           "Swap Successful",
           `Swapped ${inputAmount} ${inputToken.symbol} for ${outAmount} ${outputToken.symbol}`,
           [
@@ -719,7 +720,7 @@ export default function SwapScreen({ route }: Props) {
         setQuote(null);
         refreshPortfolio();
       } else if (result.status === "expired") {
-        Alert.alert(
+        showAlert(
           "Transaction Expired",
           "The transaction may still land. Check the explorer.",
           [
@@ -738,7 +739,7 @@ export default function SwapScreen({ route }: Props) {
           category: classified.category,
           userMessage: classified.userMessage 
         });
-        Alert.alert("Swap Failed", classified.userMessage, [
+        showAlert("Swap Failed", classified.userMessage, [
           ...(classified.canRetry ? [{ text: "Retry", onPress: handleSwapPress }] : []),
           { text: "OK" },
         ]);
@@ -746,7 +747,7 @@ export default function SwapScreen({ route }: Props) {
     } catch (error: any) {
       await addDebugLog("error", "Swap execution failed", { error: error.message });
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      Alert.alert("Error", error.message || "Swap failed");
+      showAlert("Error", error.message || "Swap failed");
     } finally {
       setIsSwapping(false);
       setSwapStatus("");

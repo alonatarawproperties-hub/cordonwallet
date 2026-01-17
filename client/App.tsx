@@ -23,6 +23,7 @@ import { BrowserStoreProvider } from "@/store/browserStore";
 import { ExternalAuthProvider } from "@/context/ExternalAuthContext";
 import { DevSettingsProvider } from "@/context/DevSettingsContext";
 import { AuthDeepLinkHandler } from "@/components/AuthDeepLinkHandler";
+import { ThemedAlertProvider } from "@/components/ThemedAlert";
 
 import RootStackNavigator from "@/navigation/RootStackNavigator";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
@@ -42,12 +43,14 @@ export default function App() {
                       <BrowserStoreProvider>
                         <ExternalAuthProvider>
                           <GestureHandlerRootView style={styles.root}>
-                            <NavigationContainer>
-                              <RootStackNavigator />
-                              <AuthDeepLinkHandler />
-                            </NavigationContainer>
-                            <StatusBar style="auto" />
-                            <GlobalOverlayHost />
+                            <ThemedAlertProvider>
+                              <NavigationContainer>
+                                <RootStackNavigator />
+                                <AuthDeepLinkHandler />
+                              </NavigationContainer>
+                              <StatusBar style="auto" />
+                              <GlobalOverlayHost />
+                            </ThemedAlertProvider>
                           </GestureHandlerRootView>
                         </ExternalAuthProvider>
                       </BrowserStoreProvider>
