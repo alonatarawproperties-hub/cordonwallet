@@ -100,16 +100,16 @@ export default function MainTabNavigator() {
         component={MultisigScreen}
         options={{
           headerTitle: "Multisig",
-          tabBarIcon: ({ color, size }) => (
-            <View>
+          tabBarIcon: ({ size }) => (
+            <View style={{ opacity: 0.35 }}>
               <Feather name="users" size={size} color={theme.tabIconDefault} />
-              <View style={{ position: "absolute", right: -4, top: -4 }}>
+              <View style={{ position: "absolute", right: -6, top: -4 }}>
                 <Feather name="lock" size={10} color={theme.tabIconDefault} />
               </View>
             </View>
           ),
           tabBarLabel: "Multisig",
-          tabBarLabelStyle: { color: theme.tabIconDefault },
+          tabBarLabelStyle: { opacity: 0.35 },
         }}
       />
       <Tab.Screen
@@ -117,9 +117,15 @@ export default function MainTabNavigator() {
         component={BundlesScreen}
         options={{
           headerTitle: "Bundles",
-          tabBarIcon: ({ color, size }) => (
-            <Feather name="layers" size={size} color={color} />
+          tabBarIcon: ({ size }) => (
+            <View style={{ opacity: 0.35 }}>
+              <Feather name="layers" size={size} color={theme.tabIconDefault} />
+              <View style={{ position: "absolute", right: -6, top: -4 }}>
+                <Feather name="lock" size={10} color={theme.tabIconDefault} />
+              </View>
+            </View>
           ),
+          tabBarLabelStyle: { opacity: 0.35 },
         }}
       />
     </Tab.Navigator>
