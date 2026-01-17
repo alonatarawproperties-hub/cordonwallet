@@ -1,0 +1,148 @@
+IMPLEMENT THIS NOW. NO QUESTIONS. PRODUCTION-READY.
+
+Context:
+Current file server/swap/jupiterClient.ts uses:
+DEFAULT_BASE_URL = "https://quote-api.jup.ag"
+GET /v6/quote
+POST /v6/swap
+This is causing DNS failures (EAI_AGAIN) and instability.
+
+GOAL:
+Migrate Jupiter integration to Swap API v1 with Lite/Pro bases, add robust fallback, retries, 429 handling, and keep env override compatibility.
+
+---------------------------------------
+1) UPDATE BASE URL DEFAULTS + ENV VARS
+---------------------------------------
+In server/swap/jupiterClient.ts:
+
+- Replace DEFAULT_BASE_URL with:
+  const DEFAULT_LITE_BASE_URL = "https://lite-api.jup.ag";
+  const DEFAULT_PRO_BASE_URL  = "https://api.jup.ag";
+
+- Keep env overrides but interpret them correctly:
+  - JUPITER_BASE_URL may be set to either lite or pro base (no path).
+  - JUPITER_FALLBACK_URLS is comma-separated bases.
+
+- Add optional API key support:
+  - Read process.env.JUP_API_KEY (or JUPITER_API_KEY if you prefer; support both):
+    const JUP_API_KEY = process.env.JUP_API_KEY || process.env.JUPITER_API_KEY || "";
+
+- Candidate order:
+  - If JUP_API_KEY exists: [pro, lite, envPrimary, envFallbacks...]
+  - Else: [lite, pro, envPrimary, envFallbacks...]
+  - De-duplicate bases (Set), preserve order, filter empty.
+
+- IMPORTANT: Base URLs must NOT include trailing path like /v6. Only host root.
+
+---------------------------------------
+2) CHANGE ENDPOINT PATHS TO SWAP API V1
+---------------------------------------
+Replace ALL:
+- "/v6/quote"  -> "/swap/v1/quote"
+- "/v6/swap"   -> "/swap/v1/swap"
+
+That includes:
+- health check testPath
+- actual quote path
+- swap build url
+
+Example:
+const testPath = "/swap/v1/quote?inputMint=...";
+
+Quote URL becomes:
+`${baseUrl}/swap/v1/quote?${queryParams}`
+
+Swap URL becomes:
+`${baseUrl}/swap/v1/swap`
+
+---------------------------------------
+3) ADD FETCH HELPER WITH TIMEOUT + RETRY + FALLBACK
+---------------------------------------
+Inside server/swap/jupiterClient.ts (or extract helper in same file), implement:
+
+- const TIMEOUT_MS = Number(process.env.JUPITER_TIMEOUT_MS || 10000);
+- const MAX_RETRIES = Number(process.env.JUPITER_MAX_RETRIES || 2);
+
+- function isRetryableError(err, status?): boolean
+  Retryable if:
+   - err.code in ["EAI_AGAIN","ENOTFOUND","ECONNRESET","ETIMEDOUT","ECONNREFUSED"]
+   - err.name === "TypeError" and String(err.message).includes("fetch failed")
+   - status in [429,500,502,503,504]
+
+- function sleep(ms)
+
+- async function fetchWithTimeout(url, init)
+  Use AbortController to timeout at TIMEOUT_MS
+
+- Add a tiny in-memory cooldown when 429 happens:
+  let rateLimitUntil = 0;
+  If Date.now() < rateLimitUntil, throw a synthetic error { code:"RATE_LIMIT_COOLDOWN" }
+
+  When 429 received:
+   - read Retry-After header seconds if present, else 2 seconds
+   - set rateLimitUntil = Date.now() + retryAfterMs
+
+- Main request flow for quote/swap:
+  async function jupiterRequest(path, { method, body?, headers? }):
+    For each baseUrl in candidates:
+      For attempt 0..MAX_RETRIES:
+        - if in cooldown and attempt==0, wait (min 2000ms) then continue
+        - call fetchWithTimeout(baseUrl + path)
+        - if ok -> return json
+        - if retryable status -> backoff (250ms, 500ms, 1000ms) and retry
+        - else break and try next baseUrl
+      If baseUrl exhausted -> try next baseUrl
+    At end throw last error with context { tried: [baseUrls], lastUrl }
+
+- Headers:
+  If baseUrl is DEFAULT_PRO_BASE_URL OR equals "https://api.jup.ag" OR env contains "api.jup.ag":
+    - If JUP_API_KEY exists, send header:
+      "Authorization": `Bearer ${JUP_API_KEY}`
+    - Also set "Content-Type": "application/json"
+  For lite, no key needed, but keep content-type for POST.
+
+---------------------------------------
+4) UPDATE EXISTING EXPORTED FUNCTIONS TO USE NEW HELPER
+---------------------------------------
+Wherever the file currently does:
+- build quote URL and fetch
+- build swap URL and fetch
+
+Replace with:
+- const path = `/swap/v1/quote?${queryParams.toString()}`
+  return await jupiterRequest(path, { method:"GET" })
+
+- const path = `/swap/v1/swap`
+  return await jupiterRequest(path, { method:"POST", body: JSON.stringify(payload) })
+
+Health/ping should also use /swap/v1/quote.
+
+---------------------------------------
+5) IMPROVE LOGS BUT NO SPAM
+---------------------------------------
+- On failure, log one line:
+  "[Jupiter] request failed", { path, code/status, baseUrl }
+- Do NOT print huge stack traces repeatedly.
+- Include which baseUrl finally succeeded in health response if applicable.
+
+---------------------------------------
+6) BACKWARD COMPAT: ENV VARS STILL WORK
+---------------------------------------
+- If someone sets JUPITER_BASE_URL to quote-api.jup.ag, still try it as fallback,
+  BUT it will now use /swap/v1/* paths. That’s okay.
+- Keep JUPITER_FALLBACK_URLS support as additional bases.
+
+---------------------------------------
+7) QUICK SANITY CHECKS (NO TEST SUITE NEEDED)
+---------------------------------------
+Add a small internal function or comment for manual testing:
+- GET quote from lite/pro:
+  /swap/v1/quote SOL->USDC amount=1000000 slippageBps=50
+- Build swap via /swap/v1/swap using a known quote response
+
+Ensure TypeScript compiles.
+
+DELIVER:
+- Updated server/swap/jupiterClient.ts implementing the above
+- Ensure all internal call sites still work (same function signatures)
+- Ensure default base no longer uses quote-api.jup.ag

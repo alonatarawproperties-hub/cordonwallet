@@ -1,11 +1,12 @@
 import { Router, Request, Response } from "express";
 import dns from "dns";
 import net from "net";
-import { jupiterQuotePing } from "./jupiterClient";
+import { jupiterQuotePing, getConfiguredBaseUrls, hasApiKey } from "./jupiterClient";
 
 export const diagRouter = Router();
 
-const JUPITER_HOST = "quote-api.jup.ag";
+const JUPITER_LITE_HOST = "lite-api.jup.ag";
+const JUPITER_PRO_HOST = "api.jup.ag";
 
 interface DnsResult {
   ok: boolean;
@@ -88,53 +89,77 @@ async function tcpConnect(host: string, port: number, timeoutMs: number = 3000):
 }
 
 diagRouter.get("/jupiter", async (_req: Request, res: Response) => {
+  const baseUrls = getConfiguredBaseUrls();
+  const primaryHost = JUPITER_LITE_HOST;
+
   const results: {
     ts: number;
-    dnsLookup: DnsResult;
-    tcpConnect: TcpResult;
+    configuredBaseUrls: string[];
+    hasApiKey: boolean;
+    dnsLookup: { lite: DnsResult; pro: DnsResult };
+    tcpConnect: { lite: TcpResult; pro: TcpResult };
     httpsFetch: Awaited<ReturnType<typeof jupiterQuotePing>>;
     summary: {
-      dnsOk: boolean;
-      tcpOk: boolean;
+      liteDnsOk: boolean;
+      proDnsOk: boolean;
       httpsOk: boolean;
       likelyIssue: string;
     };
   } = {
     ts: Date.now(),
-    dnsLookup: { ok: false, host: JUPITER_HOST, latencyMs: 0 },
-    tcpConnect: { ok: false, host: JUPITER_HOST, port: 443, latencyMs: 0 },
+    configuredBaseUrls: baseUrls,
+    hasApiKey: hasApiKey(),
+    dnsLookup: {
+      lite: { ok: false, host: JUPITER_LITE_HOST, latencyMs: 0 },
+      pro: { ok: false, host: JUPITER_PRO_HOST, latencyMs: 0 },
+    },
+    tcpConnect: {
+      lite: { ok: false, host: JUPITER_LITE_HOST, port: 443, latencyMs: 0 },
+      pro: { ok: false, host: JUPITER_PRO_HOST, port: 443, latencyMs: 0 },
+    },
     httpsFetch: { ok: false, latencyMs: 0, baseUrlUsed: "" },
-    summary: { dnsOk: false, tcpOk: false, httpsOk: false, likelyIssue: "" },
+    summary: { liteDnsOk: false, proDnsOk: false, httpsOk: false, likelyIssue: "" },
   };
 
-  results.dnsLookup = await dnsLookup(JUPITER_HOST);
-  results.summary.dnsOk = results.dnsLookup.ok;
+  const [liteDns, proDns] = await Promise.all([
+    dnsLookup(JUPITER_LITE_HOST),
+    dnsLookup(JUPITER_PRO_HOST),
+  ]);
 
-  if (results.dnsLookup.ok && results.dnsLookup.addresses?.[0]) {
-    const ip = results.dnsLookup.addresses[0].address;
-    results.tcpConnect = await tcpConnect(ip, 443, 3000);
-    results.summary.tcpOk = results.tcpConnect.ok;
+  results.dnsLookup.lite = liteDns;
+  results.dnsLookup.pro = proDns;
+  results.summary.liteDnsOk = liteDns.ok;
+  results.summary.proDnsOk = proDns.ok;
+
+  const tcpPromises: Promise<TcpResult>[] = [];
+  if (liteDns.ok && liteDns.addresses?.[0]) {
+    tcpPromises.push(tcpConnect(liteDns.addresses[0].address, 443, 3000));
   } else {
-    results.tcpConnect = {
-      ok: false,
-      host: JUPITER_HOST,
-      port: 443,
-      latencyMs: 0,
-      error: "Skipped: DNS lookup failed",
-    };
+    tcpPromises.push(Promise.resolve({
+      ok: false, host: JUPITER_LITE_HOST, port: 443, latencyMs: 0, error: "Skipped: DNS failed",
+    }));
   }
+  if (proDns.ok && proDns.addresses?.[0]) {
+    tcpPromises.push(tcpConnect(proDns.addresses[0].address, 443, 3000));
+  } else {
+    tcpPromises.push(Promise.resolve({
+      ok: false, host: JUPITER_PRO_HOST, port: 443, latencyMs: 0, error: "Skipped: DNS failed",
+    }));
+  }
+
+  const [liteTcp, proTcp] = await Promise.all(tcpPromises);
+  results.tcpConnect.lite = liteTcp;
+  results.tcpConnect.pro = proTcp;
 
   results.httpsFetch = await jupiterQuotePing();
   results.summary.httpsOk = results.httpsFetch.ok;
 
-  if (!results.summary.dnsOk) {
-    results.summary.likelyIssue = "DNS resolution failed - host may be blocking DNS or network egress is restricted";
-  } else if (!results.summary.tcpOk) {
-    results.summary.likelyIssue = "TCP connection to port 443 failed - firewall may be blocking outbound HTTPS";
+  if (!results.summary.liteDnsOk && !results.summary.proDnsOk) {
+    results.summary.likelyIssue = "DNS resolution failed for all Jupiter hosts - network egress may be restricted";
   } else if (!results.summary.httpsOk) {
-    results.summary.likelyIssue = "HTTPS request failed - TLS handshake issue or Jupiter API error";
+    results.summary.likelyIssue = "HTTPS request failed despite DNS success - check TLS or firewall";
   } else {
-    results.summary.likelyIssue = "None - all connectivity checks passed";
+    results.summary.likelyIssue = "None - connectivity OK";
   }
 
   res.json(results);
