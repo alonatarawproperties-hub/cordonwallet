@@ -34,6 +34,7 @@ import BrowserWebViewScreen from "@/screens/BrowserWebViewScreen";
 import ExportWalletScreen from "@/screens/ExportWalletScreen";
 import SeedPhraseExportScreen from "@/screens/SeedPhraseExportScreen";
 import PrivateKeyExportScreen from "@/screens/PrivateKeyExportScreen";
+import SwapScreen from "@/screens/SwapScreen";
 import SwapHistoryScreen from "@/screens/SwapHistoryScreen";
 import SwapDebugScreen from "@/screens/SwapDebugScreen";
 import TokenSelectScreen from "@/screens/TokenSelectScreen";
@@ -120,6 +121,7 @@ export type RootStackParamList = {
   ExportWallet: { walletId: string; walletName: string };
   SeedPhraseExport: { walletId: string; walletName: string };
   PrivateKeyExport: { walletId: string; walletName: string };
+  Swap: undefined;
   SwapHistory: undefined;
   SwapDebug: undefined;
   TokenSelect: {
@@ -301,6 +303,11 @@ export default function RootStackNavigator() {
         name="PrivateKeyExport"
         component={PrivateKeyExportScreen}
         options={{ headerTitle: "Private Keys" }}
+      />
+      <Stack.Screen
+        name="Swap"
+        component={SwapScreen}
+        options={{ headerTitle: "Swap" }}
       />
       <Stack.Screen
         name="SwapHistory"
