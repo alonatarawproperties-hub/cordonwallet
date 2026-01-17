@@ -1,0 +1,160 @@
+{
+  "id": "e5028854-7ec0-426a-9ea5-7078c0cfae2d",
+  "createdAt": "2026-01-17T02:49:06.597Z",
+  "runtimeVersion": "1.0.0",
+  "launchAsset": {
+    "key": "bundle-1768618146597-17870",
+    "contentType": "application/javascript",
+    "url": "https://6fda7a84-e2ae-477f-946b-acefeca55a11-00-3f25q8tc7imfd.worf.replit.dev/1768618146597-17870/_expo/static/js/android/bundle.js"
+  },
+  "assets": [],
+  "metadata": {},
+  "extra": {
+    "eas": {
+      "projectId": "73617114-5956-4f38-bfc1-d643e57b6947"
+    },
+    "expoClient": {
+      "name": "Cordon",
+      "slug": "cordon",
+      "version": "1.0.0",
+      "orientation": "portrait",
+      "icon": "./assets/images/icon.png",
+      "scheme": "cordon",
+      "userInterfaceStyle": "automatic",
+      "newArchEnabled": true,
+      "ios": {
+        "supportsTablet": true,
+        "bundleIdentifier": "com.cordon.app",
+        "infoPlist": {
+          "ITSAppUsesNonExemptEncryption": false,
+          "CFBundleURLTypes": [
+            {
+              "CFBundleURLSchemes": [
+                "cordon"
+              ]
+            }
+          ]
+        }
+      },
+      "android": {
+        "adaptiveIcon": {
+          "backgroundColor": "#0B0F14",
+          "foregroundImage": "./assets/images/icon.png",
+          "foregroundImageUrl": "http://z463fwg-cordonwallet-8081.exp.direct/assets/./assets/images/icon.png"
+        },
+        "edgeToEdgeEnabled": true,
+        "predictiveBackGestureEnabled": false,
+        "package": "com.cordon.app",
+        "permissions": [
+          "android.permission.USE_BIOMETRIC",
+          "android.permission.USE_FINGERPRINT"
+        ],
+        "intentFilters": [
+          {
+            "action": "VIEW",
+            "autoVerify": true,
+            "data": [
+              {
+                "scheme": "cordon",
+                "host": "auth",
+                "pathPrefix": "/callback"
+              }
+            ],
+            "category": [
+              "BROWSABLE",
+              "DEFAULT"
+            ]
+          }
+        ]
+      },
+      "web": {
+        "output": "single",
+        "favicon": "./assets/images/favicon.png"
+      },
+      "plugins": [
+        [
+          "expo-splash-screen",
+          {
+            "image": "./assets/images/splash-icon.png",
+            "imageWidth": 200,
+            "resizeMode": "contain",
+            "backgroundColor": "#0B0F14",
+            "dark": {
+              "backgroundColor": "#0B0F14"
+            }
+          }
+        ],
+        "expo-web-browser",
+        [
+          "expo-local-authentication",
+          {
+            "faceIDPermission": "Allow Cordon to use Face ID for secure access."
+          }
+        ],
+        "expo-secure-store"
+      ],
+      "experiments": {
+        "reactCompiler": true
+      },
+      "runtimeVersion": {
+        "policy": "appVersion"
+      },
+      "updates": {
+        "url": "https://u.expo.dev/73617114-5956-4f38-bfc1-d643e57b6947"
+      },
+      "extra": {
+        "eas": {
+          "projectId": "73617114-5956-4f38-bfc1-d643e57b6947"
+        }
+      },
+      "_internal": {
+        "isDebug": false,
+        "projectRoot": "/home/runner/workspace",
+        "dynamicConfigPath": {},
+        "staticConfigPath": "/home/runner/workspace/app.json",
+        "packageJsonPath": "/home/runner/workspace/package.json",
+        "pluginHistory": {
+          "expo-splash-screen": {
+            "name": "expo-splash-screen",
+            "version": "31.0.11"
+          },
+          "expo-web-browser": {
+            "name": "expo-web-browser",
+            "version": "15.0.9"
+          },
+          "expo-local-authentication": {
+            "name": "expo-local-authentication",
+            "version": "17.0.8"
+          },
+          "expo-secure-store": {
+            "name": "expo-secure-store",
+            "version": "15.0.8"
+          }
+        }
+      },
+      "sdkVersion": "54.0.0",
+      "platforms": [
+        "ios",
+        "android",
+        "web"
+      ],
+      "androidStatusBar": {
+        "backgroundColor": "#0B0F14"
+      },
+      "iconUrl": "http://z463fwg-cordonwallet-8081.exp.direct/assets/./assets/images/icon.png",
+      "hostUri": "6fda7a84-e2ae-477f-946b-acefeca55a11-00-3f25q8tc7imfd.worf.replit.dev/android"
+    },
+    "expoGo": {
+      "debuggerHost": "6fda7a84-e2ae-477f-946b-acefeca55a11-00-3f25q8tc7imfd.worf.replit.dev/android",
+      "developer": {
+        "tool": "expo-cli",
+        "projectRoot": "/home/runner/workspace"
+      },
+      "packagerOpts": {
+        "dev": false
+      },
+      "mainModuleName": "client/index"
+    },
+    "scopeKey": "@anonymous/cordon-6a0a734f-85a8-43dc-897d-788ae98ca883"
+  }
+}
