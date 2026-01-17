@@ -75,6 +75,11 @@ function isRateLimitError(error: any): boolean {
 
 console.log("[Solana API] Using RPC:", getRpcProviderName(PRIMARY_RPC_URL));
 
+export function getSolanaConnection(): Connection {
+  checkFallbackExpiry();
+  return connection;
+}
+
 export interface SolBalance {
   lamports: number;
   sol: string;

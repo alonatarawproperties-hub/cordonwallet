@@ -1,0 +1,65 @@
+Implement a SERVER-SIDE swap transaction security validator that correctly resolves v0 Address Lookup Table (LUT) accounts (so we stop false “unexpected program” blocks) WITHOUT changing or breaking existing swap flows. Keep changes minimal and additive.
+
+GOAL
+- Client-side swapSecurity.ts cannot reliably verify Jupiter v0/LUT txs. Add a server validator that:
+  1) Deserializes the base64 VersionedTransaction
+  2) Resolves LUT accounts via RPC (connection.getAddressLookupTable)
+  3) Extracts the REAL program IDs used by compiled instructions
+  4) Enforces an allowlist (Jupiter + Pump + core Solana programs)
+  5) Enforces fee payer / signer rules (must be the user)
+- Return this validator result inside existing swap API responses so the client can rely on server truth for LUT txs.
+
+CONSTRAINTS
+- Do NOT refactor swap logic or change how quotes/swaps are built.
+- Do NOT change request/response shapes in a breaking way; only ADD an optional `security` field to swap responses.
+- Keep any new files in server/swap/*.
+- Use existing `swapConfig` / connection config. If there’s an existing Solana RPC connection in swap code, reuse it.
+
+STEP 1 — Add allowlist constants on server
+Create: server/swap/solanaPrograms.ts
+- Export sets:
+  - JUPITER_PROGRAM_IDS (copy the exact IDs from client/constants/solanaSwap.ts)
+  - PUMP_PROGRAM_IDS (copy exact IDs from client/constants/solanaSwap.ts)
+  - ALLOWED_PROGRAM_IDS = core + jupiter + pump
+Core programs MUST include:
+  - SystemProgram: 11111111111111111111111111111111
+  - ComputeBudget111111111111111111111111111111
+  - TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA
+  - ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL
+  - TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb
+Optional safe additions (if encountered in real txs, include now):
+  - MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr
+  - AddressLookupTab1e1111111111111111111111111 (only if it appears; otherwise omit)
+
+STEP 2 — Implement validator
+Create: server/swap/txSecurity.ts
+Export types:
+  export type SwapRouteType = "jupiter" | "pump" | "none";
+  export type SwapSecurityResult = {
+    safe: boolean;
+    warnings: string[];
+    errors: string[];
+    details: {
+      feePayer: string;
+      feePayerIsUser: boolean;
+      userIsSigner: boolean;
+      programIds: string[];
+      unknownPrograms: string[];
+      hasJupiterProgram: boolean;
+      hasPumpProgram: boolean;
+      hasLuts: boolean;
+      addressLookupTables: string[]; // table pubkeys
+    };
+  };
+
+Export function:
+  export async function validateSwapTxServer(args: {
+    txBase64: string;
+    expectedUserPubkey: string;
+    routeType?: SwapRouteType;
+    connection: Connection;
+  }): Promise<SwapSecurityResult>
+
+Implementation details (IMPORTANT):
+- Deserialize:
+  const tx = VersionedTransaction.deserialize(Buffer.from(txBase64

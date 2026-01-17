@@ -10,7 +10,9 @@ import {
   getSplTokenMetadata,
   getSolanaTransactionHistory,
   estimateSolanaFee,
+  getSolanaConnection,
 } from "./solana-api";
+import { validateSwapTxServer, type SwapSecurityResult } from "./swap/txSecurity";
 import { quoteRateLimiter, tokenListRateLimiter, swapBuildRateLimiter } from "./middleware/rateLimit";
 import { fetchWithBackoff } from "./lib/fetchWithBackoff";
 
@@ -158,7 +160,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       const data = await response.json();
-      res.json(data);
+      
+      // Server-side security validation for LUT transactions
+      let security: SwapSecurityResult | undefined;
+      if (data.swapTransaction) {
+        try {
+          const connection = getSolanaConnection();
+          security = await validateSwapTxServer({
+            txBase64: data.swapTransaction,
+            expectedUserPubkey: body.userPublicKey,
+            routeType: "jupiter",
+            connection,
+          });
+          console.log("[Jupiter Proxy] Security validation:", security.safe ? "SAFE" : "BLOCKED", security.details.hasLuts ? "(LUT tx)" : "(static tx)");
+        } catch (secError: any) {
+          console.error("[Jupiter Proxy] Security validation failed:", secError.message);
+          security = {
+            safe: false,
+            warnings: [],
+            errors: [`Security validation failed: ${secError.message}`],
+            details: {
+              feePayer: "",
+              feePayerIsUser: false,
+              userIsSigner: false,
+              programIds: [],
+              unknownPrograms: [],
+              hasJupiterProgram: false,
+              hasPumpProgram: false,
+              hasLuts: false,
+              addressLookupTables: [],
+            },
+          };
+        }
+      }
+      
+      res.json({ ...data, security });
     } catch (error: any) {
       console.error("[Jupiter Proxy] Swap failed:", error.message);
       res.status(500).json({ error: error.message || "Failed to build swap" });

@@ -12,6 +12,8 @@ import { searchTokens, getToken, resolveToken, initTokenList } from "./tokenlist
 import { getRouteQuote, getPumpMeta } from "./route";
 import { jupiterQuotePing } from "./jupiterClient";
 import { diagRouter } from "./diag";
+import { validateSwapTxServer, type SwapSecurityResult } from "./txSecurity";
+import { getSolanaConnection } from "../solana-api";
 
 export const swapRouter = Router();
 
@@ -292,7 +294,22 @@ swapRouter.post("/solana/pump/build", async (req: Request, res: Response) => {
     
     const result = await buildPumpTransaction(parsed.data);
     
-    if (result.ok) {
+    if (result.ok && result.swapTransactionBase64) {
+      let security: SwapSecurityResult | undefined;
+      try {
+        const connection = getSolanaConnection();
+        security = await validateSwapTxServer({
+          txBase64: result.swapTransactionBase64,
+          expectedUserPubkey: parsed.data.userPublicKey,
+          routeType: "pump",
+          connection,
+        });
+        console.log("[Swap API] Pump security validation:", security.safe ? "SAFE" : "BLOCKED", security.details.hasLuts ? "(LUT tx)" : "(static tx)");
+      } catch (secError: any) {
+        console.error("[Swap API] Pump security validation failed:", secError.message);
+      }
+      res.json({ ...result, security });
+    } else if (result.ok) {
       res.json(result);
     } else {
       res.status(502).json(result);
