@@ -4,7 +4,6 @@ import { Feather } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import * as Haptics from "expo-haptics";
-import * as Clipboard from "expo-clipboard";
 
 import { ThemedText } from "@/components/ThemedText";
 import { Spacing } from "@/constants/theme";
@@ -69,29 +68,23 @@ export function PortfolioHeaderLeft() {
 export function PortfolioHeaderRight() {
   const { theme } = useTheme();
   const navigation = useNavigation<Navigation>();
-  const { activeWallet, selectedNetwork } = useWallet();
-  const [copied, setCopied] = useState(false);
+  const { activeWallet } = useWallet();
 
   const handleScan = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     navigation.navigate("WalletConnect");
   }, [navigation]);
 
-  const handleCopy = useCallback(async () => {
-    const evmAddress = activeWallet?.addresses?.evm || activeWallet?.address;
+  const handleReceive = useCallback(() => {
+    const evmAddress = activeWallet?.addresses?.evm || activeWallet?.address || "";
     const solanaAddress = activeWallet?.addresses?.solana;
     
-    const addressToCopy = selectedNetwork === "solana" && solanaAddress 
-      ? solanaAddress 
-      : evmAddress;
-
-    if (addressToCopy) {
-      await Clipboard.setStringAsync(addressToCopy);
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
-  }, [activeWallet, selectedNetwork]);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    navigation.navigate("Receive", { 
+      walletAddress: evmAddress, 
+      solanaAddress: solanaAddress 
+    });
+  }, [activeWallet, navigation]);
 
   return (
     <View style={styles.rightContainer}>
@@ -103,14 +96,14 @@ export function PortfolioHeaderRight() {
         <Feather name="maximize" size={ICON_SIZE} color={theme.text} />
       </Pressable>
       <Pressable 
-        onPress={handleCopy} 
+        onPress={handleReceive} 
         hitSlop={ICON_HIT_SLOP} 
         style={styles.iconButton}
       >
         <Feather 
-          name={copied ? "check" : "copy"} 
+          name="copy" 
           size={ICON_SIZE} 
-          color={copied ? theme.success : theme.text} 
+          color={theme.text} 
         />
       </Pressable>
     </View>
