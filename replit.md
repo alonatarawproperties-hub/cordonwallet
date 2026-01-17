@@ -86,3 +86,19 @@ The project is organized into `/client` (React Native frontend), `/server` (Expr
 
 ### Database
 - **PostgreSQL**: Used with Drizzle ORM.
+
+## Developer Notes
+
+### Cordon Success Fee
+- Fee is charged ONLY if swap confirms successfully on-chain
+- Fee schedule: Standard (0.0002 SOL), Fast (0.00035 SOL), Turbo (0.0006 SOL)
+- Pro users have fee waived; fee is included in reserve calculation
+- Failed fee payments are queued and retried on screen focus (max 3 attempts, 30-min intervals)
+- Files: `client/constants/successFee.ts`, `client/services/successFeeService.ts`
+
+### Cordon Treasury
+- Treasury address configured in `app.config.ts` under `extra.cordonSolTreasury`
+- Solana treasury: `6pcN26cpKbWmGyRn8DgRjqRzpBW2CFp8PK5wZ9gTArpE`
+- Central accessor: `client/constants/treasury.ts` with OTA-safe fallbacks
+- Displayed in Settings screen with Copy and Explorer buttons
+- If treasury not configured, success fees are silently skipped
