@@ -4,7 +4,13 @@ import { Buffer } from "buffer";
 (global as any).Buffer = (global as any).Buffer || Buffer;
 
 import React from "react";
-import { StyleSheet, View } from "react-native";
+import { StyleSheet, View, LogBox } from "react-native";
+
+LogBox.ignoreLogs([
+  "[SwapDebug]",
+  "Swap failed",
+  "Simulation fail",
+]);
 import { NavigationContainer } from "@react-navigation/native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
