@@ -831,9 +831,22 @@ export default function SwapScreen({ route }: Props) {
                   </Pressable>
 
                   <View style={styles.slippageValueCenter}>
-                    <ThemedText style={{ fontSize: 56, fontWeight: "800", color: theme.text, letterSpacing: -2 }}>
-                      {slippagePercent.toFixed(1)}
-                    </ThemedText>
+                    <TextInput
+                      style={[styles.slippageInput, { color: theme.text }]}
+                      value={slippagePercent.toFixed(1)}
+                      onChangeText={(text) => {
+                        const cleaned = text.replace(/[^0-9.]/g, "");
+                        const parsed = parseFloat(cleaned);
+                        if (!isNaN(parsed)) {
+                          const bps = Math.round(parsed * 100);
+                          const clamped = Math.max(SLIPPAGE_STEP, Math.min(MAX_SLIPPAGE_BPS, bps));
+                          setSlippageBps(clamped);
+                        }
+                      }}
+                      keyboardType="decimal-pad"
+                      selectTextOnFocus
+                      maxLength={4}
+                    />
                     <ThemedText style={{ fontSize: 24, fontWeight: "600", color: theme.textSecondary, marginLeft: 2, marginTop: 8 }}>
                       %
                     </ThemedText>
@@ -1882,6 +1895,14 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "flex-start",
     justifyContent: "center",
+  },
+  slippageInput: {
+    fontSize: 56,
+    fontWeight: "800",
+    letterSpacing: -2,
+    textAlign: "center",
+    minWidth: 100,
+    padding: 0,
   },
   slippageWarning: {
     flexDirection: "row",
