@@ -1,0 +1,41 @@
+Single Replit Agent Prompt (do exactly this, minimal blast radius, don’t touch swap logic):
+
+You accidentally removed the top-left Settings (gear) icon on the main wallet/portfolio screen header. I want it restored exactly like the Settings screen style (pic 1), without breaking any existing header behavior (wallet dropdown title, scan/copy buttons, etc.).
+
+Goal
+
+On the main wallet/portfolio screen (the one showing “Imported Wallet”, balance, Send/Receive/Swap buttons, Assets list), the top-left header icon must be a gear icon that navigates to the Settings screen/tab (same destination as bottom “Settings” tab). This must match the styling in pic 1 (gear icon, size, color, spacing).
+
+Requirements (do not break anything)
+	•	Keep the existing header title (wallet name + dropdown) and existing right-side icons/actions unchanged.
+	•	Only add/restore the left-side gear button.
+	•	Navigation must work from TestFlight / production build.
+	•	If the app uses tab navigation, route to the Settings tab.
+	•	If Settings is in a stack, route to the Settings screen.
+	•	Do not modify swap, token list, security checks, or network logic.
+
+Implementation steps
+	1.	Find the screen that renders the main wallet/portfolio UI (likely something like):
+	•	client/screens/PortfolioScreen.tsx / client/screens/WalletScreen.tsx / client/screens/HomeScreen.tsx
+	•	Or wherever the header with “Imported Wallet” is configured.
+	2.	Identify how the header is set:
+	•	Either via navigation.setOptions({ headerLeft: ... })
+	•	Or a custom header component (e.g., Header, WalletHeader) that renders left/right icons.
+	3.	Restore/add headerLeft:
+	•	Render a Pressable/TouchableOpacity with a gear icon (use the same icon library and exact icon name used in the Settings tab or Settings screen).
+	•	Match size/color/padding to pic 1 (copy the same constants/styles used for header icons).
+	4.	Navigation behavior:
+	•	Prefer: navigation.navigate("Settings")
+	•	If Settings is a tab: navigation.navigate("SettingsTab") or navigation.navigate("Settings", { screen: "Settings" }) depending on your navigator.
+	•	If there is a root navigator: use navigation.getParent()?.navigate(...) when needed.
+	•	Make it robust: try direct route first, then parent route.
+	5.	QA checklist
+	•	Wallet screen shows gear icon top-left.
+	•	Tapping gear opens Settings screen (pic 1).
+	•	Header title dropdown still works.
+	•	Right-side icons still work.
+	•	No layout shift / overlap on small devices (iPhone).
+	•	No new warnings/errors.
+
+Output
+	•	Make the code change, run the app, and confirm via a screenshot or log note that the gear icon is present and navigates correctly.
