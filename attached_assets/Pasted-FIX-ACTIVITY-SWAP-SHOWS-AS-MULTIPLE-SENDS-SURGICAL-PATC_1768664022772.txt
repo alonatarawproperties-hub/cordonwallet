@@ -1,0 +1,65 @@
+FIX ACTIVITY “SWAP SHOWS AS MULTIPLE SENDS” — SURGICAL PATCH ONLY
+
+RULES:
+- DO NOT touch swap execution (Jupiter/Pump quote, swap tx building, signing, sending).
+- ONLY edit server/solana-api.ts in the fallback history parser block (lines ~775-957).
+- Goal: Stop DEX swap hops / inner instructions from being shown as multiple "Send" entries.
+- Only create Send/Receive entries when the transfer actually involves the user address.
+
+CONTEXT:
+Bug happens because fallback parser merges innerInstructions and then defaults unrelated transfers to "send".
+
+CHANGES TO MAKE (MINIMAL):
+
+1) STOP INCLUDING innerInstructions IN fallback parsing
+In the fallback block, replace:
+  const allInstructions: any[] = [...instructions];
+  if (tx.meta.innerInstructions) { ... allInstructions.push(...inner.instructions) ... }
+
+WITH:
+  const allInstructions: any[] = [...instructions];
+  // IMPORTANT: do NOT include tx.meta.innerInstructions here.
+  // Inner instructions from DEX swaps cause hop transfers to be mis-labeled as "Send".
+
+2) SPL TRANSFERS: ONLY ACCEPT IF USER IS INVOLVED (REMOVE DEFAULT SEND)
+Inside processSplTransfer(ix), after you resolve:
+  authority, sourceOwner, destOwner
+
+ADD THIS GATE:
+  const userInvolved =
+    sourceOwner === address ||
+    destOwner === address ||
+    authority === address;
+  if (!userInvolved) return false;
+
+Then change the type logic to:
+  if (sourceOwner === address || authority === address) type = "send";
+  else if (destOwner === address) type = "receive";
+  else return false;
+
+REMOVE the old "else type='send' default" branch.
+
+3) SOL TRANSFERS: SKIP IF USER IS NOT SOURCE OR DESTINATION (REMOVE DEFAULT SEND)
+In the SOL transfer loop:
+Replace:
+  let solType: "send" | "receive" = "send";
+  if (info.source === address) solType="send";
+  else if (info.destination === address) solType="receive";
+  solTransfer = {...}
+
+WITH:
+  if (info.source !== address && info.destination !== address) continue;
+  let solType: "send" | "receive";
+  if (info.source === address) solType = "send";
+  else solType = "receive";
+  solTransfer = {...}
+
+4) DO NOT CHANGE ANYTHING ELSE
+- Keep existing response shape.
+- Keep existing mapping in client/screens/ActivityScreen.tsx unchanged.
+- Just ensure swaps no longer create multiple “Send” entries from inner hops.
+
+AFTER PATCH:
+- Run history for an address that did a swap.
+- Expected: you should NOT see multiple “Send -0.4 SOL” spam entries created from inner swap hops.
+- You might see fewer entries; that's correct. Only user-involved transfers should remain.

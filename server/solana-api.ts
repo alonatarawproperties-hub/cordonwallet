@@ -772,18 +772,10 @@ export async function getSolanaTransactionHistory(
         }
       }
       
-      // Collect ALL instructions including inner instructions (CPI calls)
-      // SPL token transfers via DEXs/programs are often in innerInstructions
+      // Collect top-level instructions only
       const allInstructions: any[] = [...instructions];
-      
-      // Add inner instructions (CPI calls from programs like Jupiter, pump.fun, etc.)
-      if (tx.meta.innerInstructions) {
-        for (const inner of tx.meta.innerInstructions) {
-          if (inner.instructions) {
-            allInstructions.push(...inner.instructions);
-          }
-        }
-      }
+      // IMPORTANT: do NOT include tx.meta.innerInstructions here.
+      // Inner instructions from DEX swaps cause hop transfers to be mis-labeled as "Send".
       
       // Track SOL transfer separately - SPL token transfers take priority
       let solTransfer: { amount: string; from: string; to: string; type: "send" | "receive" } | null = null;
@@ -884,14 +876,20 @@ export async function getSolanaTransactionHistory(
         from = sourceOwner;
         to = destOwner;
         
+        // Only accept if user is actually involved in this transfer
+        const userInvolved =
+          sourceOwner === address ||
+          destOwner === address ||
+          authority === address;
+        if (!userInvolved) return false;
+        
         // Determine send/receive based on wallet address matching the authority/owner
         if (sourceOwner === address || authority === address) {
           type = "send";
         } else if (destOwner === address) {
           type = "receive";
         } else {
-          // Check if the user's address is involved in the source or dest token account
-          type = "send"; // Default to send if we can't determine
+          return false;
         }
         
         return true;
@@ -915,12 +913,15 @@ export async function getSolanaTransactionHistory(
             // Skip tiny amounts that are just fees (less than 0.0001 SOL = 100000 lamports)
             if (lamports < 100000) continue;
             
+            // Skip if user is not source or destination
+            if (info.source !== address && info.destination !== address) continue;
+            
             const solAmount = (lamports / LAMPORTS_PER_SOL).toString();
-            let solType: "send" | "receive" = "send";
+            let solType: "send" | "receive";
             
             if (info.source === address) {
               solType = "send";
-            } else if (info.destination === address) {
+            } else {
               solType = "receive";
             }
             
