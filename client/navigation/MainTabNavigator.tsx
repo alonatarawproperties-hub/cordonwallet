@@ -8,14 +8,15 @@ import { PortfolioHeaderTitle, PortfolioHeaderLeft, PortfolioHeaderRight } from 
 
 import PortfolioScreen from "@/screens/PortfolioScreen";
 import ActivityScreen from "@/screens/ActivityScreen";
-import SwapScreen from "@/screens/SwapScreen";
 import BrowserScreen from "@/screens/BrowserScreen";
+import MultisigScreen from "@/screens/MultisigScreen";
 import BundlesScreen from "@/screens/BundlesScreen";
+
 export type MainTabParamList = {
   Portfolio: undefined;
   Activity: undefined;
-  Swap: undefined;
   Browser: undefined;
+  Multisig: undefined;
   Bundles: undefined;
 };
 
@@ -85,16 +86,6 @@ export default function MainTabNavigator() {
         }}
       />
       <Tab.Screen
-        name="Swap"
-        component={SwapScreen}
-        options={{
-          headerTitle: "Swap",
-          tabBarIcon: ({ color, size }) => (
-            <Feather name="repeat" size={size} color={color} />
-          ),
-        }}
-      />
-      <Tab.Screen
         name="Browser"
         component={BrowserScreen}
         options={{
@@ -102,6 +93,23 @@ export default function MainTabNavigator() {
           tabBarIcon: ({ color, size }) => (
             <Feather name="globe" size={size} color={color} />
           ),
+        }}
+      />
+      <Tab.Screen
+        name="Multisig"
+        component={MultisigScreen}
+        options={{
+          headerTitle: "Multisig",
+          tabBarIcon: ({ color, size }) => (
+            <View>
+              <Feather name="users" size={size} color={theme.tabIconDefault} />
+              <View style={{ position: "absolute", right: -4, top: -4 }}>
+                <Feather name="lock" size={10} color={theme.tabIconDefault} />
+              </View>
+            </View>
+          ),
+          tabBarLabel: "Multisig",
+          tabBarLabelStyle: { color: theme.tabIconDefault },
         }}
       />
       <Tab.Screen
