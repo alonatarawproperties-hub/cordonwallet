@@ -1,0 +1,106 @@
+Implement “Cordon Success Fee” for Solana swaps with transparent UI + Free vs Pro schedule. Success fee must be charged ONLY after swap confirms, as a separate SOL transfer transaction. Do NOT change existing swap execution logic (Jupiter swap tx). Do NOT refactor unrelated code.
+
+TARGET
+- Traders + gamers
+- Monetize per confirmed swap (success fee)
+- Pro users pay 0 success fee (toggle, can be mock for now)
+
+FEE SCHEDULE (hardcode constants for now)
+- Free plan:
+  - Standard: 0.00020 SOL
+  - Fast:     0.00035 SOL
+  - Turbo:    0.00060 SOL
+- Pro plan:
+  - All modes: 0 SOL
+- Fee wallet address (fee collector):
+  - Add env/config constant: CORDON_FEE_WALLET_SOLANA (string)
+  - If missing, default to a placeholder but DO NOT crash; just skip charging and warn in logs.
+
+REQUIREMENTS
+A) UI (SwapScreen)
+1) In client/screens/SwapScreen.tsx:
+   - In Advanced Settings OR under amount field, add a new section:
+     - Title: “Cordon Success Fee”
+     - Text: “{fee} SOL — charged only if swap confirms.”
+     - Subtext: “This does not affect slippage or your swap price.”
+   - Add a toggle:
+     - “Enable success fee” (default ON)
+     - If user is Pro, allow toggling OFF (fee becomes 0).
+     - If user is not Pro, toggle ON is forced (or OFF disabled with “Pro required” label).
+2) Display the computed fee based on:
+   - selected speed mode (Standard/Fast/Turbo)
+   - pro status
+   - enable toggle
+
+B) Swap execution behavior
+1) Swap flow stays exactly the same up to confirmation.
+2) After the swap tx is confirmed SUCCESSFULLY, attempt to charge success fee:
+   - Create a new SOL transfer tx from user -> fee wallet for feeLamports
+   - Sign with the user’s key (same wallet signing path you already use for SOL transfers)
+   - Submit and confirm it.
+3) If success fee tx fails:
+   - Do NOT revert or mark swap as failed.
+   - Show a non-blocking warning banner/toast:
+     “Swap confirmed. Success fee pending.”
+   - Persist a “pending fee charge” item so we can retry later.
+
+C) Storage / retry
+1) Create a lightweight local queue using AsyncStorage:
+   - key: "cordon_pending_success_fees"
+   - array of objects:
+     { id, createdAt, userPubkey, feeLamports, swapSignature, status, attempts }
+2) When a fee tx fails, store an item with status "pending".
+3) On app startup OR on opening SwapScreen, attempt to retry pending fee charges:
+   - Only retry if userPubkey matches current wallet
+   - Backoff: only retry if last attempt > 30 minutes ago OR attempts < 3
+   - If success, mark status "paid" and optionally remove after 24h
+4) Keep it simple; no server needed.
+
+D) Safety / UX rules
+1) Do not charge if:
+   - computed feeLamports == 0
+   - fee wallet missing or invalid
+   - user has insufficient SOL for the fee transfer (then mark pending)
+2) Prevent user confusion:
+   - In the swap success UI, show:
+     - “Swap confirmed ✅”
+     - “Success fee charged ✅” OR “Success fee pending ⏳”
+3) Ensure this does NOT interfere with “Spendable SOL” logic:
+   - When input is SOL, include the success fee in the reserved fees calculation ONLY IF the success fee toggle is enabled and fee > 0.
+   - That means: reserveLamports += successFeeLamports (so user doesn’t spend all SOL and then fee can’t be collected).
+   - BUT if you already reserve priority cap, keep that as well.
+
+E) Code locations / new files
+1) Add: client/constants/successFee.ts
+   - export fee schedule constants
+   - export function getSuccessFeeLamports(speedMode, isPro, enabled)
+2) Add: client/services/successFeeService.ts
+   - enqueuePendingFee()
+   - tryChargeSuccessFeeNow()
+   - retryPendingFeesForCurrentWallet()
+3) Minimal edits:
+   - client/screens/SwapScreen.tsx (UI + hook call after swap confirm)
+   - client/store/swapStore.ts or wherever swap confirmation is handled (call service after success)
+   - client/lib/solana/feeReserve.ts (add optional successFeeLamports into reserve calc)
+
+F) Testing checklist (must verify)
+1) Free user, Turbo selected:
+   - UI shows 0.00060 SOL
+   - Do swap, swap confirms
+   - fee tx is sent and confirmed
+   - history shows fee transfer
+2) Free user, spends near max SOL:
+   - “Spendable SOL” decreases by success fee amount
+3) If user has 0 SOL left post-swap:
+   - swap confirms
+   - fee charge fails
+   - pending item saved
+   - banner shows “fee pending”
+4) Pro user:
+   - fee displays 0
+   - no fee tx created
+
+DELIVERABLE OUTPUT
+- Implement all changes above.
+- Keep diffs minimal and do not break swap.
+- After implementation, add a short dev note in replit.md explaining how success fee works and where to change fee wallet address.
