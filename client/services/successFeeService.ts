@@ -2,7 +2,8 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { getApiUrl } from "@/lib/query-client";
 import { deriveSolanaKeypair } from "@/lib/solana/keys";
 import { getMnemonic } from "@/lib/wallet-engine";
-import { CORDON_FEE_WALLET_SOLANA, isFeeWalletConfigured } from "@/constants/successFee";
+import { isFeeWalletConfigured } from "@/constants/successFee";
+import { getCordonSolTreasury } from "@/constants/treasury";
 import * as nacl from "tweetnacl";
 
 const PENDING_FEES_KEY = "cordon_pending_success_fees";
@@ -109,7 +110,15 @@ async function sendFeeTransaction(
   feeLamports: number
 ): Promise<{ success: boolean; signature?: string; error?: string }> {
   const { publicKey, secretKey } = deriveSolanaKeypair(mnemonic);
-  const feeWallet = CORDON_FEE_WALLET_SOLANA;
+  const feeWallet = getCordonSolTreasury();
+  
+  if (!feeWallet) {
+    if (__DEV__) {
+      console.warn("[SuccessFee] Treasury not configured, skipping fee");
+    }
+    return { success: true, signature: undefined };
+  }
+  
   const amountSol = (feeLamports / 1_000_000_000).toFixed(9);
   
   const apiUrl = getApiUrl();

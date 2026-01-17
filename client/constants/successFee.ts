@@ -1,6 +1,7 @@
 import { SwapSpeed } from "./solanaSwap";
+import { getCordonSolTreasury, isTreasuryConfigured } from "./treasury";
 
-export const CORDON_FEE_WALLET_SOLANA = process.env.EXPO_PUBLIC_CORDON_FEE_WALLET || "";
+export const CORDON_FEE_WALLET_SOLANA = getCordonSolTreasury();
 
 export const SUCCESS_FEE_LAMPORTS: Record<SwapSpeed, number> = {
   standard: 200_000,   // 0.00020 SOL
@@ -37,5 +38,5 @@ export function getSuccessFeeSol(
 }
 
 export function isFeeWalletConfigured(): boolean {
-  return !!CORDON_FEE_WALLET_SOLANA && CORDON_FEE_WALLET_SOLANA.length >= 32;
+  return isTreasuryConfigured();
 }
