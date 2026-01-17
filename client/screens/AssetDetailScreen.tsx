@@ -1,5 +1,6 @@
 import { useState, useEffect, useLayoutEffect } from "react";
-import { View, StyleSheet, ScrollView, Pressable, ActivityIndicator, Image } from "react-native";
+import { View, StyleSheet, ScrollView, Pressable, ActivityIndicator } from "react-native";
+import { Image } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useNavigation } from "@react-navigation/native";
@@ -354,7 +355,11 @@ export default function AssetDetailScreen({ route }: Props) {
       <View style={[styles.holdingCard, { backgroundColor: theme.backgroundDefault }]}>
         <View style={styles.holdingRow}>
           <View style={styles.holdingChain}>
-            <View style={[styles.chainDot, { backgroundColor: getChainColor(chainName) }]} />
+            {tokenLogoUrl ? (
+              <Image source={{ uri: tokenLogoUrl }} style={styles.holdingTokenLogo} />
+            ) : (
+              <View style={[styles.chainDot, { backgroundColor: getChainColor(chainName) }]} />
+            )}
             <ThemedText type="body">{tokenName}</ThemedText>
           </View>
           <View style={styles.holdingValues}>
@@ -863,6 +868,11 @@ const styles = StyleSheet.create({
     width: 10,
     height: 10,
     borderRadius: 5,
+  },
+  holdingTokenLogo: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
   },
   holdingValues: {
     alignItems: "flex-end",
