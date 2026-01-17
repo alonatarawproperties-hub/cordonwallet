@@ -18,7 +18,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
-import { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import { NativeStackNavigationProp, NativeStackScreenProps } from "@react-navigation/native-stack";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { VersionedTransaction, Keypair } from "@solana/web3.js";
@@ -72,6 +72,7 @@ import { getApiUrl } from "@/lib/query-client";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
+type Props = NativeStackScreenProps<RootStackParamList, "Swap">;
 
 const CUSTOM_TOKENS_KEY = "swap_custom_tokens";
 const MAX_CUSTOM_TOKENS = 25;
@@ -121,7 +122,7 @@ async function saveCustomToken(token: CustomTokenInfo, existing: CustomTokenInfo
 }
 
 
-export default function SwapScreen() {
+export default function SwapScreen({ route }: Props) {
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
   const { theme } = useTheme();
@@ -130,6 +131,8 @@ export default function SwapScreen() {
   
   const solanaAddress = activeWallet?.addresses?.solana;
   const { assets: solanaAssets, refresh: refreshPortfolio } = useSolanaPortfolio(solanaAddress);
+  
+  const preselectedToken = route?.params?.preselectedToken;
 
   const [inputToken, setInputToken] = useState<TokenInfo | null>(null);
   const [outputToken, setOutputToken] = useState<TokenInfo | null>(null);
@@ -189,13 +192,33 @@ export default function SwapScreen() {
 
   useEffect(() => {
     const initTokens = async () => {
-      const sol = await getTokenByMint(SOL_MINT);
-      const usdc = await getTokenByMint(USDC_MINT);
-      if (sol) setInputToken(sol);
-      if (usdc) setOutputToken(usdc);
+      // If we have a preselected token from navigation, use it as input
+      if (preselectedToken) {
+        const preselected: TokenInfo = {
+          mint: preselectedToken.mint,
+          symbol: preselectedToken.symbol,
+          name: preselectedToken.name,
+          decimals: preselectedToken.decimals,
+          logoURI: preselectedToken.logoURI,
+        };
+        setInputToken(preselected);
+        // Set SOL as output when coming from asset view (sell token for SOL)
+        const sol = await getTokenByMint(SOL_MINT);
+        if (sol && preselectedToken.mint !== SOL_MINT) {
+          setOutputToken(sol);
+        } else {
+          const usdc = await getTokenByMint(USDC_MINT);
+          if (usdc) setOutputToken(usdc);
+        }
+      } else {
+        const sol = await getTokenByMint(SOL_MINT);
+        const usdc = await getTokenByMint(USDC_MINT);
+        if (sol) setInputToken(sol);
+        if (usdc) setOutputToken(usdc);
+      }
     };
     initTokens();
-  }, []);
+  }, [preselectedToken]);
 
   useEffect(() => {
     const engine = quoteEngineRef.current;

@@ -648,7 +648,29 @@ export default function AssetDetailScreen({ route }: Props) {
           <Feather name="arrow-down-left" size={20} color={theme.success} />
           <ThemedText type="small" style={{ color: theme.success }}>Receive</ThemedText>
         </Pressable>
-        <Pressable style={[styles.bottomButton, { backgroundColor: theme.warning + "20" }]}>
+        <Pressable 
+          style={[styles.bottomButton, { backgroundColor: theme.warning + "20" }]}
+          onPress={() => {
+            // Only Solana tokens can be swapped
+            if (route.params.chainType === "solana") {
+              // For native SOL, use the wrapped SOL mint address
+              const SOL_MINT = "So11111111111111111111111111111111111111112";
+              const mintAddress = isNative ? SOL_MINT : (address || "");
+              navigation.navigate("Swap", {
+                preselectedToken: {
+                  mint: mintAddress,
+                  symbol: tokenSymbol,
+                  name: tokenName,
+                  decimals: 9, // Default for most Solana tokens
+                  logoURI: tokenLogoUrl || undefined,
+                },
+              });
+            } else {
+              // For EVM tokens, just open swap without preselection
+              navigation.navigate("Swap", {});
+            }
+          }}
+        >
           <Feather name="repeat" size={20} color={theme.warning} />
           <ThemedText type="small" style={{ color: theme.warning }}>Swap</ThemedText>
         </Pressable>

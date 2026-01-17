@@ -121,7 +121,15 @@ export type RootStackParamList = {
   ExportWallet: { walletId: string; walletName: string };
   SeedPhraseExport: { walletId: string; walletName: string };
   PrivateKeyExport: { walletId: string; walletName: string };
-  Swap: undefined;
+  Swap: { 
+    preselectedToken?: {
+      mint: string;
+      symbol: string;
+      name: string;
+      decimals: number;
+      logoURI?: string;
+    };
+  } | undefined;
   SwapHistory: undefined;
   SwapDebug: undefined;
   TokenSelect: {
