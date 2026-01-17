@@ -19,7 +19,7 @@ import { formatTimeSince } from "@/hooks/usePortfolio";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { getTokenLogoUrl } from "@/lib/token-logos";
 import type { ChainType } from "@/components/ChainSelector";
-import { getCustomTokens, CustomToken, buildCustomTokenMap } from "@/lib/token-preferences";
+import { getCustomTokens, getHiddenTokens, CustomToken, buildCustomTokenMap } from "@/lib/token-preferences";
 import { savePortfolioDisplayCache } from "@/lib/portfolio-cache";
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
@@ -206,6 +206,7 @@ export default function PortfolioScreen() {
   const navigation = useNavigation<Navigation>();
   const { activeWallet } = useWallet();
   const [customTokens, setCustomTokens] = useState<CustomToken[]>([]);
+  const [hiddenTokens, setHiddenTokens] = useState<string[]>([]);
   const stableAssetsRef = useRef<UnifiedAsset[]>([]);
 
   const walletType = activeWallet?.walletType || "multi-chain";
@@ -218,6 +219,7 @@ export default function PortfolioScreen() {
   useFocusEffect(
     useCallback(() => {
       getCustomTokens().then(setCustomTokens);
+      getHiddenTokens().then(setHiddenTokens);
     }, [])
   );
   
@@ -277,13 +279,18 @@ export default function PortfolioScreen() {
       }
     }
 
-    // Filter out zero-balance assets (hide by default on homepage)
-    const nonZeroAssets = allAssets.filter(asset => {
+    // Filter out hidden tokens and zero-balance assets
+    const visibleAssets = allAssets.filter(asset => {
+      // Check if token is hidden
+      const tokenKey = `${asset.chainId}:${asset.symbol}`;
+      if (hiddenTokens.includes(tokenKey)) return false;
+      
+      // Hide zero-balance assets by default on homepage
       const balance = parseFloat(asset.balance || "0");
       return balance > 0;
     });
 
-    const total = nonZeroAssets.reduce((sum, asset) => sum + (asset.valueUsd || 0), 0);
+    const total = visibleAssets.reduce((sum, asset) => sum + (asset.valueUsd || 0), 0);
     const errorAny = (walletType === "solana-only" ? null : evmPortfolio.error) || solanaPortfolio.error;
     const latestUpdate = Math.max(
       walletType === "solana-only" ? 0 : (evmPortfolio.lastUpdated || 0), 
@@ -291,14 +298,14 @@ export default function PortfolioScreen() {
     );
 
     return {
-      assets: nonZeroAssets,
+      assets: visibleAssets,
       isLoading: isLoadingAny,
       isRefreshing: isRefreshingAny,
       error: errorAny,
       lastUpdated: latestUpdate > 0 ? latestUpdate : null,
       totalValue: total,
     };
-  }, [evmPortfolio, solanaPortfolio, walletType, customTokenMap]);
+  }, [evmPortfolio, solanaPortfolio, walletType, customTokenMap, hiddenTokens]);
 
   const handleRefresh = () => {
     evmPortfolio.refresh();
