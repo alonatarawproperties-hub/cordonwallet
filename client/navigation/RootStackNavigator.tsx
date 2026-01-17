@@ -21,6 +21,7 @@ import TransactionDetailScreen from "@/screens/TransactionDetailScreen";
 import WalletManagerScreen from "@/screens/WalletManagerScreen";
 import ApprovalsScreen from "@/screens/ApprovalsScreen";
 import PolicySettingsScreen from "@/screens/PolicySettingsScreen";
+import SettingsScreen from "@/screens/SettingsScreen";
 import CreateBundleScreen from "@/screens/CreateBundleScreen";
 import ManageCryptoScreen from "@/screens/ManageCryptoScreen";
 import ImportTokenScreen from "@/screens/ImportTokenScreen";
@@ -82,6 +83,7 @@ export type RootStackParamList = {
   WalletManager: undefined;
   Approvals: undefined;
   PolicySettings: undefined;
+  Settings: undefined;
   CreateBundle: undefined;
   ManageCrypto: undefined;
   ImportToken: undefined;
@@ -214,6 +216,11 @@ export default function RootStackNavigator() {
         name="PolicySettings"
         component={PolicySettingsScreen}
         options={{ headerTitle: "Policy Settings", presentation: "modal" }}
+      />
+      <Stack.Screen
+        name="Settings"
+        component={SettingsScreen}
+        options={{ headerTitle: "Settings" }}
       />
       <Stack.Screen
         name="CreateBundle"

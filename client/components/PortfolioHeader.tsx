@@ -49,7 +49,7 @@ export function PortfolioHeaderLeft() {
 
   const handlePress = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    navigation.navigate("WalletManager");
+    navigation.navigate("Settings");
   }, [navigation]);
 
   return (
