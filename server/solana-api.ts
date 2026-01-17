@@ -131,29 +131,39 @@ export async function getSolanaBalance(address: string): Promise<SolBalance> {
   }
 }
 
+// Token-2022 Program ID
+const TOKEN_2022_PROGRAM_ID = new PublicKey("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
+
 export async function getSolanaTokenBalances(address: string): Promise<SplTokenBalance[]> {
   checkFallbackExpiry();
   const pubkey = new PublicKey(address);
   
-  let tokenAccounts;
+  // Query both SPL Token and Token-2022 accounts in parallel
+  let splAccounts, token2022Accounts;
   try {
-    tokenAccounts = await connection.getTokenAccountsByOwner(pubkey, {
-      programId: TOKEN_PROGRAM_ID,
-    });
+    [splAccounts, token2022Accounts] = await Promise.all([
+      connection.getTokenAccountsByOwner(pubkey, { programId: TOKEN_PROGRAM_ID }),
+      connection.getTokenAccountsByOwner(pubkey, { programId: TOKEN_2022_PROGRAM_ID }),
+    ]);
   } catch (error) {
     if (isRateLimitError(error)) {
       switchToFallback();
-      tokenAccounts = await connection.getTokenAccountsByOwner(pubkey, {
-        programId: TOKEN_PROGRAM_ID,
-      });
+      [splAccounts, token2022Accounts] = await Promise.all([
+        connection.getTokenAccountsByOwner(pubkey, { programId: TOKEN_PROGRAM_ID }),
+        connection.getTokenAccountsByOwner(pubkey, { programId: TOKEN_2022_PROGRAM_ID }),
+      ]);
     } else {
       throw error;
     }
   }
   
+  // Combine both SPL and Token-2022 accounts
+  const allAccounts = [...splAccounts.value, ...token2022Accounts.value];
+  console.log(`[Solana API] Found ${splAccounts.value.length} SPL tokens, ${token2022Accounts.value.length} Token-2022 tokens`);
+  
   const balances: SplTokenBalance[] = [];
   
-  for (const { pubkey: tokenAccountPubkey, account } of tokenAccounts.value) {
+  for (const { pubkey: tokenAccountPubkey, account } of allAccounts) {
     try {
       const accountData = AccountLayout.decode(account.data);
       const amount = accountData.amount.toString();
