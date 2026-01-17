@@ -98,8 +98,20 @@ export function BrowserStoreProvider({ children }: { children: ReactNode }) {
         visitedAt: Date.now(),
       };
 
+      // Extract domain for deduplication
+      const getDomain = (url: string): string => {
+        try {
+          return new URL(url).hostname;
+        } catch {
+          return url;
+        }
+      };
+      
+      const newDomain = getDomain(site.url);
+
       setRecents((prev) => {
-        const filtered = prev.filter((r) => r.url !== site.url);
+        // Filter out any entries from the same domain (not just exact URL)
+        const filtered = prev.filter((r) => getDomain(r.url) !== newDomain);
         const updated = [newSite, ...filtered].slice(0, MAX_RECENTS);
         saveRecents(updated);
         return updated;
