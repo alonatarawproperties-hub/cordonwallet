@@ -594,13 +594,33 @@ export interface SolanaTransaction {
   blockTime: number | null;
   slot: number;
   err: any;
-  type: "send" | "receive" | "unknown";
+  type: "send" | "receive" | "swap" | "unknown";
   amount?: string;
   tokenSymbol?: string;
   tokenMint?: string;
   from?: string;
   to?: string;
+  swapInfo?: {
+    fromAmount: string;
+    fromSymbol: string;
+    toAmount: string;
+    toSymbol: string;
+  };
 }
+
+const KNOWN_DEX_PROGRAMS = new Set([
+  "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4",  // Jupiter v6
+  "JUP4Fb2cqiRUcaTHdrPC8h2gNsA2ETXiPDD33WcGuJB",  // Jupiter v4
+  "JUP3c2Uh3WA4Ng34tw6kPd2G4C5BB21Xo36Je1s32Ph",  // Jupiter v3
+  "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P",  // Pump.fun
+  "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8", // Raydium AMM
+  "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK", // Raydium CLMM
+  "9W959DqEETiGZocYWCQPaJ6sBmUzgfxXfqGeTEdp3aQP", // Orca Whirlpool
+  "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc",  // Orca v2
+  "srmqPvymJeFKQ4zGQed1GFppgkRHL9kaELCbyksJtPX",  // Serum DEX
+  "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo",  // Meteora LB
+  "Eo7WjKq67rjJQSZxS6z3YkapzY3eMj6Xy8X5EQVn5UaB", // Meteora pools
+]);
 
 export async function getSolanaTransactionHistory(
   address: string,
@@ -622,14 +642,135 @@ export async function getSolanaTransactionHistory(
       
       if (!tx || !tx.meta) continue;
       
-      let type: "send" | "receive" | "unknown" = "unknown";
+      let type: "send" | "receive" | "swap" | "unknown" = "unknown";
       let amount: string | undefined;
       let tokenSymbol: string | undefined;
       let tokenMint: string | undefined;
       let from: string | undefined;
       let to: string | undefined;
+      let swapInfo: SolanaTransaction["swapInfo"] | undefined;
       
       const instructions = tx.transaction.message.instructions;
+      
+      // Check if this is a DEX/swap transaction
+      const accountKeys = tx.transaction.message.accountKeys;
+      const involvedPrograms = accountKeys
+        .map((key: any) => typeof key === "string" ? key : key.pubkey?.toString())
+        .filter((k: string | undefined): k is string => !!k);
+      
+      const isDexTransaction = involvedPrograms.some((prog: string) => KNOWN_DEX_PROGRAMS.has(prog));
+      
+      if (isDexTransaction) {
+        // This is a swap - calculate net SOL change
+        const preBalances = tx.meta.preBalances;
+        const postBalances = tx.meta.postBalances;
+        const userIndex = involvedPrograms.findIndex((k: string) => k === address);
+        
+        if (userIndex >= 0 && preBalances && postBalances) {
+          const solDelta = (postBalances[userIndex] - preBalances[userIndex]) / LAMPORTS_PER_SOL;
+          
+          // Look for token balance changes
+          const preTokenBalances = tx.meta.preTokenBalances || [];
+          const postTokenBalances = tx.meta.postTokenBalances || [];
+          
+          // Find token balance changes for the user
+          let tokenReceived: { amount: string; symbol: string; mint: string } | null = null;
+          let tokenSent: { amount: string; symbol: string; mint: string } | null = null;
+          
+          for (const post of postTokenBalances) {
+            if (post.owner === address) {
+              const pre = preTokenBalances.find(
+                (p: any) => p.owner === address && p.mint === post.mint
+              );
+              const preAmount = pre?.uiTokenAmount?.uiAmount || 0;
+              const postAmount = post.uiTokenAmount?.uiAmount || 0;
+              const delta = postAmount - preAmount;
+              
+              if (delta > 0) {
+                // Try to get token symbol
+                let symbol = post.mint.slice(0, 4).toUpperCase();
+                try {
+                  const metadata = await getSplTokenMetadata(post.mint);
+                  if (metadata?.symbol) symbol = metadata.symbol;
+                } catch {}
+                
+                tokenReceived = {
+                  amount: Math.abs(delta).toString(),
+                  symbol,
+                  mint: post.mint,
+                };
+              } else if (delta < 0) {
+                let symbol = post.mint.slice(0, 4).toUpperCase();
+                try {
+                  const metadata = await getSplTokenMetadata(post.mint);
+                  if (metadata?.symbol) symbol = metadata.symbol;
+                } catch {}
+                
+                tokenSent = {
+                  amount: Math.abs(delta).toString(),
+                  symbol,
+                  mint: post.mint,
+                };
+              }
+            }
+          }
+          
+          // Determine swap direction
+          if (solDelta < -0.001 && tokenReceived) {
+            // Sold SOL for tokens
+            type = "swap";
+            swapInfo = {
+              fromAmount: Math.abs(solDelta).toFixed(6),
+              fromSymbol: "SOL",
+              toAmount: tokenReceived.amount,
+              toSymbol: tokenReceived.symbol,
+            };
+            amount = Math.abs(solDelta).toFixed(6);
+            tokenSymbol = "SOL";
+            tokenMint = tokenReceived.mint;
+          } else if (solDelta > 0.001 && tokenSent) {
+            // Sold tokens for SOL
+            type = "swap";
+            swapInfo = {
+              fromAmount: tokenSent.amount,
+              fromSymbol: tokenSent.symbol,
+              toAmount: solDelta.toFixed(6),
+              toSymbol: "SOL",
+            };
+            amount = tokenSent.amount;
+            tokenSymbol = tokenSent.symbol;
+            tokenMint = undefined;
+          } else if (tokenSent && tokenReceived) {
+            // Token to token swap
+            type = "swap";
+            swapInfo = {
+              fromAmount: tokenSent.amount,
+              fromSymbol: tokenSent.symbol,
+              toAmount: tokenReceived.amount,
+              toSymbol: tokenReceived.symbol,
+            };
+            amount = tokenSent.amount;
+            tokenSymbol = tokenSent.symbol;
+          }
+          
+          if (type === "swap") {
+            transactions.push({
+              signature: sig.signature,
+              blockTime: sig.blockTime ?? null,
+              slot: sig.slot,
+              err: sig.err,
+              type,
+              amount,
+              tokenSymbol,
+              tokenMint,
+              from: address,
+              to: undefined,
+              swapInfo,
+            });
+            continue;
+          }
+        }
+      }
       
       // Collect ALL instructions including inner instructions (CPI calls)
       // SPL token transfers via DEXs/programs are often in innerInstructions

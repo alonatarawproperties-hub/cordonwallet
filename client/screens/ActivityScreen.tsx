@@ -83,12 +83,18 @@ interface SolanaApiTransaction {
   blockTime: number | null;
   slot: number;
   err: any;
-  type: "send" | "receive" | "unknown";
+  type: "send" | "receive" | "swap" | "unknown";
   amount?: string;
   tokenSymbol?: string;
   tokenMint?: string;
   from?: string;
   to?: string;
+  swapInfo?: {
+    fromAmount: string;
+    fromSymbol: string;
+    toAmount: string;
+    toSymbol: string;
+  };
 }
 
 async function fetchSolanaHistory(
@@ -123,22 +129,33 @@ async function fetchSolanaHistory(
     
     return transactions
       .filter(tx => tx.type !== "unknown")
-      .map(tx => ({
-        id: tx.signature,
-        chainId: 0,
-        walletAddress: address,
-        hash: tx.signature,
-        type: tx.tokenMint ? "spl" : "native",
-        activityType: tx.type as ActivityType,
-        tokenAddress: tx.tokenMint,
-        tokenSymbol: getTokenSymbol(tx),
-        to: tx.to || "",
-        from: tx.from,
-        amount: tx.amount || "0",
-        status: tx.err ? "failed" : "confirmed",
-        createdAt: tx.blockTime ? tx.blockTime * 1000 : Date.now(),
-        explorerUrl: `https://solscan.io/tx/${tx.signature}`,
-      } as TxRecord));
+      .map(tx => {
+        const record: TxRecord = {
+          id: tx.signature,
+          chainId: 0,
+          walletAddress: address,
+          hash: tx.signature,
+          type: tx.tokenMint ? "spl" : "native",
+          activityType: tx.type as ActivityType,
+          tokenAddress: tx.tokenMint,
+          tokenSymbol: getTokenSymbol(tx),
+          to: tx.to || "",
+          from: tx.from,
+          amount: tx.amount || "0",
+          status: tx.err ? "failed" : "confirmed",
+          createdAt: tx.blockTime ? tx.blockTime * 1000 : Date.now(),
+          explorerUrl: `https://solscan.io/tx/${tx.signature}`,
+        };
+        
+        if (tx.type === "swap" && tx.swapInfo) {
+          record.amount = tx.swapInfo.fromAmount;
+          record.tokenSymbol = tx.swapInfo.fromSymbol;
+          record.toAmount = tx.swapInfo.toAmount;
+          record.toTokenSymbol = tx.swapInfo.toSymbol;
+        }
+        
+        return record;
+      });
   } catch (error) {
     console.error("[Activity] Failed to fetch Solana history:", error);
     return [];
