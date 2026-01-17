@@ -593,6 +593,12 @@ export default function SwapScreen() {
         );
       } else {
         const classified = classifyError(result.error || "");
+        console.log("[Swap] Failed with error:", result.error, "classified:", classified.category);
+        await addDebugLog("error", "Swap failed", { 
+          error: result.error, 
+          category: classified.category,
+          userMessage: classified.userMessage 
+        });
         Alert.alert("Swap Failed", classified.userMessage, [
           ...(classified.canRetry ? [{ text: "Retry", onPress: handleSwapPress }] : []),
           { text: "OK" },

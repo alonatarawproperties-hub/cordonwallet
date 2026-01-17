@@ -350,7 +350,11 @@ export function classifyError(error: string): {
     };
   }
   
-  if (errorLower.includes("insufficient") || errorLower.includes("0x1")) {
+  // Be specific about insufficient funds - 0x1 by itself (word boundary) or explicit text
+  if (errorLower.includes("insufficient") || 
+      /\b0x1\b/.test(errorLower) ||
+      errorLower.includes("custom program error: 0x1\"") ||
+      errorLower.includes("custom program error: 1\"")) {
     return {
       category: "insufficient_funds",
       userMessage: "Not enough balance for this swap.",
