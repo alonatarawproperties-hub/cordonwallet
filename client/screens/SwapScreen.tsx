@@ -801,7 +801,7 @@ export default function SwapScreen({ route }: Props) {
       Keyboard.dismiss();
     };
 
-    const displayValue = slippageInputText || (slippageBps / 100).toString();
+    const displayValue = slippageInputText;
     const isHighSlippage = slippageBps >= 500;
     const isLowSlippage = slippageBps <= 30;
 
