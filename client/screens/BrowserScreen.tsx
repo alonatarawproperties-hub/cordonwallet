@@ -225,7 +225,7 @@ export default function BrowserScreen() {
                 onPress={() => handleOpenDApp(recent.url, recent.title)}
               >
                 <Image
-                  source={{ uri: recent.favicon || getFaviconUrl(recent.url) }}
+                  source={{ uri: getFaviconUrl(recent.url) }}
                   style={styles.recentIcon}
                 />
                 <ThemedText type="caption" numberOfLines={1} style={{ maxWidth: 56, textAlign: "center" }}>

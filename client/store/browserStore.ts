@@ -115,10 +115,21 @@ export function useBrowserStore() {
   return context;
 }
 
-export function getFaviconUrl(url: string): string {
+export function getFaviconUrl(url: string, bustCache = false): string {
   try {
-    const domain = new URL(url).hostname;
-    return `https://www.google.com/s2/favicons?domain=${domain}&sz=128`;
+    const parsedUrl = new URL(url);
+    const domain = parsedUrl.hostname;
+    const cacheBuster = bustCache ? `&_t=${Date.now()}` : "";
+    return `https://icons.duckduckgo.com/ip3/${domain}.ico${cacheBuster ? `?${cacheBuster}` : ""}`;
+  } catch {
+    return "";
+  }
+}
+
+export function getDirectFaviconUrl(url: string): string {
+  try {
+    const parsedUrl = new URL(url);
+    return `${parsedUrl.origin}/favicon.ico`;
   } catch {
     return "";
   }
