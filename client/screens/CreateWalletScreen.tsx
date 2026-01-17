@@ -33,7 +33,7 @@ const walletTypeOptions: WalletTypeOption[] = [
     title: "Multi-Chain Wallet",
     description: "Support for Ethereum, Polygon, BSC, and Solana",
     icon: "layers",
-    chains: ["ETH", "MATIC", "BNB", "SOL"],
+    chains: ["ETH", "POL", "BNB", "SOL"],
   },
   {
     id: "solana-only",
@@ -202,7 +202,7 @@ export default function CreateWalletScreen({ navigation }: Props) {
 function getChainColor(chain: string): string {
   const colors: Record<string, string> = {
     ETH: "#627EEA",
-    MATIC: "#8247E5",
+    POL: "#8247E5",
     BNB: "#F3BA2F",
     SOL: "#9945FF",
   };
