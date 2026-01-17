@@ -83,6 +83,29 @@ export default function WalletManagerScreen() {
 
   const truncate = (addr: string) => `${addr.slice(0, 6)}...${addr.slice(-4)}`;
 
+  const showWalletMenu = (walletId: string, walletName: string) => {
+    Alert.alert(
+      walletName,
+      undefined,
+      [
+        {
+          text: "Rename",
+          onPress: () => openRenameModal(walletId, walletName),
+        },
+        {
+          text: "Backup Seed Phrase",
+          onPress: () => navigation.navigate("ExportWallet", { walletId, walletName }),
+        },
+        {
+          text: "Remove Wallet",
+          style: "destructive",
+          onPress: () => handleRemoveWallet(walletId, walletName),
+        },
+        { text: "Cancel", style: "cancel" },
+      ]
+    );
+  };
+
   const renderWallet = ({ item }: { item: typeof wallets[0] }) => {
     const isActive = activeWallet?.id === item.id;
     const evmAddress = item.addresses?.evm || item.address;
@@ -96,94 +119,47 @@ export default function WalletManagerScreen() {
           styles.walletCard,
           { 
             backgroundColor: theme.backgroundDefault,
-            borderColor: isActive ? theme.accent : theme.border,
+            borderColor: isActive ? theme.accent : "transparent",
           }
         ]}
         onPress={() => setActiveWallet(item as any)}
       >
-        <View style={styles.walletHeader}>
-          <View style={[
-            styles.walletIcon, 
-            { backgroundColor: isActive ? theme.accent + "20" : theme.backgroundSecondary }
-          ]}>
-            <Feather 
-              name={isSolanaOnly ? "sun" : "layers"} 
-              size={20} 
-              color={isActive ? theme.accent : theme.textSecondary} 
-            />
+        <View style={[
+          styles.walletIcon, 
+          { backgroundColor: isActive ? theme.accent + "20" : theme.backgroundSecondary }
+        ]}>
+          <Feather 
+            name={isSolanaOnly ? "sun" : "layers"} 
+            size={20} 
+            color={isActive ? theme.accent : theme.textSecondary} 
+          />
+        </View>
+        
+        <View style={styles.walletInfo}>
+          <View style={styles.walletNameRow}>
+            <ThemedText type="body" style={{ fontWeight: "600" }}>
+              {item.name}
+            </ThemedText>
+            {isActive ? (
+              <View style={[styles.activeBadge, { backgroundColor: theme.accent }]}>
+                <ThemedText style={{ color: "#FFFFFF", fontSize: 9, fontWeight: "700" }}>
+                  ACTIVE
+                </ThemedText>
+              </View>
+            ) : null}
           </View>
-          <View style={styles.walletInfo}>
-            <View style={styles.walletNameRow}>
-              <ThemedText type="body" style={{ fontWeight: "600" }}>
-                {item.name}
-              </ThemedText>
-              {isActive ? (
-                <View style={[styles.activeBadge, { backgroundColor: theme.accent }]}>
-                  <ThemedText style={{ color: "#FFFFFF", fontSize: 10, fontWeight: "700" }}>
-                    ACTIVE
-                  </ThemedText>
-                </View>
-              ) : null}
-              {isSolanaOnly ? (
-                <View style={[styles.typeBadge, { backgroundColor: "#9945FF20" }]}>
-                  <ThemedText style={{ color: "#9945FF", fontSize: 10, fontWeight: "600" }}>
-                    SOL
-                  </ThemedText>
-                </View>
-              ) : null}
-            </View>
-            <View style={styles.addressesContainer}>
-              {!isSolanaOnly ? (
-                <Pressable 
-                  style={styles.addressRow}
-                  onPress={() => handleCopyAddress(evmAddress)}
-                >
-                  <View style={[styles.chainIndicator, { backgroundColor: "#627EEA" }]} />
-                  <ThemedText type="caption" style={{ color: theme.textSecondary }}>
-                    {truncate(evmAddress)}
-                  </ThemedText>
-                  <Feather name="copy" size={10} color={theme.accent} />
-                </Pressable>
-              ) : null}
-              {solanaAddress ? (
-                <Pressable 
-                  style={styles.addressRow}
-                  onPress={() => handleCopyAddress(solanaAddress)}
-                >
-                  <View style={[styles.chainIndicator, { backgroundColor: "#9945FF" }]} />
-                  <ThemedText type="caption" style={{ color: theme.textSecondary }}>
-                    {truncate(solanaAddress)}
-                  </ThemedText>
-                  <Feather name="copy" size={10} color={theme.accent} />
-                </Pressable>
-              ) : null}
-            </View>
-          </View>
+          <ThemedText type="caption" style={{ color: theme.textSecondary }}>
+            {isSolanaOnly ? truncate(solanaAddress || "") : `${truncate(evmAddress)} · ${truncate(solanaAddress || "")}`}
+          </ThemedText>
         </View>
 
-        <View style={[styles.walletActions, { borderTopColor: theme.border }]}>
-          <Pressable 
-            style={[styles.actionButton, { backgroundColor: theme.accent + "12" }]}
-            onPress={() => openRenameModal(item.id, item.name)}
-          >
-            <Feather name="edit-2" size={14} color={theme.accent} />
-            <ThemedText type="caption" style={{ color: theme.accent }}>Rename</ThemedText>
-          </Pressable>
-          <Pressable 
-            style={[styles.actionButton, { backgroundColor: theme.warning + "12" }]}
-            onPress={() => navigation.navigate("ExportWallet", { walletId: item.id, walletName: item.name })}
-          >
-            <Feather name="shield" size={14} color={theme.warning} />
-            <ThemedText type="caption" style={{ color: theme.warning }}>Backup</ThemedText>
-          </Pressable>
-          <Pressable 
-            style={[styles.actionButton, { backgroundColor: theme.danger + "12" }]}
-            onPress={() => handleRemoveWallet(item.id, item.name)}
-          >
-            <Feather name="trash-2" size={14} color={theme.danger} />
-            <ThemedText type="caption" style={{ color: theme.danger }}>Remove</ThemedText>
-          </Pressable>
-        </View>
+        <Pressable 
+          style={styles.menuButton}
+          onPress={() => showWalletMenu(item.id, item.name)}
+          hitSlop={12}
+        >
+          <Feather name="more-vertical" size={20} color={theme.textSecondary} />
+        </Pressable>
       </Pressable>
     );
   };
@@ -304,14 +280,11 @@ const styles = StyleSheet.create({
     gap: Spacing.md,
   },
   walletCard: {
-    borderRadius: BorderRadius.md,
-    borderWidth: 1,
-    overflow: "hidden",
-  },
-  walletHeader: {
     flexDirection: "row",
     alignItems: "center",
-    padding: Spacing.lg,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1.5,
+    padding: Spacing.md,
     gap: Spacing.md,
   },
   walletIcon: {
@@ -323,7 +296,7 @@ const styles = StyleSheet.create({
   },
   walletInfo: {
     flex: 1,
-    gap: Spacing.xs,
+    gap: 2,
   },
   walletNameRow: {
     flexDirection: "row",
@@ -331,43 +304,12 @@ const styles = StyleSheet.create({
     gap: Spacing.sm,
   },
   activeBadge: {
-    paddingHorizontal: Spacing.sm,
+    paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: BorderRadius.full,
   },
-  typeBadge: {
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 2,
-    borderRadius: BorderRadius.xs,
-  },
-  addressesContainer: {
-    gap: 4,
-  },
-  addressRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.xs,
-  },
-  chainIndicator: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-  },
-  walletActions: {
-    flexDirection: "row",
-    borderTopWidth: 1,
-    paddingVertical: Spacing.sm,
-    paddingHorizontal: Spacing.md,
-    gap: Spacing.md,
-  },
-  actionButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: Spacing.xs,
-    paddingHorizontal: Spacing.sm,
-    gap: 6,
-    borderRadius: BorderRadius.sm,
+  menuButton: {
+    padding: Spacing.xs,
   },
   footer: {
     marginTop: Spacing["2xl"],
