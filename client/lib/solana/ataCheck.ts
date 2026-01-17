@@ -1,10 +1,25 @@
 import { Connection, PublicKey } from "@solana/web3.js";
-import { getAssociatedTokenAddressSync, TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, NATIVE_MINT } from "@solana/spl-token";
 
 const WRAPPED_SOL_MINT = "So11111111111111111111111111111111111111112";
-const NATIVE_SOL_MINT = NATIVE_MINT.toBase58();
+const NATIVE_SOL_MINT = "So11111111111111111111111111111111111111111";
+
+const TOKEN_PROGRAM_ID = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+const TOKEN_2022_PROGRAM_ID = new PublicKey("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
+const ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
 
 const ataExistsCache = new Map<string, boolean>();
+
+function getAssociatedTokenAddress(
+  mint: PublicKey,
+  owner: PublicKey,
+  programId: PublicKey = TOKEN_PROGRAM_ID
+): PublicKey {
+  const [address] = PublicKey.findProgramAddressSync(
+    [owner.toBuffer(), programId.toBuffer(), mint.toBuffer()],
+    ASSOCIATED_TOKEN_PROGRAM_ID
+  );
+  return address;
+}
 
 export interface AtaCheckParams {
   owner: string;
@@ -33,7 +48,7 @@ export async function likelyNeedsAtaRent(params: AtaCheckParams): Promise<boolea
     const ownerPubkey = new PublicKey(owner);
     const mintPubkey = new PublicKey(mint);
 
-    const ataStandard = getAssociatedTokenAddressSync(mintPubkey, ownerPubkey, false, TOKEN_PROGRAM_ID);
+    const ataStandard = getAssociatedTokenAddress(mintPubkey, ownerPubkey, TOKEN_PROGRAM_ID);
 
     const accountInfo = await connection.getAccountInfo(ataStandard);
 
@@ -42,7 +57,7 @@ export async function likelyNeedsAtaRent(params: AtaCheckParams): Promise<boolea
       return false;
     }
 
-    const ata2022 = getAssociatedTokenAddressSync(mintPubkey, ownerPubkey, false, TOKEN_2022_PROGRAM_ID);
+    const ata2022 = getAssociatedTokenAddress(mintPubkey, ownerPubkey, TOKEN_2022_PROGRAM_ID);
     const accountInfo2022 = await connection.getAccountInfo(ata2022);
 
     if (accountInfo2022 !== null) {
