@@ -78,7 +78,7 @@ export default function ManageCryptoScreen() {
         address: a.mint,
         valueUsd: a.valueUsd,
         priceUsd: a.priceUsd,
-        logoUrl: customToken?.logoUrl,
+        logoUrl: customToken?.logoUrl || a.logoUrl, // Preserve original logo from portfolio
       };
     }),
   ];
@@ -161,7 +161,7 @@ export default function ManageCryptoScreen() {
 
   type AssetWithLogo = MultiChainAsset & { logoUrl?: string };
   
-  const assetsWithLogos: AssetWithLogo[] = assets.map(a => ({ ...a, logoUrl: undefined }));
+  const assetsWithLogos: AssetWithLogo[] = assets.map(a => ({ ...a })); // Preserve existing logoUrl
   const customAssetsWithLogos: AssetWithLogo[] = customTokens.map((ct: CustomToken) => ({
     symbol: ct.symbol,
     name: ct.name,
