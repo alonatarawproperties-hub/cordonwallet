@@ -2,9 +2,9 @@ export const swapConfig = {
   solanaRpcUrl: process.env.SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com",
   solanaRpcUrlFallback: process.env.SOLANA_RPC_URL_FALLBACK || "https://api.mainnet-beta.solana.com",
   
-  jupiterBaseUrl: process.env.JUPITER_BASE_URL || "https://quote-api.jup.ag",
-  jupiterQuotePath: process.env.JUPITER_QUOTE_PATH || "/v6/quote",
-  jupiterSwapPath: process.env.JUPITER_SWAP_PATH || "/v6/swap",
+  jupiterBaseUrl: process.env.JUPITER_BASE_URL || "https://lite-api.jup.ag",
+  jupiterQuotePath: process.env.JUPITER_QUOTE_PATH || "/swap/v1/quote",
+  jupiterSwapPath: process.env.JUPITER_SWAP_PATH || "/swap/v1/swap",
   jupiterTimeoutMs: parseInt(process.env.JUPITER_TIMEOUT_MS || "8000"),
   
   tokenListPrimary: process.env.SWAP_TOKENLIST_PRIMARY || "https://token.jup.ag/strict",
