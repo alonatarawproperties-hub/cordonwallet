@@ -144,49 +144,69 @@ export async function buildSwapTransaction(
     prioritizationFeeLamports = Math.floor(capSol * LAMPORTS_PER_SOL * 0.5);
   }
   
-  const request: SwapRequest = {
-    quoteResponse,
-    userPublicKey,
-    wrapAndUnwrapSol: true,
-    useSharedAccounts: true,
-    dynamicComputeUnitLimit: true,
-    skipUserAccountsRpcCalls: false,
-    prioritizationFeeLamports,
-  };
-  
   const baseUrl = getApiUrl();
   const url = `${baseUrl}/api/jupiter/swap`;
-  console.log("[Jupiter] Building swap transaction via server proxy");
   
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 30000);
-  
-  try {
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(request),
-      signal: controller.signal,
-    });
+  // Try with shared accounts first, then fallback to non-shared for Simple AMM tokens
+  for (const useSharedAccounts of [true, false]) {
+    const request: SwapRequest = {
+      quoteResponse,
+      userPublicKey,
+      wrapAndUnwrapSol: true,
+      useSharedAccounts,
+      dynamicComputeUnitLimit: true,
+      skipUserAccountsRpcCalls: false,
+      prioritizationFeeLamports,
+    };
     
-    clearTimeout(timeoutId);
+    console.log(`[Jupiter] Building swap transaction (sharedAccounts=${useSharedAccounts})`);
     
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({ error: "Unknown error" }));
-      throw new Error(`Swap build failed (${response.status}): ${errorData.error || JSON.stringify(errorData)}`);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
+    
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Accept": "application/json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(request),
+        signal: controller.signal,
+      });
+      
+      clearTimeout(timeoutId);
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: "Unknown error" }));
+        const errorStr = JSON.stringify(errorData);
+        
+        // If Simple AMM error and we used shared accounts, retry without
+        if (useSharedAccounts && errorStr.includes("Simple AMMs are not supported with shared accounts")) {
+          console.log("[Jupiter] Simple AMM detected, retrying without shared accounts...");
+          continue;
+        }
+        
+        throw new Error(`Swap build failed (${response.status}): ${errorData.error || errorStr}`);
+      }
+      
+      return response.json();
+    } catch (error: any) {
+      clearTimeout(timeoutId);
+      
+      // If it's the Simple AMM error from our throw, continue to retry
+      if (useSharedAccounts && error.message?.includes("Simple AMMs are not supported")) {
+        continue;
+      }
+      
+      if (error.name === "AbortError") {
+        throw new Error("Swap request timed out. Please try again.");
+      }
+      throw error;
     }
-    
-    return response.json();
-  } catch (error: any) {
-    clearTimeout(timeoutId);
-    if (error.name === "AbortError") {
-      throw new Error("Swap request timed out. Please try again.");
-    }
-    throw error;
   }
+  
+  throw new Error("Failed to build swap transaction after retries.");
 }
 
 export function calculatePriceImpact(quoteResponse: QuoteResponse): {
