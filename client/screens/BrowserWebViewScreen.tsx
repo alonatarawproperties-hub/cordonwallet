@@ -457,7 +457,7 @@ export default function BrowserWebViewScreen() {
   const { theme } = useTheme();
   const navigation = useNavigation<NavigationProp>();
   const route = useRoute<RouteProps>();
-  const { addRecent } = useBrowserStore();
+  const { addRecent, addConnectedDApp } = useBrowserStore();
   const webViewRef = useRef<WebView>(null);
   const externalAuth = useExternalAuth();
   const { activeWallet } = useWallet();
@@ -1058,6 +1058,14 @@ export default function BrowserWebViewScreen() {
     
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     
+    await addConnectedDApp({
+      url: currentUrl,
+      name: pageTitle || domain,
+      favicon: getFaviconUrl(currentUrl),
+      chain: connectSheet.chain,
+      walletAddress: connectSheet.walletAddress,
+    });
+    
     if (connectSheet.chain === "solana") {
       const response = { publicKey: connectSheet.walletAddress };
       webViewRef.current?.injectJavaScript(`
@@ -1073,7 +1081,7 @@ export default function BrowserWebViewScreen() {
     }
     
     setConnectSheet(null);
-  }, [connectSheet]);
+  }, [connectSheet, currentUrl, pageTitle, domain, addConnectedDApp]);
 
   const handleConnectDeny = useCallback(() => {
     if (!connectSheet) return;

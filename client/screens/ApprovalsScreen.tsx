@@ -21,7 +21,7 @@ import {
 } from "@/components/security";
 import { revokeApproval, estimateRevokeFee } from "@/lib/approvals";
 import type { EnrichedApproval } from "@/lib/approvals/discovery";
-import { getFaviconUrl } from "@/store/browserStore";
+import { getFaviconUrl, useBrowserStore, ConnectedDApp } from "@/store/browserStore";
 
 type MainTab = "permissions" | "approvals";
 
@@ -31,10 +31,12 @@ export default function ApprovalsScreen() {
   const { theme } = useTheme();
   const { activeWallet } = useWallet();
   const { sessions, disconnect: wcDisconnect } = useWalletConnect();
+  const { connectedDApps, removeConnectedDApp } = useBrowserStore();
   
   const [activeTab, setActiveTab] = useState<MainTab>("permissions");
   const [revokingIds, setRevokingIds] = useState<Set<string>>(new Set());
   const [disconnectingTopics, setDisconnectingTopics] = useState<Set<string>>(new Set());
+  const [disconnectingBrowserDApps, setDisconnectingBrowserDApps] = useState<Set<string>>(new Set());
   const [revokingDelegates, setRevokingDelegates] = useState<Set<string>>(new Set());
 
   const evmAddress = activeWallet?.addresses?.evm || activeWallet?.address;
@@ -194,6 +196,38 @@ export default function ApprovalsScreen() {
     );
   };
 
+  const handleDisconnectBrowserDApp = async (dapp: ConnectedDApp) => {
+    Alert.alert(
+      "Disconnect dApp",
+      `Are you sure you want to disconnect from ${dapp.name}?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Disconnect",
+          style: "destructive",
+          onPress: async () => {
+            setDisconnectingBrowserDApps(prev => new Set([...prev, dapp.id]));
+            await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+            
+            try {
+              await removeConnectedDApp(dapp.id);
+              await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            } catch (error: any) {
+              await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+              Alert.alert("Error", error.message || "Failed to disconnect");
+            } finally {
+              setDisconnectingBrowserDApps(prev => {
+                const newSet = new Set(prev);
+                newSet.delete(dapp.id);
+                return newSet;
+              });
+            }
+          }
+        }
+      ]
+    );
+  };
+
   const getChainLabels = (chains: string[] | undefined): string => {
     if (!chains || chains.length === 0) return "Multi-chain";
     return chains.map(c => {
@@ -213,9 +247,14 @@ export default function ApprovalsScreen() {
     return solanaPermissions.sessions.find(s => s.topic === topic);
   };
 
-  const totalSessionCount = sessions.length;
-  const solanaSessionCount = solanaPermissions.sessions.length;
-  const evmSessionCount = sessions.filter(s => !isSolanaSession(s)).length;
+  const browserSolanaCount = connectedDApps.filter(d => d.chain === "solana").length;
+  const browserEvmCount = connectedDApps.filter(d => d.chain === "evm").length;
+  const wcSolanaCount = solanaPermissions.sessions.length;
+  const wcEvmCount = sessions.filter(s => !isSolanaSession(s)).length;
+  
+  const totalSessionCount = sessions.length + connectedDApps.length;
+  const solanaSessionCount = wcSolanaCount + browserSolanaCount;
+  const evmSessionCount = wcEvmCount + browserEvmCount;
 
   const renderPermissionsTab = () => (
     <View>
@@ -267,7 +306,7 @@ export default function ApprovalsScreen() {
       </View>
 
       <ThemedText type="caption" style={[styles.sectionDescription, { color: theme.textSecondary }]}>
-        WalletConnect sessions allow dApps to request signatures and transactions. Disconnecting removes their access.
+        Connected dApps can request signatures and transactions. Disconnecting removes their access.
       </ThemedText>
 
       {totalSessionCount === 0 ? (
@@ -277,11 +316,94 @@ export default function ApprovalsScreen() {
             No active sessions
           </ThemedText>
           <ThemedText type="caption" style={{ color: theme.textSecondary, textAlign: "center" }}>
-            Connect to dApps via WalletConnect to see them here
+            Connect to dApps via the browser or WalletConnect to see them here
           </ThemedText>
         </View>
       ) : (
-        sessions.map((session) => {
+        <>
+        {connectedDApps.map((dapp) => {
+          const domain = (() => {
+            try { return new URL(dapp.url).hostname; }
+            catch { return dapp.url; }
+          })();
+          const isDisconnecting = disconnectingBrowserDApps.has(dapp.id);
+          const isSolana = dapp.chain === "solana";
+          
+          return (
+            <Pressable
+              key={dapp.id}
+              style={[
+                styles.sessionCard, 
+                { 
+                  backgroundColor: theme.backgroundDefault, 
+                  borderColor: isSolana ? "#9945FF40" : theme.border,
+                }
+              ]}
+              onPress={() => handleDisconnectBrowserDApp(dapp)}
+              disabled={isDisconnecting}
+              testID={`browser-dapp-${dapp.id}`}
+            >
+              <View style={styles.sessionCardContent}>
+                {dapp.favicon ? (
+                  <Image
+                    source={{ uri: dapp.favicon }}
+                    style={styles.sessionIcon}
+                  />
+                ) : (
+                  <View style={[styles.sessionIconFallback, { backgroundColor: isSolana ? "#9945FF20" : theme.accent + "20" }]}>
+                    <ThemedText type="h4" style={{ color: isSolana ? "#9945FF" : theme.accent }}>
+                      {dapp.name?.charAt(0) || "?"}
+                    </ThemedText>
+                  </View>
+                )}
+                <View style={styles.sessionInfo}>
+                  <View style={styles.sessionNameRow}>
+                    <ThemedText type="body" style={{ fontWeight: "600" }} numberOfLines={1}>
+                      {dapp.name}
+                    </ThemedText>
+                    <View style={[styles.browserBadge, { backgroundColor: theme.accent + "20" }]}>
+                      <Feather name="globe" size={10} color={theme.accent} />
+                    </View>
+                  </View>
+                  <ThemedText type="caption" style={{ color: theme.textSecondary }} numberOfLines={1}>
+                    {domain}
+                  </ThemedText>
+                  <View style={styles.chainBadges}>
+                    {isSolana ? (
+                      <View style={[styles.chainBadge, { backgroundColor: "#9945FF15" }]}>
+                        <Feather name="sun" size={10} color="#9945FF" />
+                        <ThemedText type="caption" style={{ color: "#9945FF", fontSize: 10 }}>
+                          Solana
+                        </ThemedText>
+                      </View>
+                    ) : (
+                      <View style={[styles.chainBadge, { backgroundColor: theme.accent + "15" }]}>
+                        <Feather name="hexagon" size={10} color={theme.accent} />
+                        <ThemedText type="caption" style={{ color: theme.accent, fontSize: 10 }}>
+                          EVM
+                        </ThemedText>
+                      </View>
+                    )}
+                  </View>
+                </View>
+                <View style={styles.sessionActions}>
+                  <View style={styles.statusBadge}>
+                    <View style={[styles.statusDot, { backgroundColor: theme.success }]} />
+                    <ThemedText type="caption" style={{ color: theme.success }}>
+                      Active
+                    </ThemedText>
+                  </View>
+                  <Feather 
+                    name={isDisconnecting ? "loader" : "x-circle"} 
+                    size={20} 
+                    color={isDisconnecting ? theme.textSecondary : theme.danger} 
+                  />
+                </View>
+              </View>
+            </Pressable>
+          );
+        })}
+        {sessions.map((session) => {
           const domain = session.peerMeta.url ? new URL(session.peerMeta.url).hostname : "Unknown";
           const isDisconnecting = disconnectingTopics.has(session.topic);
           const isSolana = isSolanaSession(session);
@@ -358,7 +480,8 @@ export default function ApprovalsScreen() {
               </View>
             </Pressable>
           );
-        })
+        })}
+        </>
       )}
     </View>
   );
@@ -666,5 +789,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.xs,
     paddingVertical: 2,
     borderRadius: 4,
+  },
+  browserBadge: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    alignItems: "center",
+    justifyContent: "center",
   },
 });

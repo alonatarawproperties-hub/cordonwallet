@@ -3,6 +3,7 @@ import { createContext, useContext, useState, useCallback, useEffect, ReactNode 
 import React from "react";
 
 const RECENTS_KEY = "@cordon/browser_recents";
+const CONNECTED_DAPPS_KEY = "@cordon/browser_connected_dapps";
 const MAX_RECENTS = 20;
 
 export interface RecentSite {
@@ -12,19 +13,34 @@ export interface RecentSite {
   visitedAt: number;
 }
 
+export interface ConnectedDApp {
+  id: string;
+  url: string;
+  name: string;
+  favicon?: string;
+  chain: "solana" | "evm";
+  walletAddress: string;
+  connectedAt: number;
+}
+
 interface BrowserStoreContextType {
   recents: RecentSite[];
+  connectedDApps: ConnectedDApp[];
   isLoading: boolean;
   addRecent: (site: Omit<RecentSite, "visitedAt">) => Promise<void>;
   removeRecent: (url: string) => Promise<void>;
   clearRecents: () => Promise<void>;
   refreshRecents: () => Promise<void>;
+  addConnectedDApp: (dapp: Omit<ConnectedDApp, "id" | "connectedAt">) => Promise<void>;
+  removeConnectedDApp: (id: string) => Promise<void>;
+  clearConnectedDApps: () => Promise<void>;
 }
 
 const BrowserStoreContext = createContext<BrowserStoreContextType | null>(null);
 
 export function BrowserStoreProvider({ children }: { children: ReactNode }) {
   const [recents, setRecents] = useState<RecentSite[]>([]);
+  const [connectedDApps, setConnectedDApps] = useState<ConnectedDApp[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   const loadRecents = useCallback(async () => {
@@ -36,20 +52,42 @@ export function BrowserStoreProvider({ children }: { children: ReactNode }) {
       }
     } catch (error) {
       console.error("[BrowserStore] Failed to load recents:", error);
-    } finally {
-      setIsLoading(false);
+    }
+  }, []);
+
+  const loadConnectedDApps = useCallback(async () => {
+    try {
+      const stored = await AsyncStorage.getItem(CONNECTED_DAPPS_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored) as ConnectedDApp[];
+        setConnectedDApps(parsed.sort((a, b) => b.connectedAt - a.connectedAt));
+      }
+    } catch (error) {
+      console.error("[BrowserStore] Failed to load connected dApps:", error);
     }
   }, []);
 
   useEffect(() => {
-    loadRecents();
-  }, [loadRecents]);
+    const loadAll = async () => {
+      await Promise.all([loadRecents(), loadConnectedDApps()]);
+      setIsLoading(false);
+    };
+    loadAll();
+  }, [loadRecents, loadConnectedDApps]);
 
   const saveRecents = useCallback(async (newRecents: RecentSite[]) => {
     try {
       await AsyncStorage.setItem(RECENTS_KEY, JSON.stringify(newRecents));
     } catch (error) {
       console.error("[BrowserStore] Failed to save recents:", error);
+    }
+  }, []);
+
+  const saveConnectedDApps = useCallback(async (dapps: ConnectedDApp[]) => {
+    try {
+      await AsyncStorage.setItem(CONNECTED_DAPPS_KEY, JSON.stringify(dapps));
+    } catch (error) {
+      console.error("[BrowserStore] Failed to save connected dApps:", error);
     }
   }, []);
 
@@ -89,18 +127,59 @@ export function BrowserStoreProvider({ children }: { children: ReactNode }) {
   const refreshRecents = useCallback(async () => {
     setIsLoading(true);
     await loadRecents();
+    setIsLoading(false);
   }, [loadRecents]);
+
+  const addConnectedDApp = useCallback(
+    async (dapp: Omit<ConnectedDApp, "id" | "connectedAt">) => {
+      const newDApp: ConnectedDApp = {
+        ...dapp,
+        id: `${dapp.chain}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        connectedAt: Date.now(),
+      };
+
+      setConnectedDApps((prev) => {
+        const filtered = prev.filter(
+          (d) => !(d.url === dapp.url && d.chain === dapp.chain && d.walletAddress === dapp.walletAddress)
+        );
+        const updated = [newDApp, ...filtered];
+        saveConnectedDApps(updated);
+        return updated;
+      });
+    },
+    [saveConnectedDApps]
+  );
+
+  const removeConnectedDApp = useCallback(
+    async (id: string) => {
+      setConnectedDApps((prev) => {
+        const updated = prev.filter((d) => d.id !== id);
+        saveConnectedDApps(updated);
+        return updated;
+      });
+    },
+    [saveConnectedDApps]
+  );
+
+  const clearConnectedDApps = useCallback(async () => {
+    setConnectedDApps([]);
+    await AsyncStorage.removeItem(CONNECTED_DAPPS_KEY);
+  }, []);
 
   return React.createElement(
     BrowserStoreContext.Provider,
     {
       value: {
         recents,
+        connectedDApps,
         isLoading,
         addRecent,
         removeRecent,
         clearRecents,
         refreshRecents,
+        addConnectedDApp,
+        removeConnectedDApp,
+        clearConnectedDApps,
       },
     },
     children
