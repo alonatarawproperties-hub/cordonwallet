@@ -1,0 +1,111 @@
+You are my Replit agent working on the Cordon wallet (Expo / React Native). Goal: implement “Spendable SOL” + fee reserve logic for Swap so MAX and input amount never causes “insufficient SOL for fees” when user maxes Priority/Speed/Slippage. DO NOT refactor unrelated code. DO NOT change swap routing/quote logic. Only add the smallest safe client-side changes.
+
+CONTEXT
+- Swap screen is inline in: client/screens/SwapScreen.tsx
+- There is a Speed Mode (Standard/Fast/Turbo), a Max Priority Fee Cap selector (e.g. 0.001/0.005/0.01/0.02 SOL), and Slippage selector.
+- We want: if user has 1 SOL and sets Turbo + high priority cap, MAX should become (balance - reserve) instead of full balance.
+- Slippage does NOT affect fee reserve. Only priority cap + base tx fee + potential ATA creation + safety buffer.
+- We should not break existing swaps. If we can’t estimate perfectly, be conservative and transparent.
+
+REQUIREMENTS (must all be done)
+1) Compute a worst-case “SOL reserved for fees” and “Spendable SOL” in Swap UI:
+   reserveLamports = priorityCapLamports + baseFeeLamports + ataRentLamportsIfNeeded + safetyBufferLamports
+   spendableLamports = max(0, solBalanceLamports - reserveLamports)
+
+2) MAX button behavior:
+   - When input token is SOL and user taps MAX, set amount = spendableLamports converted to SOL (with reasonable decimals).
+   - If spendableLamports <= 0, show a user-friendly error/toast and keep amount at 0.
+
+3) Manual input clamp:
+   - If user types an amount > spendable SOL, clamp down to spendable SOL (or allow typing but on blur/submit clamp with a warning). Choose the least intrusive option and do NOT break typing UX.
+
+4) UI display:
+   Under the amount field or in Advanced, show:
+   - “Spendable SOL: X”
+   - “Reserved for fees (max): Y” with a breakdown:
+       • Priority fee cap: A
+       • Network/base fee: B
+       • Token account (if needed): C
+       • Safety buffer: D
+   Keep styling consistent (dark theme), small text.
+
+5) ATA rent reserve detection (important):
+   - If output token account (ATA) likely doesn’t exist, reserve ATA rent.
+   - We already have the user token list / balances (used in token selector). Use that as first signal: if the user already has a balance entry for output mint or it’s in “Your Tokens”, assume ATA exists.
+   - If unknown and we can do an RPC check cheaply, do it:
+     - derive ATA for (ownerPubkey, outputMint) and call getAccountInfo.
+     - cache result (in-memory for session) to avoid repeated RPC spam.
+   - If RPC fails/unreachable, be conservative: reserve ATA rent for unknown output mint.
+
+6) Constants (safe defaults):
+   - baseFeeLamports default: 5000 (0.000005 SOL) (fine as baseline) + add small buffer.
+   - safetyBufferLamports: 200_000 (0.0002 SOL) (to cover variance).
+   - ataRentLamports: use a constant 2_039_280 lamports (~0.00203928 SOL) unless you already have a helper in codebase. Keep it simple.
+   - priorityCapLamports: from selected max priority cap SOL value.
+   Note: Speed Mode itself doesn’t add reserve unless it changes the cap. The cap is the controlling number.
+
+7) Do NOT touch server code for this task. Pure client.
+8) Add unit-like sanity checks (dev logs only) so we can confirm:
+   - balance=1 SOL, cap=0.02, unknown output => spendable ~ 0.9777 SOL.
+9) Ensure this works for non-SOL input:
+   - If input token is NOT SOL, MAX uses token balance as before, but still show fee reserve somewhere (because fees still come from SOL). DO NOT clamp non-SOL amounts based on SOL reserve (only SOL input needs spendable clamp).
+   - Still show warning if SOL balance is too low to cover reserve (e.g., “Not enough SOL for fees” banner).
+
+IMPLEMENTATION PLAN (do exactly this)
+A) Create a new helper file: client/lib/solana/feeReserve.ts
+   Export:
+   - type FeeReserveBreakdown
+   - function estimateFeeReserveLamports(params): { reserveLamports, breakdown }
+   - function lamportsToSolString(lamports, decimals=6)
+   - function solToLamports(solNumber)
+
+   Params should include:
+   - solBalanceLamports
+   - priorityCapLamports
+   - needsAtaRent: boolean
+   - (optional) overrides for constants
+
+B) Create a new helper file: client/lib/solana/ataCheck.ts
+   Export:
+   - async function likelyNeedsAtaRent({ owner, mint, hasTokenInWalletList, connection }): Promise<boolean>
+   Behavior:
+   - if mint is SOL/WSOL or mint is empty => false
+   - if hasTokenInWalletList true => false
+   - else derive ATA and call connection.getAccountInfo(ata)
+   - if account exists => false else => true
+   - cache results by key `${owner}:${mint}` for session
+   - on RPC error => return true (conservative)
+
+C) Update SwapScreen.tsx minimally:
+   - Identify where SOL balance is available (lamports or SOL). Normalize to lamports.
+   - Identify selected priority cap value. Convert to lamports (sol * 1e9).
+   - Determine output mint and whether ATA likely needed using the wallet token list + ataCheck.
+   - Compute reserve + spendable using feeReserve.
+   - Update MAX button handler for SOL input:
+       setAmount(spendableSolString)
+   - Clamp manual input:
+       when input changes OR on blur: if inputMint is SOL and typedLamports > spendableLamports, set to spendable.
+       Use a gentle toast/banner: “Adjusted amount to leave room for fees.”
+   - Add UI block showing spendable/reserve breakdown (small text in Advanced area is fine).
+
+D) Add a banner if SOL fees not coverable:
+   - If solBalanceLamports < reserveLamports (or spendable<=0) show:
+     “Not enough SOL to cover network/priority fees for this swap.”
+
+E) Testing steps (write them in comments and make sure logic passes):
+   1) SOL balance 1.0, cap 0.02, output unknown => spendable ~0.9777
+   2) SOL balance 0.01, cap 0.02 => spendable 0, banner shown, MAX sets 0 and warns
+   3) Input token = USDC, output token anything: MAX still equals full USDC balance; still show SOL fee banner if SOL too low.
+
+CODE QUALITY
+- TypeScript, no any unless unavoidable.
+- No breaking changes to existing exports.
+- Avoid rerenders: memoize computations (useMemo) and debounce the ATA RPC check (e.g. only when output mint changes).
+- Do not spam RPC. Cache + only check when output mint changes.
+
+DELIVERABLE
+- Implement the above changes with minimal diffs.
+- Do not change UI layout drastically.
+- Provide a short summary of changed files and where the new UI appears.
+
+Now implement.
