@@ -132,16 +132,16 @@ const styles = StyleSheet.create({
     marginLeft: 4,
   },
   leftIconButton: {
-    marginLeft: Spacing.xs,
+    marginLeft: Spacing.sm,
     padding: Spacing.xs,
   },
   iconButton: {
     padding: Spacing.xs,
-    marginLeft: Spacing.sm,
+    marginLeft: Spacing.md,
   },
   rightContainer: {
     flexDirection: "row",
     alignItems: "center",
-    marginRight: Spacing.xs,
+    marginRight: Spacing.sm,
   },
 });
