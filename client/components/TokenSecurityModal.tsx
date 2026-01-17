@@ -200,8 +200,10 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: BorderRadius.xl,
     borderTopRightRadius: BorderRadius.xl,
     maxHeight: "85%",
+    minHeight: 300,
     paddingHorizontal: Spacing.lg,
     paddingTop: Spacing.sm,
+    paddingBottom: Spacing.lg,
   },
   handle: {
     width: 36,
