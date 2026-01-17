@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import Animated, { useSharedValue, useAnimatedStyle, withSpring } from "react-native-reanimated";
 import {
   View,
   StyleSheet,
@@ -133,6 +134,12 @@ export default function SwapScreen({ route }: Props) {
   const { assets: solanaAssets, refresh: refreshPortfolio } = useSolanaPortfolio(solanaAddress);
   
   const preselectedToken = route?.params?.preselectedToken;
+
+  // Animation for swap direction button
+  const swapRotation = useSharedValue(0);
+  const swapAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${swapRotation.value}deg` }],
+  }));
 
   const [inputToken, setInputToken] = useState<TokenInfo | null>(null);
   const [outputToken, setOutputToken] = useState<TokenInfo | null>(null);
@@ -374,6 +381,13 @@ export default function SwapScreen({ route }: Props) {
   };
 
   const swapTokens = () => {
+    // Trigger rotation animation
+    swapRotation.value = withSpring(swapRotation.value + 180, {
+      damping: 15,
+      stiffness: 200,
+    });
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    
     const temp = inputToken;
     setInputToken(outputToken);
     setOutputToken(temp);
@@ -1116,14 +1130,19 @@ export default function SwapScreen({ route }: Props) {
             ]} 
             onPress={swapTokens}
           >
-            <LinearGradient
-              colors={[theme.accent, theme.accentSecondary]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.swapDirectionIcon}
-            >
-              <Feather name="arrow-down" size={16} color="#fff" />
-            </LinearGradient>
+            <Animated.View style={swapAnimatedStyle}>
+              <LinearGradient
+                colors={[theme.accent, theme.accentSecondary]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.swapDirectionIcon}
+              >
+                <View style={styles.swapArrows}>
+                  <Feather name="arrow-up" size={12} color="#fff" style={{ marginBottom: -4 }} />
+                  <Feather name="arrow-down" size={12} color="#fff" style={{ marginTop: -4 }} />
+                </View>
+              </LinearGradient>
+            </Animated.View>
           </Pressable>
 
           <View style={styles.tokenSection}>
@@ -1615,6 +1634,11 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.15,
     shadowRadius: 4,
     elevation: 4,
+  },
+  swapArrows: {
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
   },
   quoteCard: {
     borderRadius: BorderRadius.xl,
