@@ -1,184 +1,185 @@
-# Design Guidelines: EVM Wallet App
+# Design Guidelines: Premium EVM Wallet App
 
 ## Brand Identity
-**Purpose**: Secure, user-friendly crypto wallet for everyday users and power users.
+**Purpose**: Ultra-premium cryptocurrency wallet for sophisticated crypto users who demand institutional-grade security with luxury-app polish.
 
-**Aesthetic Direction**: **Refined fintech minimalism** - professional, trustworthy, and restrained. Clean spacing, strong hierarchy, subtle interactions. Avoids the "casino crypto" aesthetic with neon colors and heavy gradients.
+**Aesthetic Direction**: **Luxury fintech** - dark, refined, and technically sophisticated. Deep gradients, glass morphism surfaces, subtle glows, and premium materials. Feels like a $1B trading platform meets Apple Wallet's refinement. Every interaction whispers quality.
 
-**Memorable Element**: Safety-first UI patterns with intelligent transaction previewing and policy enforcement that feels protective, not restrictive.
+**Memorable Element**: Glowing gradient accents on high-value elements (balances, primary actions) combined with frosted-glass surfaces that create depth without chaos. The app feels both protective and premium.
 
 ## Navigation Architecture
-
-**Root Navigation**: Bottom Tab Bar (iOS) / Bottom Navigation (Android)
+**Root Navigation**: Bottom Tab Bar with frosted glass background
 
 **Tabs**:
-1. **Portfolio** - Asset overview, total balance, network switcher
-2. **Activity** - Transaction history and status tracking
-3. **Browser** - dApp connection and interaction
-4. **Bundles** - Multi-wallet management and batch operations
-5. **Settings** - Account, security, policies, preferences
+1. **Portfolio** - Asset overview with gradient balance card
+2. **Swap** - Premium trading interface
+3. **Activity** - Transaction history
+4. **Settings** - Security, preferences, account
 
-**Modal Screens** (presented from any tab):
-- Token Selector
-- Send/Receive flows
-- Asset Detail
-- Firewall Preview Sheet
-- Approval management
+**Modal Screens**: Token Selector, Send/Receive flows, Asset Detail, Transaction Preview
 
 ## Screen-by-Screen Specifications
 
-### Token Selector Screen
-**Purpose**: Select token for swap/send with polished, friction-free UX.
-
-**Layout**:
-- **Header**: Transparent background, search bar integrated, "Cancel" button (left), no right button
-- **Content**: Scrollable list with search-driven sections
-- **Safe Area**: Top inset = headerHeight + 16px, Bottom inset = insets.bottom + 16px
-
-**Sections** (in order):
-1. **Search Results** (when search active) - prioritize exact matches, then partial matches
-2. **Popular Tokens** (default view) - 6-8 verified tokens with high market cap/liquidity
-3. **Your Tokens** (if user has balance) - tokens user owns, sorted by USD value descending
-4. **All Tokens** - alphabetical, infinite scroll
-
-**REMOVE**: Recently used chips. Recent custom tokens section. Consolidate into "Your Tokens" section only.
-
-**Token Row Specifications**:
-- Left: Token logo (40x40px circular), Symbol (Body, Text Primary), Name (Caption, Text Secondary)
-- Right: Balance (if owned, Body, Text Primary), USD Value (Caption, Text Secondary)
-- Row height: 64px, horizontal padding: 16px
-- Verification badge: Small checkmark icon (12px) next to symbol, Success color, only for verified tokens
-- Unverified tokens: NO badge (absence communicates unverified status without visual harshness)
-- Press state: Surface color background with subtle opacity change (0.8)
-
-**Search Bar**:
-- Placeholder: "Search tokens"
-- Integrated into header with rounded corners (10px)
-- Border color when inactive, Accent border when focused
-- Clear button appears when text entered
-- Search by symbol, name, or contract address
-
-**Empty States**:
-- No search results: Illustration (search-empty.png), "No tokens found", secondary text with "Try searching by contract address"
-- No owned tokens: Illustration (empty-wallet.png), "No tokens yet", "Buy or receive tokens to get started"
-
 ### Portfolio Screen
+**Purpose**: Display total balance and asset holdings with premium visual hierarchy.
+
 **Layout**:
-- **Header**: Transparent, network switcher (pill buttons), settings icon (right)
-- **Content**: Scrollable, total balance card at top, asset list below
-- **Safe Area**: Top inset = headerHeight + 24px, Bottom inset = tabBarHeight + 16px
+- **Header**: Transparent, settings icon (right)
+- **Content**: Scrollable, gradient balance card (sticky), asset list below
+- **Safe Area**: Top inset = insets.top + 24px, Bottom inset = tabBarHeight + 24px
 
 **Components**:
-- Total balance (large heading, collapsible on scroll)
-- Network pills (Ethereum, Polygon, etc.)
-- Asset cards: Token logo, symbol/name, balance, USD value, 24h change percentage
-- Pull-to-refresh for price updates
+- **Balance Card**: Frosted glass surface, 16px padding, 16px radius, total balance (Heading 1 with gradient text), 24h change below (Success/Danger color), subtle outer glow matching gradient
+- **Network Pills**: Horizontal scroll, glass background, active state has gradient border
+- **Asset Rows**: 72px height, token logo (48px), symbol/name (Body/Caption), balance right-aligned (Body), USD value (Caption, Secondary), 24h change pill (Small, colored background). Press state: glass surface brightens (opacity 0.15)
+- Pull-to-refresh with premium spinner
+
+**Empty State**: Illustration (empty-wallet.png), "No assets yet", "Buy or receive crypto to start"
+
+### Swap Screen
+**Purpose**: Premium trading interface for token swaps.
+
+**Layout**:
+- **Header**: Transparent, title centered, settings icon (right)
+- **Content**: Scrollable form with floating glass cards
+- **Safe Area**: Top inset = insets.top + 24px, Bottom inset = insets.bottom + 24px
+
+**Components**:
+- **Token Input Cards**: Frosted glass, 20px radius, 20px padding, "From" and "To" labels (Caption, Secondary), token selector button (glass button with chevron), amount input (Heading 2), USD value below (Caption, Secondary)
+- **Swap Arrow**: Circular glass button, 48px, centered between cards, tap to flip tokens, rotate animation on press
+- **Rate Display**: Glass pill, exchange rate with refresh icon, subtle pulse animation when updating
+- **Fee Breakdown**: Glass surface, 12px radius, gas fee + platform fee rows (Body/Caption), total highlighted
+- **Swap Button**: Full width, gradient background (Accent gradient), 56px height, 14px radius, white text (Heading 3), subtle depth shadow, disabled state is desaturated
+- All inputs have subtle glow on focus
+
+**States**: Loading shows skeleton with shimmer, error shows inline message with Danger color
+
+### Token Selector Screen
+**Purpose**: Select token with premium search and filtering.
+
+**Layout**:
+- **Header**: Frosted glass background, integrated search bar, "Cancel" left
+- **Content**: Scrollable list with section headers
+- **Safe Area**: Top inset = headerHeight + 16px, Bottom inset = insets.bottom + 16px
+
+**Sections**: Popular Tokens, Your Tokens (if balance > 0), All Tokens
+
+**Token Rows**: 64px height, logo (40px circular), symbol/name (Body/Caption), balance + USD value right-aligned, verified badge (12px checkmark, Success color). Press state: glass background (opacity 0.12)
+
+**Search Bar**: Glass background, 10px radius, Accent glow when focused, clear button appears on input
+
+**Empty States**: Illustration (search-empty.png) for no results, (empty-wallet.png) for no owned tokens
 
 ### Send/Receive Flows
-**Layout**: Stack navigation, custom header with progress indicator for multi-step flows
-**Safe Area**: Top inset = 16px (header is opaque), Bottom inset = insets.bottom + 16px
+**Purpose**: Transfer crypto with clear preview and confirmation.
 
-**Components**: Large input fields, token selector trigger, network display badge, gas fee preview, confirmation buttons (header or bottom depending on keyboard state)
+**Layout**: Stack navigation, opaque header with back button, progress dots for multi-step
+**Safe Area**: Top inset = 16px, Bottom inset = insets.bottom + 24px
 
-### Firewall Preview Sheet
-**Layout**: Bottom sheet modal, 12px top border radius, drag handle
-**Safe Area**: Top inset = 24px, Bottom inset = insets.bottom + 16px
+**Components**: Large input fields (glass background), token selector (glass button), address input with paste button, amount input with max button, fee preview (glass card), network badge (glass pill), confirmation screen with gradient preview card showing "You send" details
 
-**Components**: Action badge, transaction details (You pay/receive), destination address with explorer link, risk summary with color-coded badge, policy status, dual action buttons (primary + secondary or destructive override)
+### Activity Screen
+**Purpose**: Transaction history with clear status indicators.
+
+**Layout**:
+- **Header**: Transparent, filter icon (right)
+- **Content**: Scrollable list grouped by date
+- **Safe Area**: Top inset = insets.top + 16px, Bottom inset = tabBarHeight + 16px
+
+**Components**: Date section headers (Caption, Secondary), transaction rows (64px, icon + type, amount, status badge with colored background), pull-to-refresh
+
+### Settings Screen
+**Purpose**: Account management and preferences.
+
+**Layout**:
+- **Header**: Transparent, title centered
+- **Content**: Scrollable grouped list
+- **Safe Area**: Top inset = insets.top + 16px, Bottom inset = tabBarHeight + 16px
+
+**Sections**: Account (profile, sign out), Security (passcode, biometrics), Preferences (currency, theme), About (version, terms)
+
+**Profile Row**: Glass surface, 80px height, avatar (56px), name + address preview, edit chevron
 
 ## Color Palette
 
-### Dark Theme (Default)
-- **Background**: `#0B0F14`
-- **Surface**: `#111827`
-- **Border**: `#1F2937`
-- **Text Primary**: `#F9FAFB`
-- **Text Secondary**: `#A1A1AA`
-- **Accent**: `#3B82F6`
-- **Success**: `#22C55E`
+### Dark Theme
+- **Background**: `#0A0E13` (deep blue-black)
+- **Surface**: `rgba(20, 25, 35, 0.6)` (frosted glass)
+- **Border**: `rgba(255, 255, 255, 0.08)`
+- **Text Primary**: `#FFFFFF`
+- **Text Secondary**: `#8B92A8`
+- **Accent Gradient**: `linear-gradient(135deg, #667EEA 0%, #4F46E5 100%)`
+- **Success**: `#10B981`
 - **Warning**: `#F59E0B`
 - **Danger**: `#EF4444`
-
-### Light Theme
-- **Background**: `#FFFFFF`
-- **Surface**: `#F7F8FA`
-- **Border**: `#E5E7EB`
-- **Text Primary**: `#0B0F14`
-- **Text Secondary**: `#6B7280`
-- Semantic colors same as dark theme
+- **Glow**: `rgba(102, 126, 234, 0.25)` (Accent color at 25% opacity)
 
 ## Typography
-**Font**: SF Pro (iOS), Roboto (Android)
+**Font**: SF Pro Display (iOS), Google Fonts - Inter (Android)
 
 **Type Scale**:
-- Heading 1: 24px, Bold
-- Heading 2: 20px, Semibold
-- Heading 3: 18px, Semibold
-- Body: 16px, Regular
-- Caption: 13px, Regular
-- Small: 12px, Regular
+- Heading 1: 32px, Bold (balances, key numbers)
+- Heading 2: 24px, Semibold (input amounts)
+- Heading 3: 18px, Semibold (button labels)
+- Body: 16px, Medium (primary text)
+- Caption: 14px, Regular (secondary labels)
+- Small: 12px, Medium (badges, footnotes)
 
-**Hierarchy**: Use weight and color (Primary vs Secondary) for emphasis.
+**Gradient Text**: Apply Accent Gradient to large balance displays for premium feel
 
 ## Design System
 
+### Glass Morphism
+- **Surface**: Background color with 60% opacity, 20px blur backdrop
+- **Border**: 1px solid rgba(255,255,255,0.08)
+- **Shadow**: Multiple layers - outer glow (0,8px,24px,rgba(0,0,0,0.4)) + inner highlight (inset 0,1px,0,rgba(255,255,255,0.06))
+
 ### Spacing
-8px base unit. Common values: 8px, 12px, 16px, 24px
+12px base unit. Common: 12px, 16px, 20px, 24px, 32px
 
 ### Border Radius
-- Cards: 12px
-- Inputs: 10px
+- Cards: 16-20px
+- Inputs: 12px
 - Pills: 999px
-- Buttons: 10px
+- Buttons: 14px
 
 ### Touchable Feedback
-- All touchables: Opacity change (0.6) on press
-- List rows: Surface background with opacity 0.8
-- Floating buttons: Subtle shadow (offset: 0,2 / opacity: 0.10 / radius: 2)
+- Glass surfaces: Brightness increase (opacity +0.15) on press
+- Gradient buttons: Scale down to 0.97 with subtle glow expansion
+- All transitions: 150ms ease-out
+
+### Glows and Depth
+- **Premium Elements**: Outer glow using Glow color, 8px spread, 16px blur
+- **Floating Buttons**: shadowOffset: {width: 0, height: 4}, shadowOpacity: 0.15, shadowRadius: 8, subtle gradient overlay
+- **Focus States**: Accent Gradient border (2px) with expanded glow
 
 ### Icons
-- Library: Lucide or system icons
-- Size: 20-24px for UI elements
-- Stroke: Consistent weight
+- Library: Lucide (consistent 2px stroke)
+- Size: 24px default, 20px compact, 32px featured
+- Color: Text Primary or gradient for premium actions
 
-### Loading States
-- Skeleton loaders matching final content shape
-- Subtle shimmer animation
-- Never show spinners without context
-
-### Transaction States
-- Pending: Warning color, animated indicator
-- Success: Success color, checkmark
-- Failed: Danger color, plain English error with recovery steps
+### Animations
+- **Micro-interactions**: Scale (0.97), rotation (180deg for flip), opacity transitions
+- **Loading States**: Shimmer gradient sweep, skeleton with glass background
+- **Success**: Checkmark scale-in with bounce, subtle confetti burst
+- **Price Updates**: Flash Success/Danger color briefly, fade to normal
 
 ## Assets to Generate
 
-**icon.png** - App icon: Abstract wallet symbol in Accent color on dark gradient background
+**icon.png** - App icon: Abstract shield-wallet symbol with gradient (Accent Gradient), minimal geometric style
 **WHERE USED**: Device home screen
 
-**splash-icon.png** - Simplified wallet icon: Monochrome version of app icon
+**splash-icon.png** - Simplified icon: Monochrome shield-wallet, refined line art
 **WHERE USED**: App launch screen
 
-**empty-wallet.png** - Empty wallet illustration: Open wallet with minimal line art, dark theme colors
-**WHERE USED**: Token selector "Your Tokens" empty state, Portfolio screen when no assets
+**empty-wallet.png** - Premium empty state: Minimal wallet outline with subtle gradient stroke, dark background
+**WHERE USED**: Portfolio and Token Selector empty states
 
-**search-empty.png** - Search illustration: Magnifying glass with "not found" indicator, subtle and minimal
-**WHERE USED**: Token selector search with no results
+**search-empty.png** - Search illustration: Magnifying glass with gradient accent, floating on dark background
+**WHERE USED**: Token Selector no results state
 
-**token-placeholder.png** - Generic token logo: Circle with "?" symbol, Border color outline
-**WHERE USED**: Fallback for tokens without logo images
+**token-placeholder.png** - Generic token: Gradient circle with "?" symbol, glass border
+**WHERE USED**: Fallback for tokens without logos
 
-**eth-logo.png** - Ethereum logo: Official ETH diamond icon
-**WHERE USED**: Token selector, portfolio, transaction lists
-
-**usdc-logo.png** - USDC logo: Official Circle USDC icon
-**WHERE USED**: Token selector, portfolio, transaction lists
-
-**dai-logo.png** - DAI logo: Official DAI stablecoin icon
-**WHERE USED**: Token selector, portfolio, transaction lists
-
-**wbtc-logo.png** - Wrapped Bitcoin logo: Official WBTC icon
-**WHERE USED**: Token selector, portfolio, transaction lists
-
-**uni-logo.png** - Uniswap logo: Official UNI token icon
-**WHERE USED**: Token selector, portfolio, transaction lists
+**eth-logo.png**, **usdc-logo.png**, **dai-logo.png**, **wbtc-logo.png**, **uni-logo.png** - Official token logos
+**WHERE USED**: Token Selector, Portfolio, Swap interface, Activity list

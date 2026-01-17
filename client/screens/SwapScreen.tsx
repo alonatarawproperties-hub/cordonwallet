@@ -13,6 +13,7 @@ import {
   Platform,
   Keyboard,
 } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
@@ -1007,11 +1008,11 @@ export default function SwapScreen() {
       <KeyboardAwareScrollViewCompat
         contentContainerStyle={[
           styles.content,
-          { paddingTop: headerHeight + Spacing.md, paddingBottom: insets.bottom + 100 },
+          { paddingTop: headerHeight + Spacing.xl, paddingBottom: insets.bottom + 120 },
         ]}
         showsVerticalScrollIndicator={false}
       >
-        <View style={[styles.swapCard, { backgroundColor: theme.backgroundDefault }]}>
+        <View style={[styles.swapCard, { backgroundColor: theme.glass, borderColor: theme.glassBorder }]}>
           <View style={styles.tokenSection}>
             <ThemedText type="caption" style={[styles.sectionLabel, { color: theme.textSecondary }]}>
               You pay
@@ -1019,7 +1020,10 @@ export default function SwapScreen() {
             <Pressable
               style={({ pressed }) => [
                 styles.tokenSelector, 
-                { backgroundColor: pressed ? theme.backgroundSecondary + "80" : theme.backgroundSecondary }
+                { 
+                  backgroundColor: theme.glass,
+                  borderColor: pressed ? theme.accent : theme.glassBorder,
+                }
               ]}
               onPress={() => openTokenModal("input")}
             >
@@ -1027,12 +1031,12 @@ export default function SwapScreen() {
                 <Image source={{ uri: inputToken.logoURI }} style={styles.selectorLogo} />
               ) : (
                 <View style={[styles.selectorLogoPlaceholder, { backgroundColor: theme.accent + "20" }]}>
-                  <ThemedText type="caption" style={{ color: theme.accent, fontWeight: "600" }}>
+                  <ThemedText type="body" style={{ color: theme.accent, fontWeight: "700" }}>
                     {inputToken?.symbol.slice(0, 2) || "?"}
                   </ThemedText>
                 </View>
               )}
-              <ThemedText type="body" style={{ fontWeight: "600", flex: 1 }}>
+              <ThemedText type="h4" style={{ fontWeight: "700", flex: 1 }}>
                 {inputToken?.symbol || "Select token"}
               </ThemedText>
               <Feather name="chevron-down" size={20} color={theme.textSecondary} />
@@ -1041,7 +1045,7 @@ export default function SwapScreen() {
               <TextInput
                 style={[styles.amountInput, { color: theme.text }]}
                 placeholder="0.0"
-                placeholderTextColor={theme.textSecondary}
+                placeholderTextColor={theme.textSecondary + "60"}
                 keyboardType="decimal-pad"
                 value={inputAmount}
                 onChangeText={setInputAmount}
@@ -1049,26 +1053,40 @@ export default function SwapScreen() {
               <Pressable 
                 style={({ pressed }) => [
                   styles.maxButton, 
-                  { backgroundColor: pressed ? theme.accent + "40" : theme.accent + "20" }
+                  { 
+                    backgroundColor: pressed ? theme.accent : theme.accent + "15",
+                    borderColor: theme.accent + "40",
+                  }
                 ]} 
                 onPress={handleMaxPress}
               >
-                <ThemedText type="caption" style={{ color: theme.accent, fontWeight: "700" }}>MAX</ThemedText>
+                <ThemedText type="caption" style={{ color: theme.accent, fontWeight: "700", letterSpacing: 0.5 }}>MAX</ThemedText>
               </Pressable>
             </View>
-            {inputToken && (
+            {inputToken ? (
               <View style={styles.balanceRow}>
                 <ThemedText type="caption" style={{ color: theme.textSecondary }}>
                   Balance: {inputTokenBalance.toFixed(inputToken.decimals > 6 ? 6 : 4)} {inputToken.symbol}
                 </ThemedText>
               </View>
-            )}
+            ) : null}
           </View>
 
-          <Pressable style={styles.swapDirectionButton} onPress={swapTokens}>
-            <View style={[styles.swapDirectionIcon, { backgroundColor: theme.backgroundRoot, borderColor: theme.border }]}>
-              <Feather name="arrow-down" size={18} color={theme.accent} />
-            </View>
+          <Pressable 
+            style={({ pressed }) => [
+              styles.swapDirectionButton,
+              { transform: [{ scale: pressed ? 0.95 : 1 }] }
+            ]} 
+            onPress={swapTokens}
+          >
+            <LinearGradient
+              colors={[theme.accent, theme.accentSecondary]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.swapDirectionIcon}
+            >
+              <Feather name="arrow-down" size={22} color="#fff" />
+            </LinearGradient>
           </Pressable>
 
           <View style={styles.tokenSection}>
@@ -1078,7 +1096,10 @@ export default function SwapScreen() {
             <Pressable
               style={({ pressed }) => [
                 styles.tokenSelector, 
-                { backgroundColor: pressed ? theme.backgroundSecondary + "80" : theme.backgroundSecondary }
+                { 
+                  backgroundColor: theme.glass,
+                  borderColor: pressed ? theme.accent : theme.glassBorder,
+                }
               ]}
               onPress={() => openTokenModal("output")}
             >
@@ -1086,12 +1107,12 @@ export default function SwapScreen() {
                 <Image source={{ uri: outputToken.logoURI }} style={styles.selectorLogo} />
               ) : (
                 <View style={[styles.selectorLogoPlaceholder, { backgroundColor: theme.accent + "20" }]}>
-                  <ThemedText type="caption" style={{ color: theme.accent, fontWeight: "600" }}>
+                  <ThemedText type="body" style={{ color: theme.accent, fontWeight: "700" }}>
                     {outputToken?.symbol.slice(0, 2) || "?"}
                   </ThemedText>
                 </View>
               )}
-              <ThemedText type="body" style={{ fontWeight: "600", flex: 1 }}>
+              <ThemedText type="h4" style={{ fontWeight: "700", flex: 1 }}>
                 {outputToken?.symbol || "Select token"}
               </ThemedText>
               <Feather name="chevron-down" size={20} color={theme.textSecondary} />
@@ -1099,221 +1120,272 @@ export default function SwapScreen() {
             <View style={styles.outputRow}>
               {quote ? (
                 <View style={styles.outputWithIndicator}>
-                  <ThemedText type="h3" style={{ color: "#22C55E" }}>
+                  <ThemedText style={styles.outputAmount}>
                     {formatTokenAmount(formatBaseUnits(quote.outAmount, outputToken?.decimals || 6), outputToken?.decimals || 6)}
                   </ThemedText>
-                  {isQuoting && (
+                  {isQuoting ? (
                     <View style={styles.updatingIndicator}>
                       <ActivityIndicator size="small" color={theme.accent} />
                       <ThemedText type="caption" style={{ color: theme.textSecondary, marginLeft: Spacing.xs }}>
                         Updating...
                       </ThemedText>
                     </View>
-                  )}
+                  ) : null}
                 </View>
               ) : isQuoting ? (
                 <ActivityIndicator size="small" color={theme.accent} />
               ) : (
-                <ThemedText type="h3" style={{ color: theme.textSecondary }}>0.0</ThemedText>
+                <ThemedText style={[styles.outputAmount, { color: theme.textSecondary + "60" }]}>0.0</ThemedText>
               )}
             </View>
           </View>
         </View>
 
-        {quote && swapRoute === "jupiter" && (
-          <View style={[styles.quoteCard, { backgroundColor: theme.backgroundDefault }]}>
+        {quote && swapRoute === "jupiter" ? (
+          <View style={[styles.quoteCard, { backgroundColor: theme.glass, borderColor: theme.accent + "40" }]}>
             <View style={styles.quoteRow}>
               <ThemedText type="caption" style={{ color: theme.textSecondary }}>Route</ThemedText>
-              <ThemedText type="caption" style={{ fontWeight: "500", color: theme.accent }}>Jupiter</ThemedText>
+              <View style={[styles.routeBadge, { backgroundColor: theme.accent + "20" }]}>
+                <ThemedText type="caption" style={{ fontWeight: "600", color: theme.accent }}>Jupiter</ThemedText>
+              </View>
             </View>
             <View style={styles.quoteRow}>
               <ThemedText type="caption" style={{ color: theme.textSecondary }}>Rate</ThemedText>
-              <ThemedText type="caption" style={{ fontWeight: "500" }}>
+              <ThemedText type="small" style={{ fontWeight: "600" }}>
                 1 {inputToken?.symbol} = {(parseFloat(formatBaseUnits(quote.outAmount, outputToken?.decimals || 6)) / parseFloat(inputAmount || "1")).toFixed(4)} {outputToken?.symbol}
               </ThemedText>
             </View>
             <View style={styles.quoteRow}>
               <ThemedText type="caption" style={{ color: theme.textSecondary }}>Price Impact</ThemedText>
               <ThemedText
-                type="caption"
+                type="small"
                 style={{
-                  fontWeight: "500",
+                  fontWeight: "600",
                   color: priceImpact?.severity === "critical" ? "#EF4444" :
                          priceImpact?.severity === "high" ? "#F59E0B" :
-                         priceImpact?.severity === "medium" ? "#EAB308" : theme.text
+                         priceImpact?.severity === "medium" ? "#EAB308" : theme.success
                 }}
               >
                 {priceImpact?.impactPct.toFixed(2)}%
               </ThemedText>
             </View>
-            <View style={styles.quoteRow}>
+            <View style={[styles.quoteRow, { borderBottomWidth: 0 }]}>
               <ThemedText type="caption" style={{ color: theme.textSecondary }}>Min received</ThemedText>
-              <ThemedText type="caption" style={{ fontWeight: "500" }}>
+              <ThemedText type="small" style={{ fontWeight: "600" }}>
                 {formatTokenAmount(formatBaseUnits(quote.otherAmountThreshold, outputToken?.decimals || 6), outputToken?.decimals || 6)} {outputToken?.symbol}
               </ThemedText>
             </View>
           </View>
-        )}
+        ) : null}
 
-        {swapRoute === "pump" && pumpMeta && (
-          <View style={[styles.quoteCard, { backgroundColor: theme.backgroundDefault }]}>
+        {swapRoute === "pump" && pumpMeta ? (
+          <View style={[styles.quoteCard, { backgroundColor: theme.glass, borderColor: "#FF69B4" + "40" }]}>
             <View style={styles.quoteRow}>
               <ThemedText type="caption" style={{ color: theme.textSecondary }}>Route</ThemedText>
-              <ThemedText type="caption" style={{ fontWeight: "500", color: "#FF69B4" }}>Pump.fun (Bonding Curve)</ThemedText>
+              <View style={[styles.routeBadge, { backgroundColor: "#FF69B4" + "20" }]}>
+                <ThemedText type="caption" style={{ fontWeight: "600", color: "#FF69B4" }}>Pump.fun</ThemedText>
+              </View>
             </View>
             <View style={styles.quoteRow}>
               <ThemedText type="caption" style={{ color: theme.textSecondary }}>Type</ThemedText>
-              <ThemedText type="caption" style={{ fontWeight: "500" }}>
+              <ThemedText type="small" style={{ fontWeight: "600" }}>
                 {inputToken?.mint === SOL_MINT ? "Buy" : "Sell"}
               </ThemedText>
             </View>
             <View style={styles.quoteRow}>
               <ThemedText type="caption" style={{ color: theme.textSecondary }}>Slippage</ThemedText>
-              <ThemedText type="caption" style={{ fontWeight: "500" }}>{(slippageBps / 100).toFixed(1)}%</ThemedText>
+              <ThemedText type="small" style={{ fontWeight: "600" }}>{(slippageBps / 100).toFixed(1)}%</ThemedText>
             </View>
             <View style={[styles.quoteRow, { borderBottomWidth: 0 }]}>
               <ThemedText type="caption" style={{ color: "#F59E0B" }}>
-                Pump trades don't show exact output. Review carefully before confirming.
+                Pump trades don't show exact output. Review carefully.
               </ThemedText>
             </View>
           </View>
-        )}
+        ) : null}
 
-        {quoteError && (
-          <View style={[styles.errorCard, { backgroundColor: "#EF444415" }]}>
-            <Feather name="alert-circle" size={16} color="#EF4444" />
-            <ThemedText type="caption" style={{ color: "#EF4444", marginLeft: Spacing.sm, flex: 1 }}>
+        {quoteError ? (
+          <View style={[styles.errorCard, { backgroundColor: theme.danger + "15", borderColor: theme.danger + "30" }]}>
+            <Feather name="alert-circle" size={18} color={theme.danger} />
+            <ThemedText type="small" style={{ color: theme.danger, marginLeft: Spacing.sm, flex: 1 }}>
               {quoteError}
             </ThemedText>
           </View>
-        )}
+        ) : null}
 
         <View style={styles.settingsSection}>
           <View style={styles.settingsRow}>
-            <ThemedText type="caption" style={{ color: theme.textSecondary }}>Slippage</ThemedText>
+            <ThemedText type="small" style={{ color: theme.textSecondary, fontWeight: "500" }}>Slippage</ThemedText>
             <View style={styles.slippageButtons}>
-              {[50, 100, 300].map((bps) => (
-                <Pressable
-                  key={bps}
-                  style={({ pressed }) => [
-                    styles.slippageButton,
-                    { 
-                      backgroundColor: slippageBps === bps ? theme.accent : theme.backgroundSecondary,
-                      opacity: pressed ? 0.8 : 1
-                    },
-                  ]}
-                  onPress={() => setSlippageBps(bps)}
-                >
-                  <ThemedText
-                    type="caption"
-                    style={{ color: slippageBps === bps ? "#fff" : theme.text, fontWeight: "600" }}
+              {[50, 100, 300].map((bps) => {
+                const isActive = slippageBps === bps;
+                return isActive ? (
+                  <LinearGradient
+                    key={bps}
+                    colors={[theme.accent, theme.accentSecondary]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.slippagePillGradient}
                   >
-                    {bps / 100}%
-                  </ThemedText>
-                </Pressable>
-              ))}
+                    <Pressable
+                      style={styles.slippagePillInner}
+                      onPress={() => setSlippageBps(bps)}
+                    >
+                      <ThemedText type="caption" style={{ color: "#fff", fontWeight: "700" }}>
+                        {bps / 100}%
+                      </ThemedText>
+                    </Pressable>
+                  </LinearGradient>
+                ) : (
+                  <Pressable
+                    key={bps}
+                    style={({ pressed }) => [
+                      styles.slippagePill,
+                      { 
+                        backgroundColor: theme.glass,
+                        borderColor: theme.glassBorder,
+                        opacity: pressed ? 0.8 : 1,
+                      },
+                    ]}
+                    onPress={() => setSlippageBps(bps)}
+                  >
+                    <ThemedText type="caption" style={{ color: theme.text, fontWeight: "600" }}>
+                      {bps / 100}%
+                    </ThemedText>
+                  </Pressable>
+                );
+              })}
             </View>
           </View>
 
           <View style={styles.speedSection}>
-            <ThemedText type="caption" style={{ color: theme.textSecondary, marginBottom: Spacing.sm }}>
-              Speed
+            <ThemedText type="small" style={{ color: theme.textSecondary, fontWeight: "500", marginBottom: Spacing.md }}>
+              Speed Mode
             </ThemedText>
             <View style={styles.speedButtons}>
-              {(["standard", "fast", "turbo"] as SwapSpeed[]).map((s) => (
-                <Pressable
-                  key={s}
-                  style={({ pressed }) => [
-                    styles.speedButton,
-                    {
-                      backgroundColor: speed === s ? theme.accent : theme.backgroundSecondary,
-                      borderColor: speed === s ? theme.accent : theme.border,
-                      opacity: pressed ? 0.8 : 1,
-                    },
-                  ]}
-                  onPress={() => {
-                    setSpeed(s);
-                    setCustomCapSol(null);
-                  }}
-                >
-                  <ThemedText
-                    type="caption"
-                    style={{ color: speed === s ? "#fff" : theme.text, fontWeight: "600" }}
+              {(["standard", "fast", "turbo"] as SwapSpeed[]).map((s) => {
+                const isActive = speed === s;
+                return (
+                  <Pressable
+                    key={s}
+                    style={({ pressed }) => [
+                      styles.speedButton,
+                      {
+                        backgroundColor: theme.glass,
+                        borderColor: isActive ? theme.accent : theme.glassBorder,
+                        opacity: pressed ? 0.9 : 1,
+                        shadowColor: isActive ? theme.accent : "transparent",
+                        shadowOffset: { width: 0, height: 0 },
+                        shadowOpacity: isActive ? 0.4 : 0,
+                        shadowRadius: 8,
+                      },
+                    ]}
+                    onPress={() => {
+                      setSpeed(s);
+                      setCustomCapSol(null);
+                    }}
                   >
-                    {SPEED_CONFIGS[s].label}
-                  </ThemedText>
-                  <ThemedText
-                    type="caption"
-                    style={{ color: speed === s ? "rgba(255,255,255,0.7)" : theme.textSecondary, fontSize: 10 }}
-                  >
-                    {SPEED_CONFIGS[s].capSol} SOL
-                  </ThemedText>
-                </Pressable>
-              ))}
+                    {isActive ? (
+                      <LinearGradient
+                        colors={[theme.accent, theme.accentSecondary]}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 0 }}
+                        style={styles.speedButtonGradientBg}
+                      >
+                        <ThemedText type="small" style={{ color: "#fff", fontWeight: "700" }}>
+                          {SPEED_CONFIGS[s].label}
+                        </ThemedText>
+                        <ThemedText type="caption" style={{ color: "rgba(255,255,255,0.8)", fontSize: 11 }}>
+                          {SPEED_CONFIGS[s].capSol} SOL
+                        </ThemedText>
+                      </LinearGradient>
+                    ) : (
+                      <View style={styles.speedButtonContent}>
+                        <ThemedText type="small" style={{ color: theme.text, fontWeight: "600" }}>
+                          {SPEED_CONFIGS[s].label}
+                        </ThemedText>
+                        <ThemedText type="caption" style={{ color: theme.textSecondary, fontSize: 11 }}>
+                          {SPEED_CONFIGS[s].capSol} SOL
+                        </ThemedText>
+                      </View>
+                    )}
+                  </Pressable>
+                );
+              })}
             </View>
-            {speed === "turbo" && (
+            {speed === "turbo" ? (
               <ThemedText type="caption" style={[styles.speedHint, { color: theme.textSecondary }]}>
-                Turbo uses higher priority fees (paid by you).
+                Turbo uses higher priority fees for faster confirmation.
               </ThemedText>
-            )}
+            ) : null}
           </View>
 
           <Pressable
-            style={styles.advancedToggle}
+            style={({ pressed }) => [
+              styles.advancedToggle,
+              { opacity: pressed ? 0.7 : 1 }
+            ]}
             onPress={() => setShowAdvanced(!showAdvanced)}
           >
-            <ThemedText type="caption" style={{ color: theme.accent }}>
-              {showAdvanced ? "Hide Advanced" : "Advanced"}
+            <ThemedText type="small" style={{ color: theme.accent, fontWeight: "600" }}>
+              {showAdvanced ? "Hide Advanced" : "Advanced Settings"}
             </ThemedText>
             <Feather
               name={showAdvanced ? "chevron-up" : "chevron-down"}
-              size={16}
+              size={18}
               color={theme.accent}
             />
           </Pressable>
 
-          {showAdvanced && (
-            <View style={[styles.advancedSection, { backgroundColor: theme.backgroundDefault }]}>
-              <ThemedText type="caption" style={{ color: theme.textSecondary, marginBottom: Spacing.sm }}>
-                Max Priority Fee Cap: {(customCapSol ?? SPEED_CONFIGS[speed].capSol).toFixed(4)} SOL
+          {showAdvanced ? (
+            <View style={[styles.advancedSection, { backgroundColor: theme.glass, borderColor: theme.glassBorder }]}>
+              <ThemedText type="small" style={{ color: theme.text, fontWeight: "600", marginBottom: Spacing.xs }}>
+                Max Priority Fee
+              </ThemedText>
+              <ThemedText type="caption" style={{ color: theme.textSecondary, marginBottom: Spacing.md }}>
+                Cap: {(customCapSol ?? SPEED_CONFIGS[speed].capSol).toFixed(4)} SOL
               </ThemedText>
               <View style={styles.capButtons}>
-                {[0.001, 0.005, 0.01, 0.02].map((cap) => (
-                  <Pressable
-                    key={cap}
-                    style={({ pressed }) => [
-                      styles.capButton,
-                      {
-                        backgroundColor: customCapSol === cap ? theme.accent : theme.backgroundSecondary,
-                        opacity: pressed ? 0.8 : 1,
-                      },
-                    ]}
-                    onPress={() => setCustomCapSol(cap)}
-                  >
-                    <ThemedText
-                      type="caption"
-                      style={{ color: customCapSol === cap ? "#fff" : theme.text, fontWeight: "500" }}
+                {[0.001, 0.005, 0.01, 0.02].map((cap) => {
+                  const isActive = customCapSol === cap;
+                  return (
+                    <Pressable
+                      key={cap}
+                      style={({ pressed }) => [
+                        styles.capButton,
+                        {
+                          backgroundColor: isActive ? theme.accent : theme.glass,
+                          borderColor: isActive ? theme.accent : theme.glassBorder,
+                          opacity: pressed ? 0.8 : 1,
+                        },
+                      ]}
+                      onPress={() => setCustomCapSol(cap)}
                     >
-                      {cap}
-                    </ThemedText>
-                  </Pressable>
-                ))}
+                      <ThemedText
+                        type="caption"
+                        style={{ color: isActive ? "#fff" : theme.text, fontWeight: "600" }}
+                      >
+                        {cap}
+                      </ThemedText>
+                    </Pressable>
+                  );
+                })}
               </View>
-              {(customCapSol || 0) > 0.01 && (
-                <View style={[styles.warningNote, { backgroundColor: "#F59E0B15" }]}>
-                  <Feather name="alert-triangle" size={14} color="#F59E0B" />
-                  <ThemedText type="caption" style={{ color: "#F59E0B", marginLeft: Spacing.xs, flex: 1 }}>
+              {(customCapSol || 0) > 0.01 ? (
+                <View style={[styles.warningNote, { backgroundColor: theme.warning + "15", borderColor: theme.warning + "30" }]}>
+                  <Feather name="alert-triangle" size={14} color={theme.warning} />
+                  <ThemedText type="caption" style={{ color: theme.warning, marginLeft: Spacing.sm, flex: 1 }}>
                     High fee cap may result in expensive transactions
                   </ThemedText>
                 </View>
-              )}
+              ) : null}
 
-              <View style={styles.liveQuotesRow}>
+              <View style={[styles.liveQuotesRow, { borderTopColor: theme.glassBorder }]}>
                 <View style={{ flex: 1 }}>
-                  <ThemedText type="caption" style={{ color: theme.text, fontWeight: "500" }}>
+                  <ThemedText type="small" style={{ color: theme.text, fontWeight: "600" }}>
                     Live Quotes
                   </ThemedText>
-                  <ThemedText type="caption" style={{ color: theme.textSecondary, fontSize: 11 }}>
+                  <ThemedText type="caption" style={{ color: theme.textSecondary, marginTop: 2 }}>
                     Refresh every 2s in Turbo mode
                   </ThemedText>
                 </View>
@@ -1339,41 +1411,62 @@ export default function SwapScreen() {
                   />
                 </Pressable>
               </View>
-              {liveQuotes && speed !== "turbo" && (
-                <ThemedText type="caption" style={{ color: theme.textSecondary, marginTop: Spacing.xs, fontSize: 11 }}>
+              {liveQuotes && speed !== "turbo" ? (
+                <ThemedText type="caption" style={{ color: theme.textSecondary, marginTop: Spacing.sm }}>
                   Switch to Turbo speed to enable 2s refresh
                 </ThemedText>
-              )}
+              ) : null}
             </View>
-          )}
+          ) : null}
         </View>
       </KeyboardAwareScrollViewCompat>
 
-      <View style={[styles.ctaContainer, { paddingBottom: insets.bottom + Spacing.md, backgroundColor: theme.backgroundRoot }]}>
-        <Pressable
-          style={({ pressed }) => [
-            styles.swapCta,
-            {
-              backgroundColor: canSwap && !isSwapping ? theme.accent : theme.backgroundSecondary,
-              opacity: canSwap && !isSwapping ? (pressed ? 0.9 : 1) : 0.5,
-            },
-          ]}
-          onPress={handleSwapPress}
-          disabled={!canSwap || isSwapping}
-        >
-          {isSwapping ? (
-            <View style={styles.swappingRow}>
-              <ActivityIndicator size="small" color="#fff" />
-              <ThemedText type="body" style={{ color: "#fff", fontWeight: "600", marginLeft: Spacing.sm }}>
-                {swapStatus || "Processing..."}
+      <View style={[styles.ctaContainer, { paddingBottom: insets.bottom + Spacing.lg, backgroundColor: theme.backgroundRoot }]}>
+        {canSwap && !isSwapping ? (
+          <Pressable
+            style={({ pressed }) => [
+              styles.swapCtaWrapper,
+              { 
+                transform: [{ scale: pressed ? 0.98 : 1 }],
+                opacity: pressed ? 0.95 : 1,
+              },
+            ]}
+            onPress={handleSwapPress}
+          >
+            <LinearGradient
+              colors={[theme.accent, theme.accentSecondary]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.swapCtaGradient}
+            >
+              <ThemedText type="h3" style={{ color: "#fff", fontWeight: "700", letterSpacing: 0.5 }}>
+                Swap
               </ThemedText>
-            </View>
-          ) : (
-            <ThemedText type="body" style={{ color: quote ? "#fff" : theme.textSecondary, fontWeight: "600" }}>
-              {quote ? "Swap" : inputAmount ? "Getting quote..." : "Enter amount"}
-            </ThemedText>
-          )}
-        </Pressable>
+            </LinearGradient>
+          </Pressable>
+        ) : (
+          <Pressable
+            style={[
+              styles.swapCtaDisabled,
+              { backgroundColor: theme.glass, borderColor: theme.glassBorder },
+            ]}
+            onPress={handleSwapPress}
+            disabled={!canSwap || isSwapping}
+          >
+            {isSwapping ? (
+              <View style={styles.swappingRow}>
+                <ActivityIndicator size="small" color={theme.accent} />
+                <ThemedText type="body" style={{ color: theme.text, fontWeight: "600", marginLeft: Spacing.sm }}>
+                  {swapStatus || "Processing..."}
+                </ThemedText>
+              </View>
+            ) : (
+              <ThemedText type="body" style={{ color: theme.textSecondary, fontWeight: "600" }}>
+                {inputAmount ? "Getting quote..." : "Enter amount"}
+              </ThemedText>
+            )}
+          </Pressable>
+        )}
       </View>
 
       {renderTokenModal()}
@@ -1387,39 +1480,47 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   content: {
-    paddingHorizontal: Spacing.lg,
+    paddingHorizontal: Spacing.xl,
   },
   swapCard: {
     borderRadius: BorderRadius.xl,
-    padding: Spacing.lg,
+    padding: Spacing.xl,
+    borderWidth: 1,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.15,
+    shadowRadius: 24,
+    elevation: 8,
   },
   tokenSection: {
-    marginBottom: Spacing.sm,
+    marginBottom: Spacing.md,
   },
   sectionLabel: {
-    marginBottom: Spacing.sm,
+    marginBottom: Spacing.md,
     fontSize: 12,
     textTransform: "uppercase",
-    letterSpacing: 0.5,
+    letterSpacing: 1,
+    fontWeight: "600",
   },
   tokenSelector: {
     flexDirection: "row",
     alignItems: "center",
     padding: Spacing.md,
     borderRadius: BorderRadius.lg,
-    marginBottom: Spacing.sm,
+    marginBottom: Spacing.md,
+    borderWidth: 1,
   },
   selectorLogo: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    marginRight: Spacing.sm,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    marginRight: Spacing.md,
   },
   selectorLogoPlaceholder: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    marginRight: Spacing.sm,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    marginRight: Spacing.md,
     justifyContent: "center",
     alignItems: "center",
   },
@@ -1429,25 +1530,33 @@ const styles = StyleSheet.create({
   },
   amountInput: {
     flex: 1,
-    fontSize: 32,
+    fontSize: 36,
     fontWeight: "700",
+    letterSpacing: -0.5,
   },
   maxButton: {
-    paddingHorizontal: Spacing.md,
+    paddingHorizontal: Spacing.lg,
     paddingVertical: Spacing.sm,
-    borderRadius: BorderRadius.md,
+    borderRadius: BorderRadius.full,
+    borderWidth: 1,
   },
   balanceRow: {
-    marginTop: Spacing.xs,
+    marginTop: Spacing.sm,
   },
   outputRow: {
-    minHeight: 48,
+    minHeight: 52,
     justifyContent: "center",
+  },
+  outputAmount: {
+    fontSize: 32,
+    fontWeight: "700",
+    color: "#22C55E",
+    letterSpacing: -0.5,
   },
   outputWithIndicator: {
     flexDirection: "row",
     alignItems: "center",
-    gap: Spacing.sm,
+    gap: Spacing.md,
   },
   updatingIndicator: {
     flexDirection: "row",
@@ -1455,57 +1564,79 @@ const styles = StyleSheet.create({
   },
   swapDirectionButton: {
     alignItems: "center",
-    marginVertical: Spacing.xs,
+    marginVertical: Spacing.sm,
     zIndex: 1,
   },
   swapDirectionIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     justifyContent: "center",
     alignItems: "center",
-    borderWidth: 2,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 6,
   },
   quoteCard: {
-    borderRadius: BorderRadius.lg,
-    padding: Spacing.md,
-    marginTop: Spacing.md,
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.lg,
+    marginTop: Spacing.lg,
+    borderWidth: 1,
   },
   quoteRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+    paddingVertical: Spacing.sm,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "rgba(128,128,128,0.15)",
+  },
+  routeBadge: {
+    paddingHorizontal: Spacing.sm,
     paddingVertical: Spacing.xs,
+    borderRadius: BorderRadius.full,
   },
   errorCard: {
     flexDirection: "row",
     alignItems: "center",
-    padding: Spacing.md,
+    padding: Spacing.lg,
     borderRadius: BorderRadius.lg,
-    marginTop: Spacing.md,
+    marginTop: Spacing.lg,
+    borderWidth: 1,
   },
   settingsSection: {
-    marginTop: Spacing.lg,
+    marginTop: Spacing.xl,
   },
   settingsRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: Spacing.md,
+    marginBottom: Spacing.lg,
   },
   slippageButtons: {
     flexDirection: "row",
-    gap: Spacing.xs,
+    gap: Spacing.sm,
   },
-  slippageButton: {
-    paddingHorizontal: Spacing.md,
+  slippagePillGradient: {
+    borderRadius: BorderRadius.full,
+    overflow: "hidden",
+  },
+  slippagePillInner: {
+    paddingHorizontal: Spacing.lg,
     paddingVertical: Spacing.sm,
-    borderRadius: BorderRadius.md,
-    minWidth: 50,
+    alignItems: "center",
+  },
+  slippagePill: {
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.full,
+    borderWidth: 1,
     alignItems: "center",
   },
   speedSection: {
-    marginBottom: Spacing.sm,
+    marginBottom: Spacing.md,
   },
   speedButtons: {
     flexDirection: "row",
@@ -1513,76 +1644,102 @@ const styles = StyleSheet.create({
   },
   speedButton: {
     flex: 1,
-    padding: Spacing.md,
     borderRadius: BorderRadius.lg,
-    alignItems: "center",
     borderWidth: 1,
+    overflow: "hidden",
+  },
+  speedButtonGradientBg: {
+    padding: Spacing.md,
+    alignItems: "center",
+    gap: 4,
+  },
+  speedButtonContent: {
+    padding: Spacing.md,
+    alignItems: "center",
+    gap: 4,
   },
   speedHint: {
-    marginTop: Spacing.sm,
-    fontSize: 11,
+    marginTop: Spacing.md,
+    fontSize: 12,
     textAlign: "center",
   },
   advancedToggle: {
     flexDirection: "row",
     justifyContent: "center",
     alignItems: "center",
-    paddingVertical: Spacing.md,
+    paddingVertical: Spacing.lg,
     gap: Spacing.xs,
   },
   advancedSection: {
-    borderRadius: BorderRadius.lg,
-    padding: Spacing.md,
-    marginBottom: Spacing.md,
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.lg,
+    marginBottom: Spacing.lg,
+    borderWidth: 1,
   },
   capButtons: {
     flexDirection: "row",
-    gap: Spacing.xs,
+    gap: Spacing.sm,
   },
   capButton: {
     flex: 1,
-    padding: Spacing.sm,
-    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+    borderRadius: BorderRadius.lg,
     alignItems: "center",
+    borderWidth: 1,
   },
   warningNote: {
     flexDirection: "row",
     alignItems: "center",
-    padding: Spacing.sm,
-    borderRadius: BorderRadius.md,
-    marginTop: Spacing.sm,
+    padding: Spacing.md,
+    borderRadius: BorderRadius.lg,
+    marginTop: Spacing.md,
+    borderWidth: 1,
   },
   liveQuotesRow: {
     flexDirection: "row",
     alignItems: "center",
-    marginTop: Spacing.md,
-    paddingTop: Spacing.md,
+    marginTop: Spacing.lg,
+    paddingTop: Spacing.lg,
     borderTopWidth: 1,
-    borderTopColor: "rgba(128,128,128,0.2)",
   },
   liveQuotesToggle: {
-    width: 44,
-    height: 26,
-    borderRadius: 13,
+    width: 48,
+    height: 28,
+    borderRadius: 14,
     justifyContent: "center",
   },
   liveQuotesKnob: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
   },
   ctaContainer: {
     position: "absolute",
     bottom: 0,
     left: 0,
     right: 0,
-    paddingHorizontal: Spacing.lg,
-    paddingTop: Spacing.md,
+    paddingHorizontal: Spacing.xl,
+    paddingTop: Spacing.lg,
   },
-  swapCta: {
-    padding: Spacing.lg,
-    borderRadius: BorderRadius.xl,
+  swapCtaWrapper: {
+    shadowColor: "#667EEA",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.4,
+    shadowRadius: 16,
+    elevation: 12,
+  },
+  swapCtaGradient: {
+    height: 56,
+    borderRadius: BorderRadius.lg,
     alignItems: "center",
+    justifyContent: "center",
+  },
+  swapCtaDisabled: {
+    height: 56,
+    borderRadius: BorderRadius.lg,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
   },
   swappingRow: {
     flexDirection: "row",
