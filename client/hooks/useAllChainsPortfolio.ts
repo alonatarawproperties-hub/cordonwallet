@@ -47,7 +47,7 @@ export function useAllChainsPortfolio(address: string | undefined) {
   const isMounted = useRef(true);
   const lastFetchRef = useRef<string>("");
 
-  const fetchAllBalances = useCallback(async (isRefresh = false) => {
+  const fetchAllBalances = useCallback(async (isRefresh = false, isSilent = false) => {
     if (!address) {
       setState(prev => ({ ...prev, isLoading: false, assets: [] }));
       return;
@@ -61,12 +61,15 @@ export function useAllChainsPortfolio(address: string | undefined) {
 
     lastFetchRef.current = fetchKey;
 
-    setState(prev => ({
-      ...prev,
-      isLoading: !isRefresh,
-      isRefreshing: isRefresh,
-      error: null,
-    }));
+    // Only show loading/refreshing UI for non-silent refreshes
+    if (!isSilent) {
+      setState(prev => ({
+        ...prev,
+        isLoading: !isRefresh,
+        isRefreshing: isRefresh,
+        error: null,
+      }));
+    }
 
     const cacheKey = `${CACHE_KEY_PREFIX}${address}`;
 
@@ -315,15 +318,15 @@ export function useAllChainsPortfolio(address: string | undefined) {
 
     const pollInterval = setInterval(() => {
       if (isMounted.current && address) {
-        console.log("[EVMPortfolio] Auto-refresh triggered");
-        fetchAllBalances(true);
+        console.log("[EVMPortfolio] Auto-refresh triggered (silent)");
+        fetchAllBalances(true, true); // silent refresh
       }
     }, POLLING_INTERVAL);
 
     const handleAppStateChange = (nextAppState: AppStateStatus) => {
       if (nextAppState === "active" && isMounted.current && address) {
-        console.log("[EVMPortfolio] App became active, refreshing");
-        fetchAllBalances(true);
+        console.log("[EVMPortfolio] App became active, refreshing (silent)");
+        fetchAllBalances(true, true); // silent refresh
       }
     };
 

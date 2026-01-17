@@ -79,7 +79,7 @@ export function useSolanaPortfolio(address: string | undefined) {
   const isMounted = useRef(true);
   const lastFetchRef = useRef<string>("");
 
-  const fetchBalances = useCallback(async (isRefresh = false) => {
+  const fetchBalances = useCallback(async (isRefresh = false, isSilent = false) => {
     if (!address) {
       setState(prev => ({ ...prev, isLoading: false, assets: [] }));
       return;
@@ -93,12 +93,15 @@ export function useSolanaPortfolio(address: string | undefined) {
 
     lastFetchRef.current = fetchKey;
 
-    setState(prev => ({
-      ...prev,
-      isLoading: !isRefresh,
-      isRefreshing: isRefresh,
-      error: null,
-    }));
+    // Only show loading/refreshing UI for non-silent refreshes
+    if (!isSilent) {
+      setState(prev => ({
+        ...prev,
+        isLoading: !isRefresh,
+        isRefreshing: isRefresh,
+        error: null,
+      }));
+    }
 
     const cacheKey = `${CACHE_KEY_PREFIX}${address}`;
 
@@ -395,15 +398,15 @@ export function useSolanaPortfolio(address: string | undefined) {
 
     const pollInterval = setInterval(() => {
       if (isMounted.current && address) {
-        console.log("[SolanaPortfolio] Auto-refresh triggered");
-        fetchBalances(true);
+        console.log("[SolanaPortfolio] Auto-refresh triggered (silent)");
+        fetchBalances(true, true); // silent refresh
       }
     }, POLLING_INTERVAL);
 
     const handleAppStateChange = (nextAppState: AppStateStatus) => {
       if (nextAppState === "active" && isMounted.current && address) {
-        console.log("[SolanaPortfolio] App became active, refreshing");
-        fetchBalances(true);
+        console.log("[SolanaPortfolio] App became active, refreshing (silent)");
+        fetchBalances(true, true); // silent refresh
       }
     };
 

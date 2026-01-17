@@ -381,6 +381,8 @@ export default function PortfolioScreen() {
           refreshing={isRefreshing} 
           onRefresh={handleRefreshWithHaptic} 
           tintColor={theme.accent}
+          colors={[theme.accent]} // Android spinner color
+          progressBackgroundColor={theme.backgroundDefault} // Android background
           progressViewOffset={headerHeight}
         />
       }
