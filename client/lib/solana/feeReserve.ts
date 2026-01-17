@@ -12,6 +12,7 @@ export interface FeeReserveBreakdown {
   networkBaseFee: number;
   ataRent: number;
   safetyBuffer: number;
+  successFee: number;
 }
 
 export interface FeeReserveResult {
@@ -24,6 +25,7 @@ export interface EstimateFeeReserveParams {
   solBalanceLamports: number;
   priorityCapLamports: number;
   needsAtaRent: boolean;
+  successFeeLamports?: number;
   overrides?: Partial<typeof FEE_CONSTANTS>;
 }
 
@@ -32,6 +34,7 @@ export function estimateFeeReserveLamports(params: EstimateFeeReserveParams): Fe
     solBalanceLamports,
     priorityCapLamports,
     needsAtaRent,
+    successFeeLamports = 0,
     overrides = {},
   } = params;
 
@@ -42,13 +45,15 @@ export function estimateFeeReserveLamports(params: EstimateFeeReserveParams): Fe
     networkBaseFee: constants.BASE_FEE_LAMPORTS + constants.BASE_FEE_BUFFER_LAMPORTS,
     ataRent: needsAtaRent ? constants.ATA_RENT_LAMPORTS : 0,
     safetyBuffer: constants.SAFETY_BUFFER_LAMPORTS,
+    successFee: successFeeLamports,
   };
 
   const reserveLamports =
     breakdown.priorityFeeCap +
     breakdown.networkBaseFee +
     breakdown.ataRent +
-    breakdown.safetyBuffer;
+    breakdown.safetyBuffer +
+    breakdown.successFee;
 
   const spendableLamports = Math.max(0, solBalanceLamports - reserveLamports);
 
@@ -80,6 +85,9 @@ export function formatFeeBreakdown(breakdown: FeeReserveBreakdown): string[] {
   lines.push(`Network fee: ${lamportsToSolString(breakdown.networkBaseFee)} SOL`);
   if (breakdown.ataRent > 0) {
     lines.push(`Token account: ${lamportsToSolString(breakdown.ataRent)} SOL`);
+  }
+  if (breakdown.successFee > 0) {
+    lines.push(`Success fee: ${lamportsToSolString(breakdown.successFee)} SOL`);
   }
   lines.push(`Safety buffer: ${lamportsToSolString(breakdown.safetyBuffer)} SOL`);
   return lines;
