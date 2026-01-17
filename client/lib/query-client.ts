@@ -1,25 +1,43 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
+import Constants from "expo-constants";
+
+const PRODUCTION_FALLBACK_DOMAIN = "app.cordonwallet.com";
 
 /**
  * Gets the base URL for the Express API server.
+ * Priority: process.env.EXPO_PUBLIC_DOMAIN > Constants.expoConfig.extra.apiDomain > fallback
  * In development on Replit (.replit.dev), Express runs on port 5000.
  * In production (.replit.app or custom domains), the reverse proxy handles routing.
  * @returns {string} The API base URL
  */
 export function getApiUrl(): string {
-  const host = process.env.EXPO_PUBLIC_DOMAIN;
+  const envHost = process.env.EXPO_PUBLIC_DOMAIN;
+  
+  const extraHost =
+    (Constants.expoConfig as any)?.extra?.apiDomain ||
+    (Constants.manifest2 as any)?.extra?.apiDomain ||
+    (Constants.manifest as any)?.extra?.apiDomain;
+
+  const host = envHost || extraHost;
+
+  if (__DEV__) {
+    console.log("[Config] apiDomain:", host || "(using fallback)");
+  }
 
   if (!host) {
-    throw new Error("EXPO_PUBLIC_DOMAIN is not set");
+    if (__DEV__) {
+      throw new Error("EXPO_PUBLIC_DOMAIN is not set");
+    }
+    return `https://${PRODUCTION_FALLBACK_DOMAIN}`;
   }
 
-  // In development on Replit, add port 5000 to reach Express
-  // In production, no port needed as reverse proxy handles routing
-  if (host.includes('.replit.dev')) {
-    return `https://${host}:5000`;
+  const normalized = host.startsWith("http") ? host : `https://${host}`;
+
+  if (normalized.includes(".replit.dev")) {
+    return `${normalized}:5000`;
   }
-  
-  return `https://${host}`;
+
+  return normalized;
 }
 
 async function throwIfResNotOk(res: Response) {

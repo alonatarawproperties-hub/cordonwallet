@@ -1,0 +1,74 @@
+Fix production/TestFlight crash: “EXPO_PUBLIC_DOMAIN is not set” after OTA updates, without breaking existing swap or network logic.
+
+CONTEXT
+- client/lib/query-client.ts throws if process.env.EXPO_PUBLIC_DOMAIN is missing.
+- EXPO_PUBLIC_DOMAIN is currently in eas.json build.production.env, which applies to native builds only.
+- OTA updates (eas update / expo export) may not include that env, causing runtime crash.
+
+GOAL
+1) Ensure domain is available for BOTH native builds AND OTA updates.
+2) Prevent production from hard-crashing if env missing (fallback).
+3) Keep dev strict (still throw in dev if missing).
+4) Keep changes minimal and additive.
+
+IMPLEMENTATION
+
+A) Add app config “extra” injection (works in OTA + native)
+- If repo uses app.json only, migrate to app.config.ts (keep app.json fields).
+- Create app.config.ts at project root:
+  - Import existing config from app.json if needed OR define full config.
+  - Add:
+    extra: {
+      ...(existingExtra),
+      apiDomain: process.env.EXPO_PUBLIC_DOMAIN ?? "app.cordonwallet.com",
+    }
+  - Ensure updates.url + runtimeVersion remain unchanged.
+- Do NOT remove existing config settings.
+
+B) Update getApiUrl() to prefer env -> extra -> safe fallback
+- In client/lib/query-client.ts (or wherever getApiUrl lives):
+  - Import Constants from "expo-constants".
+  - Implement:
+    const envHost = process.env.EXPO_PUBLIC_DOMAIN;
+    const extraHost =
+      (Constants.expoConfig as any)?.extra?.apiDomain ||
+      (Constants.manifest2 as any)?.extra?.apiDomain ||
+      (Constants.manifest as any)?.extra?.apiDomain;
+
+    const host = envHost || extraHost;
+
+    if (!host) {
+      if (__DEV__) throw new Error("EXPO_PUBLIC_DOMAIN is not set");
+      // production safety fallback
+      return "https://app.cordonwallet.com";
+    }
+
+    // normalize: allow passing with or without protocol
+    const normalized = host.startsWith("http") ? host : `https://${host}`;
+    return normalized;
+
+  - Preserve any existing path logic (e.g. /api) exactly as before.
+  - Do NOT change other functionality.
+
+C) Add an OTA update script so env is always present during export
+- In package.json, add:
+  "scripts": {
+    "ota:prod": "EXPO_PUBLIC_DOMAIN=app.cordonwallet.com eas update --branch production --message \"prod ota\""
+  }
+- If cross-platform is needed, use cross-env:
+  - Add dependency cross-env and use:
+    "ota:prod": "cross-env EXPO_PUBLIC_DOMAIN=app.cordonwallet.com eas update --branch production --message \"prod ota\""
+
+D) Quick verification helper (optional)
+- Add a small log in dev only:
+  if (__DEV__) console.log("[Config] apiDomain:", envHost || extraHost);
+- Do not log in production.
+
+DELIVERABLE
+- app.config.ts (or updated existing config) with extra.apiDomain default
+- updated client/lib/query-client.ts with fallback logic
+- package.json script for OTA production updates
+
+IMPORTANT
+- Do NOT touch swap logic, jupiter client, token resolver, or anything unrelated.
+- Keep behavior identical when env is present; only prevent crashes when it’s missing.
