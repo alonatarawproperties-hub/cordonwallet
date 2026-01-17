@@ -34,6 +34,26 @@ const NETWORK_TO_CHAIN_ID: Record<NetworkId, number> = {
   solana: 0,
 };
 
+function formatAmountTrader(value: string | number | undefined): string {
+  if (value === undefined || value === null) return "0";
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n)) return String(value);
+
+  const abs = Math.abs(n);
+
+  const maxDecimals =
+    abs >= 1000 ? 4 :
+    abs >= 1 ? 6 :
+    9;
+
+  const formatted = new Intl.NumberFormat("en-US", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: maxDecimals,
+  }).format(n);
+
+  return formatted;
+}
+
 const ACTIVITY_CACHE_KEY = "@cordon/activity_cache";
 const PRICES_CACHE_KEY = "@cordon/activity_prices_cache";
 
@@ -507,13 +527,13 @@ export default function ActivityScreen() {
 
     const getAmountDisplay = () => {
       if (activityType === "send") {
-        return `-${item.amount} ${item.tokenSymbol}`;
+        return `-${formatAmountTrader(item.amount)} ${item.tokenSymbol}`;
       } else if (activityType === "receive") {
-        return `+${item.amount} ${item.tokenSymbol}`;
+        return `+${formatAmountTrader(item.amount)} ${item.tokenSymbol}`;
       } else if (activityType === "swap" && item.toAmount && item.toTokenSymbol) {
-        return `+${item.toAmount} ${item.toTokenSymbol}`;
+        return `+${formatAmountTrader(item.toAmount)} ${item.toTokenSymbol}`;
       }
-      return `${item.amount} ${item.tokenSymbol}`;
+      return `${formatAmountTrader(item.amount)} ${item.tokenSymbol}`;
     };
 
     const getUsdValue = (): string | null => {
