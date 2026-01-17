@@ -247,7 +247,8 @@ export default function ManageCryptoScreen() {
             {item.name}
           </ThemedText>
         </View>
-        {itemIsCustom && item.address ? (
+        {/* Show delete for custom tokens OR auto-detected Solana tokens (not SOL/USDC core tokens) */}
+        {(itemIsCustom || (item.chainId === 0 && item.address && !["SOL", "USDC"].includes(item.symbol))) && item.address ? (
           <Pressable
             style={styles.deleteButton}
             onPress={() => handleDeleteCustomToken(item.chainId, item.symbol, item.address!)}

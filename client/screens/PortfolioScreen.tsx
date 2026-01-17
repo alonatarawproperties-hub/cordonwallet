@@ -277,7 +277,13 @@ export default function PortfolioScreen() {
       }
     }
 
-    const total = allAssets.reduce((sum, asset) => sum + (asset.valueUsd || 0), 0);
+    // Filter out zero-balance assets (hide by default on homepage)
+    const nonZeroAssets = allAssets.filter(asset => {
+      const balance = parseFloat(asset.balance || "0");
+      return balance > 0;
+    });
+
+    const total = nonZeroAssets.reduce((sum, asset) => sum + (asset.valueUsd || 0), 0);
     const errorAny = (walletType === "solana-only" ? null : evmPortfolio.error) || solanaPortfolio.error;
     const latestUpdate = Math.max(
       walletType === "solana-only" ? 0 : (evmPortfolio.lastUpdated || 0), 
@@ -285,7 +291,7 @@ export default function PortfolioScreen() {
     );
 
     return {
-      assets: allAssets,
+      assets: nonZeroAssets,
       isLoading: isLoadingAny,
       isRefreshing: isRefreshingAny,
       error: errorAny,
