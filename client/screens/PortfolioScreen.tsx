@@ -202,13 +202,15 @@ function AssetRow({
           </ThemedText>
         ) : null}
       </View>
-      {securityRisk && onSecurityPress ? (
-        <TokenSecurityBadge 
-          riskLevel={securityRisk} 
-          onPress={onSecurityPress}
-          size="small"
-        />
-      ) : null}
+      <View style={styles.securityBadgeSlot}>
+        {securityRisk && onSecurityPress ? (
+          <TokenSecurityBadge 
+            riskLevel={securityRisk} 
+            onPress={onSecurityPress}
+            size="small"
+          />
+        ) : null}
+      </View>
       <Feather name="chevron-right" size={18} color={theme.textSecondary} style={{ opacity: 0.6 }} />
     </AnimatedPressable>
   );
@@ -748,6 +750,12 @@ const styles = StyleSheet.create({
   tokenBalance: {
     alignItems: "flex-end",
     gap: 2,
+  },
+  securityBadgeSlot: {
+    width: 28,
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: 8,
   },
   balanceAmount: {
     fontWeight: "600",
