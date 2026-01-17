@@ -626,6 +626,16 @@ export async function setActiveWalletById(walletId: string): Promise<void> {
   await saveVaultMeta(meta.wallets, walletId);
 }
 
+export async function renameWallet(walletId: string, newName: string): Promise<void> {
+  const meta = await loadVaultMeta();
+  const wallet = meta.wallets.find(w => w.id === walletId);
+  if (!wallet) {
+    throw new Error("Wallet not found");
+  }
+  wallet.name = newName.trim();
+  await saveVaultMeta(meta.wallets, meta.activeWalletId);
+}
+
 export async function getMnemonic(walletId: string): Promise<string | null> {
   if (__DEV__) {
     console.log("[WalletEngine] getMnemonic called", {

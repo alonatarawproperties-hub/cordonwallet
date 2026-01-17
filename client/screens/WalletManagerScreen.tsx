@@ -1,4 +1,5 @@
-import { View, StyleSheet, FlatList, Pressable, Alert } from "react-native";
+import { useState } from "react";
+import { View, StyleSheet, FlatList, Pressable, Alert, Modal, TextInput, KeyboardAvoidingView, Platform } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useNavigation } from "@react-navigation/native";
@@ -23,11 +24,37 @@ export default function WalletManagerScreen() {
   const headerHeight = useHeaderHeight();
   const { theme } = useTheme();
   const navigation = useNavigation<Navigation>();
-  const { wallets, activeWallet, setActiveWallet, removeWallet } = useWallet();
+  const { wallets, activeWallet, setActiveWallet, removeWallet, renameWallet } = useWallet();
+  
+  const [renameModalVisible, setRenameModalVisible] = useState(false);
+  const [renameWalletId, setRenameWalletId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
 
   const handleCopyAddress = async (address: string) => {
     await Clipboard.setStringAsync(address);
     await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  };
+
+  const openRenameModal = (walletId: string, currentName: string) => {
+    setRenameWalletId(walletId);
+    setRenameValue(currentName);
+    setRenameModalVisible(true);
+  };
+
+  const handleSaveRename = async () => {
+    if (renameWalletId && renameValue.trim()) {
+      await renameWallet(renameWalletId, renameValue.trim());
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    }
+    setRenameModalVisible(false);
+    setRenameWalletId(null);
+    setRenameValue("");
+  };
+
+  const handleCancelRename = () => {
+    setRenameModalVisible(false);
+    setRenameWalletId(null);
+    setRenameValue("");
   };
 
   const handleRemoveWallet = (walletId: string, walletName: string) => {
@@ -161,6 +188,14 @@ export default function WalletManagerScreen() {
           ) : null}
           <Pressable 
             style={styles.actionButton}
+            onPress={() => openRenameModal(item.id, item.name)}
+          >
+            <Feather name="edit-2" size={16} color={theme.textSecondary} />
+            <ThemedText type="small" style={{ color: theme.textSecondary }}>Rename</ThemedText>
+          </Pressable>
+          <View style={[styles.actionDivider, { backgroundColor: theme.border }]} />
+          <Pressable 
+            style={styles.actionButton}
             onPress={() => navigation.navigate("ExportWallet", { walletId: item.id, walletName: item.name })}
           >
             <Feather name="shield" size={16} color={theme.warning} />
@@ -225,6 +260,54 @@ export default function WalletManagerScreen() {
         }
         ItemSeparatorComponent={() => <View style={{ height: Spacing.md }} />}
       />
+      
+      <Modal
+        visible={renameModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={handleCancelRename}
+      >
+        <KeyboardAvoidingView 
+          style={styles.modalOverlay}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+        >
+          <View style={[styles.modalContent, { backgroundColor: theme.backgroundDefault }]}>
+            <ThemedText type="h4" style={{ marginBottom: Spacing.md }}>
+              Rename Wallet
+            </ThemedText>
+            <TextInput
+              style={[
+                styles.renameInput,
+                { 
+                  backgroundColor: theme.backgroundSecondary,
+                  borderColor: theme.border,
+                  color: theme.text,
+                }
+              ]}
+              value={renameValue}
+              onChangeText={setRenameValue}
+              placeholder="Enter wallet name"
+              placeholderTextColor={theme.textSecondary}
+              autoFocus
+              selectTextOnFocus
+            />
+            <View style={styles.modalButtons}>
+              <Pressable
+                style={[styles.modalButton, { backgroundColor: theme.backgroundSecondary }]}
+                onPress={handleCancelRename}
+              >
+                <ThemedText type="body" style={{ color: theme.textSecondary }}>Cancel</ThemedText>
+              </Pressable>
+              <Pressable
+                style={[styles.modalButton, { backgroundColor: theme.accent }]}
+                onPress={handleSaveRename}
+              >
+                <ThemedText type="body" style={{ color: "#FFFFFF", fontWeight: "600" }}>Save</ThemedText>
+              </Pressable>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </ThemedView>
   );
 }
@@ -323,5 +406,37 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.full,
     borderWidth: 1,
     gap: Spacing.sm,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.6)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: Spacing.lg,
+  },
+  modalContent: {
+    width: "100%",
+    maxWidth: 340,
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.xl,
+  },
+  renameInput: {
+    borderWidth: 1,
+    borderRadius: BorderRadius.sm,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.md,
+    fontSize: 16,
+    marginBottom: Spacing.lg,
+  },
+  modalButtons: {
+    flexDirection: "row",
+    gap: Spacing.md,
+  },
+  modalButton: {
+    flex: 1,
+    paddingVertical: Spacing.md,
+    borderRadius: BorderRadius.sm,
+    alignItems: "center",
+    justifyContent: "center",
   },
 });

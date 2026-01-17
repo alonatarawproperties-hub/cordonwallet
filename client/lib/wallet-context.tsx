@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { Wallet, Bundle, NetworkId, PolicySettings, Transaction, Approval, TokenBalance } from "./types";
-import { listWallets, getActiveWallet, setActiveWalletById, WalletRecord } from "./wallet-engine";
+import { listWallets, getActiveWallet, setActiveWalletById, renameWallet as renameWalletEngine, WalletRecord } from "./wallet-engine";
 
 interface WalletContextType {
   isInitialized: boolean;
@@ -19,6 +19,7 @@ interface WalletContextType {
   setSelectedNetwork: (networkId: NetworkId) => void;
   addWallet: (wallet: Wallet) => Promise<void>;
   removeWallet: (walletId: string) => Promise<void>;
+  renameWallet: (walletId: string, newName: string) => Promise<void>;
   addBundle: (bundle: Bundle) => Promise<void>;
   removeBundle: (bundleId: string) => Promise<void>;
   updatePolicySettings: (settings: Partial<PolicySettings>) => Promise<void>;
@@ -157,6 +158,17 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const renameWallet = async (walletId: string, newName: string) => {
+    await renameWalletEngine(walletId, newName);
+    const updatedWallets = wallets.map((w) =>
+      w.id === walletId ? { ...w, name: newName.trim() } : w
+    );
+    setWallets(updatedWallets);
+    if (activeWallet?.id === walletId) {
+      setActiveWalletState({ ...activeWallet, name: newName.trim() });
+    }
+  };
+
   const addBundle = async (bundle: Bundle) => {
     const newBundles = [...bundles, bundle];
     setBundles(newBundles);
@@ -218,6 +230,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         setSelectedNetwork,
         addWallet,
         removeWallet,
+        renameWallet,
         addBundle,
         removeBundle,
         updatePolicySettings,
