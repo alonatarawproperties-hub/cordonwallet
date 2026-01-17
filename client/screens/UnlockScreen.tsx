@@ -11,7 +11,8 @@ import { Spacing, BorderRadius } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
 import { useWallet } from "@/lib/wallet-context";
-import { unlockWithPin, verifyPin, VaultCorruptedError, repairCorruptedVault, getPinWithBiometrics, hasBiometricPinEnabled, savePinForBiometrics } from "@/lib/wallet-engine";
+import { unlockWithPin, verifyPin, VaultCorruptedError, repairCorruptedVault, getPinWithBiometrics, hasBiometricPinEnabled, savePinForBiometrics, getActiveWallet } from "@/lib/wallet-engine";
+import { prefetchPortfolioCache } from "@/lib/portfolio-cache";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Unlock">;
@@ -72,6 +73,15 @@ export default function UnlockScreen({ navigation }: Props) {
         if (success) {
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
           unlock();
+          
+          // Start prefetching portfolio data immediately (don't await)
+          const wallet = await getActiveWallet();
+          if (wallet) {
+            const evmAddr = wallet.addresses?.evm || wallet.address;
+            const solAddr = wallet.addresses?.solana;
+            prefetchPortfolioCache(evmAddr, solAddr);
+          }
+          
           // Navigate immediately, refresh wallets in background
           navigation.reset({
             index: 0,
@@ -107,6 +117,16 @@ export default function UnlockScreen({ navigation }: Props) {
       if (success) {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         unlock();
+        
+        // Start prefetching portfolio data immediately (don't await)
+        getActiveWallet().then(wallet => {
+          if (wallet) {
+            const evmAddr = wallet.addresses?.evm || wallet.address;
+            const solAddr = wallet.addresses?.solana;
+            prefetchPortfolioCache(evmAddr, solAddr);
+          }
+        });
+        
         // Navigate immediately for instant response
         navigation.reset({
           index: 0,

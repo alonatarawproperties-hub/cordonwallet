@@ -22,6 +22,64 @@ export function getPreloadedCache(): PortfolioDisplayCache | null {
   return preloadedCache;
 }
 
+export function getDefaultNativeTokens(): { solana: SolanaAsset[]; evm: MultiChainAsset[] } {
+  const solanaDefault: SolanaAsset[] = [
+    {
+      symbol: "SOL",
+      name: "Solana",
+      balance: "0.00",
+      rawBalance: BigInt(0),
+      decimals: 9,
+      isNative: true,
+      chainId: "solana",
+      chainName: "Solana",
+      priceUsd: 0,
+      valueUsd: 0,
+    },
+  ];
+
+  const evmDefaults: MultiChainAsset[] = [
+    {
+      symbol: "ETH",
+      name: "Ethereum",
+      balance: "0.00",
+      rawBalance: BigInt(0),
+      decimals: 18,
+      isNative: true,
+      chainId: 1,
+      chainName: "Ethereum",
+      priceUsd: 0,
+      valueUsd: 0,
+    },
+    {
+      symbol: "POL",
+      name: "Polygon",
+      balance: "0.00",
+      rawBalance: BigInt(0),
+      decimals: 18,
+      isNative: true,
+      chainId: 137,
+      chainName: "Polygon",
+      priceUsd: 0,
+      valueUsd: 0,
+    },
+    {
+      symbol: "BNB",
+      name: "BNB Chain",
+      balance: "0.00",
+      rawBalance: BigInt(0),
+      decimals: 18,
+      isNative: true,
+      chainId: 56,
+      chainName: "BNB Chain",
+      priceUsd: 0,
+      valueUsd: 0,
+    },
+  ];
+
+  return { solana: solanaDefault, evm: evmDefaults };
+}
+
 export function clearPreloadedCache(): void {
   preloadedCache = null;
 }
