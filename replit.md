@@ -1,252 +1,88 @@
 # Cordon
 
 ## Overview
-
-Cordon is a production-grade, non-custodial EVM and Solana wallet application delivered as a monorepo. It features a React Native mobile app and an Express backend. Its key differentiators include a Wallet Firewall for explain-before-sign functionality and enforceable transaction policies, Bundles for multi-wallet management with batch operations, and an AI Explainer for plain-English transaction explanations and risk assessment. The wallet supports major EVM networks (Ethereum, Polygon, BNB Chain) and Solana mainnet, deriving both EVM (0x...) and Solana (base58) addresses from a single mnemonic seed phrase. Key generation and storage are exclusively on-device using secure storage.
+Cordon is a production-grade, non-custodial EVM and Solana wallet application distributed as a monorepo, featuring a React Native mobile app and an Express backend. Its core purpose is to provide secure, user-friendly cryptocurrency management with advanced features. Key functionalities include a Wallet Firewall for pre-transaction analysis and policy enforcement, Bundles for multi-wallet batch operations, and an AI Explainer for simplifying transaction details and assessing risks. It supports major EVM networks (Ethereum, Polygon, BNB Chain) and Solana, deriving both EVM and Solana addresses from a single mnemonic. All key generation and storage are securely handled on-device.
 
 ## User Preferences
-
 Preferred communication style: Simple, everyday language.
 
 ## System Architecture
 
-### Frontend
+### Monorepo Structure
+The project is organized into `/client` (React Native frontend), `/server` (Express.js backend), and `/shared` (common types and schemas), promoting modularity and code reuse.
 
-- **Framework**: React Native with Expo SDK 54, leveraging the new architecture.
-- **State Management**: React Context for wallet state and TanStack Query for server state.
-- **Styling**: Custom theme system with light/dark mode support, adhering to a fintech-minimalist design.
-- **Data Storage**: AsyncStorage for non-sensitive preferences and Expo SecureStore for sensitive, encrypted data.
-- **Boot Sequence**: A robust splash screen preloads assets, initializes core services, prefetches cached portfolio data, and determines the initial app route, with built-in health checks and error recovery.
-- **Portfolio Prefetching**: During app startup, the bootstrap process loads cached portfolio data (EVM and Solana assets) so the main screen displays instantly without loading delays. Fresh data is fetched in the background after the cached data is shown.
+### Frontend
+- **Framework**: React Native with Expo SDK 54, utilizing the new architecture.
+- **State Management**: React Context for local state, TanStack Query for server-side state.
+- **Styling**: Custom theme system supporting light/dark modes, adhering to a fintech-minimalist design.
+- **Data Storage**: AsyncStorage for non-sensitive data, Expo SecureStore for encrypted sensitive data.
+- **Boot Sequence**: Robust startup process with asset preloading, service initialization, and cached portfolio data prefetching for a fast user experience.
 
 ### Backend
-
 - **Framework**: Express.js with TypeScript.
-- **API**: RESTful routes, primarily serving non-sensitive metadata such as token lists and cached prices.
-- **Storage**: In-memory storage, designed for future migration to persistent databases.
+- **API**: RESTful, primarily serving non-sensitive metadata like token lists and cached prices, designed for scalability and future database integration.
 
 ### Database
-
 - **ORM**: Drizzle ORM with PostgreSQL dialect.
 - **Schema**: Defined in `shared/schema.ts`, including a Users table.
 - **Validation**: Zod schemas generated via drizzle-zod.
 
-### Monorepo Structure
-
-The project is organized into `/client` (frontend), `/server` (backend), and `/shared` (common types and schemas). It utilizes a reusable component library and screen-based navigation for modularity.
-
 ### Wallet Security Model
-
-- **Mnemonic Generation**: BIP39 12-word seed phrases.
-- **Multi-Chain Key Derivation**: Standard HD paths for EVM (BIP32/BIP44) and Solana (SLIP-0010 Ed25519).
-- **Vault Encryption**: PBKDF2 + AES-256-GCM.
-- **PIN Storage**: SHA-256 hash stored separately.
-- **Secure Storage**: Expo SecureStore.
-- **Session Management**: Vaults are decrypted on-demand for signing and cached in memory, with clear lock/unlock flows and error handling for locked or corrupted states.
+- **Key Derivation**: BIP39 12-word seed phrases with standard HD paths for EVM (BIP32/BIP44) and Solana (SLIP-0010 Ed25519).
+- **Encryption**: PBKDF2 + AES-256-GCM for vault encryption; SHA-256 for PIN storage.
+- **Secure Storage**: Leverages Expo SecureStore for on-device protection.
+- **Session Management**: On-demand decryption of vaults for signing, with clear lock/unlock mechanisms.
 
 ### Blockchain Interaction
-
-- **Chain Registry**: Configuration for supported EVM chains (Ethereum, Polygon, BSC) and Solana.
-- **RPC Client**: `viem` for EVM and `@solana/web3.js` for Solana, with caching and error handling.
-- **Balance & Portfolio**: Unified portfolio view combining EVM and Solana assets with real-time balance fetching and price enrichment.
-- **Transaction Module**: Handles native, ERC-20, and SPL token transfers, approvals, and signing, with gas estimation and EIP-1559 support. Private keys are derived on-demand.
-- **Transaction History**: Local storage for activity tracking and Etherscan V2 API for fetching detailed history.
+- **Multi-Chain Support**: Configuration for supported EVM chains (Ethereum, Polygon, BSC) and Solana.
+- **RPC Clients**: `viem` for EVM and `@solana/web3.js` for Solana, including caching and error handling.
+- **Portfolio Management**: Unified view of EVM and Solana assets with real-time balance fetching and price enrichment.
+- **Transaction Handling**: Supports native, ERC-20, and SPL token transfers, approvals, and signing with gas estimation and EIP-1559.
+- **Transaction History**: Local storage complemented by Etherscan V2 API for detailed history.
 
 ### Security Hub & Wallet Firewall
-
-- **EVM Approvals**: Tracks ERC-20 token approvals with risk assessment (unlimited, high-value, stale permissions) and provides revoke/cap allowance functionalities.
-- **Solana Permissions**: Manages WalletConnect sessions and SPL token delegates.
-- **Approval Policies**: Enforces denylist/allowlist and blocks unlimited approvals, with a UI for capping allowances when blocked.
-- **Wallet Drainer Protection**: Automatic detection and hard-blocking of Solana SetAuthority and Assign instruction attacks. These attacks attempt to change wallet/token account ownership to steal funds permanently. The decoder (`client/lib/solana/decoder.ts`) scans all Solana transactions before signing and blocks them if drainer instructions are detected. Protection is enforced in both WalletConnect handler and in-app browser dApp connections.
+- **Approval Management**: Tracks and assesses risks for ERC-20 token approvals (unlimited, high-value, stale) and Solana SPL token delegates, offering revoke/cap functionalities.
+- **Policy Enforcement**: Configurable denylist/allowlist, blocking unlimited approvals, with UI for capping allowances.
+- **Drainer Protection**: Automatic detection and hard-blocking of Solana SetAuthority and Assign instruction attacks to prevent asset theft.
 
 ### WalletConnect v2 Integration
-
-- **SDKs**: `@walletconnect/web3wallet`, `@walletconnect/core`.
-- **Functionality**: Manages session establishment, approval, and signing requests for both EVM (eth_sendTransaction, personal_sign) and Solana (solana_signMessage, solana_signTransaction) methods.
-- **Security**: Integrates with the Wallet Firewall for transaction approval intents and policy enforcement.
-- **Multi-Chain Support**: Automatically handles namespace building for EVM and Solana, ensuring correct address provisioning.
+- **SDKs**: `@walletconnect/web3wallet`, `@walletConnect/core`.
+- **Functionality**: Manages session establishment, approval, and signing requests for both EVM (eth_sendTransaction, personal_sign) and Solana (solana_signMessage, solana_signTransaction).
+- **Security**: Integrates with the Wallet Firewall for transaction approval and policy enforcement.
+- **Multi-Chain Support**: Handles namespace building for EVM and Solana for correct address provisioning.
 
 ### Solana Swap (Intelligent Routing)
-
-- **SwapScreen**: Native Solana token swap interface with token selectors, live quotes, slippage controls, and speed modes (standard/fast/turbo).
-- **Intelligent Swap Routing**: Server-side route decision engine (`server/swap/route.ts`) that automatically detects the best route:
-  - **Pump-First Detection**: For tokens ending in "pump", route detection checks bonding curve status FIRST before trying Jupiter. This prevents Jupiter from routing through incompatible DEXs.
-  - **Jupiter DEX**: Primary route for established tokens and graduated pump tokens with DEX liquidity.
-  - **Pump.fun Bonding Curve**: Used for tokens still on bonding curve (via pumpportal.fun trade-local API).
-  - **Fallback System**: When route is "pump", server also fetches Jupiter quote as fallback. If pump build fails with TOKEN_GRADUATED, client automatically falls back to Jupiter.
-  - **Token-2022 Awareness**: Some Token-2022 tokens have limited Jupiter support (error 0x177e). The app shows a user-friendly message when this occurs.
-  - Route detection caching: 5-minute TTL for pump detection, 1.5s for quotes.
-- **Unified Quote Engine**: `client/lib/quoteEngine.ts` handles both routes with:
-  - Route type tracking (jupiter/pump/none) and Pump metadata (isPump, isBondingCurve, isGraduated).
-  - Speed-based polling intervals: Standard (12s), Fast (6s), Turbo (2.5s).
-  - Request deduplication and stale response handling.
-- **Route-Aware UI**: SwapScreen displays different quote cards:
-  - Jupiter: Shows rate, price impact, min received with blue accent.
-  - Pump.fun: Shows pink "Pump.fun (Bonding Curve)" label, buy/sell type, slippage, and warning about approximate output.
-- **Jupiter API**: Quote fetching and swap transaction building via `client/services/jupiter.ts`.
-- **Pump.fun API**: Bonding curve trades via pumpportal.fun (`server/swap/pump.ts`).
-- **Server Swap Cache**: TTL-based caching with in-flight request deduplication (`server/swap/cache.ts`).
-- **Token List Service**: Cached token list with 24h TTL, searchable by symbol/name/mint address.
-- **Fee Controller**: Compute budget instructions for priority fees with configurable caps per speed mode.
-- **Swap Security Gate**: Allowlist validation for Jupiter and Pump programs, drainer detection, fee payer verification.
-- **Transaction Broadcaster**: Dual RPC support (primary Helius + fallback) with automatic rebroadcast and confirmation polling.
-- **Swap Store**: AsyncStorage-backed history and metrics tracking.
-- **Speed Modes**: Standard (0.0008 SOL cap), Fast (0.002 SOL), Turbo (0.005 SOL).
-- **SwapHistoryScreen**: View past swaps with status indicators and explorer links.
-- **SwapDebugScreen**: Configuration viewer and session metrics.
+- **Swap Interface**: Native Solana token swap with token selectors, live quotes, slippage controls, and speed modes.
+- **Intelligent Routing Engine**: Server-side route decision-making (`server/swap/route.ts`) prioritizing Pump.fun bonding curves for new tokens and Jupiter DEX for established assets, with fallbacks and Token-2022 awareness.
+- **Unified Quote Engine**: Handles quotes from different routes, managing polling intervals, deduplication, and stale responses.
+- **Security Gate**: Allowlist validation for swap programs, drainer detection, and fee payer verification.
 
 ### Browser/dApps Interface
-
-- **BrowserScreen**: Main discovery tab with search bar, active WalletConnect sessions, browsing recents, and curated popular dApps grid with security banner.
-- **BrowserWebViewScreen**: In-app WebView browser with full navigation controls (back/forward/refresh/share), URL bar, security status, and history tracking with smart filtering to exclude favicons and assets.
-- **BrowserStore**: AsyncStorage-backed persistence for browsing history with 50-item limit and favicon caching.
-- **dApps Catalog**: Curated list of popular dApps organized by category (DeFi, DEX, NFT, Bridge, Lending) at `client/data/dapps.ts`.
-- **Session Management**: Connected dApps display in both Browser tab and Security/Approvals screen with Solana-specific enrichment (verification badges, chain indicators).
+- **BrowserScreen**: Discovery tab with search, active WalletConnect sessions, browsing history, and a curated list of popular dApps.
+- **BrowserWebViewScreen**: In-app WebView with full navigation controls, URL bar, security status, and history tracking.
+- **dApps Catalog**: Curated list of dApps categorized by function.
+- **Session Management**: Displays connected dApps in the browser and security screens with Solana-specific enrichments.
 
 ## External Dependencies
 
 ### Mobile/Expo
-
 - `expo-secure-store`: Secure key storage.
 - `expo-local-authentication`: Biometric authentication.
 - `expo-clipboard`, `expo-haptics`, `expo-web-browser`.
 
 ### Cryptography
-
 - `@scure/bip39`, `@scure/bip32`: Mnemonic and HD key derivation.
-- `@noble/hashes`, `@noble/ciphers`: Cryptographic hashing and AES-256-GCM encryption.
+- `@noble/hashes`, `@noble/ciphers`: Cryptographic hashing and AES-256-GCM.
 - `viem`: EVM utilities.
 - `@solana/web3.js`, `@solana/spl-token`, `tweetnacl`, `bs58`: Solana interactions.
 - `react-native-qrcode-svg`: QR code generation.
 
 ### Blockchain Infrastructure
-
-- **Solana RPC**: Paid Helius RPC (configured via `SOLANA_RPC_URL` secret) with automatic fallback to public Solana RPC on rate limit/access errors.
+- **Solana RPC**: Paid Helius RPC (with fallback to public Solana RPC).
 - **CoinGecko API**: Primary source for major token prices.
-- **DexScreener API**: Fallback for long-tail token prices via DEX liquidity pools.
+- **DexScreener API**: Fallback for long-tail token prices.
+- **Jupiter API**: Solana swap quotes and transaction building.
+- **Pumpportal.fun API**: For Pump.fun bonding curve trades.
 
 ### Database
-
 - **PostgreSQL**: Used with Drizzle ORM.
-
-## Developer Notes
-
-### Swap Feature Testing
-
-**How to test swap:**
-1. Open the app in Expo Go
-2. Navigate to the Swap tab
-3. Enter a SOL amount (e.g., 0.01 SOL)
-4. Select output token (USDC, etc.)
-5. Verify quote appears without errors
-6. Test Standard/Fast/Turbo speed modes
-7. Confirm swap succeeds with transaction signature
-
-**Rate Limiting & 429 Errors:**
-- Client debounces quote requests by 450ms to prevent spam
-- Server rate limits: 20 quotes/10s, 5 token list fetches/minute
-- 429 errors are transient - the app retries automatically with exponential backoff
-- Token list is cached 12h client-side, 6h server-side
-- If you see "Network busy, retrying..." this is normal behavior during high load
-
-**Retry/Backoff Behavior:**
-- Quote requests: 3 retries with 300ms, 800ms, 1600ms delays + jitter
-- On 429/503: respects Retry-After header (capped at 5s)
-- Token list failures: silently uses cached list, never blocks the UI
-
-**Manual Mint Entry:**
-- If a token isn't in the list (e.g., pump token), paste the mint address directly
-- The app will try to fetch metadata; if it fails, it shows as "Unknown Token" but quote still works
-
-**Speed Modes:**
-- Standard: 0.0008 SOL fee cap, 200k compute units, quote refresh every 12s
-- Fast: 0.002 SOL fee cap, 400k compute units, quote refresh every 6s
-- Turbo: 0.005 SOL fee cap, 800k compute units, quote refresh every 2.5s
-
-**Quote Engine Behavior:**
-- While typing: NO polling; quote fetches after 500ms pause (debounce)
-- Polling pauses when Swap screen loses focus or app backgrounds
-- Last quote stays visible during updates (no flicker), shows "Updating..." indicator
-- Duplicate requests are deduplicated, stale responses are ignored
-- Rate limit 429s trigger a 2s cooldown before next fetch
-
-**QA Checklist:**
-- [ ] Typing amount quickly does not spam network
-- [ ] Token list loads instantly from cache
-- [ ] Quotes recover automatically under rate limit
-- [ ] Swap succeeds in Standard/Fast/Turbo modes
-- [ ] No red LogBox spam for 429/500 errors
-- [ ] Manual mint paste works for pump tokens
-- [ ] Quote updates match speed mode cadence (Standard ~12s, Fast ~6s, Turbo ~2.5s)
-- [ ] Quote polling pauses when navigating away or backgrounding app
-
-## Deployment Verification
-
-After deploying, verify the backend is correctly serving all API routes:
-
-**Health Check Commands:**
-```bash
-# General health check
-curl https://app.cordonwallet.com/api/health
-
-# Solana RPC health
-curl https://app.cordonwallet.com/api/solana/health
-
-# Swap service health (checks Jupiter + RPC connectivity)
-curl https://app.cordonwallet.com/api/swap/health
-
-# Deep Jupiter diagnostics (DNS, TCP, HTTPS)
-curl https://app.cordonwallet.com/api/swap/diag/jupiter
-```
-
-**Expected /api/swap/health Response:**
-```json
-{
-  "ok": true,
-  "ts": 1234567890123,
-  "services": {
-    "jupiter": { "ok": true, "status": 200, "latencyMs": 150, "baseUrlUsed": "https://quote-api.jup.ag" },
-    "rpc": { "ok": true, "latencyMs": 50, "url": "configured" }
-  }
-}
-```
-
-**Expected /api/swap/diag/jupiter Response:**
-```json
-{
-  "ts": 1234567890123,
-  "dnsLookup": { "ok": true, "host": "quote-api.jup.ag", "addresses": [...], "latencyMs": 15 },
-  "tcpConnect": { "ok": true, "host": "quote-api.jup.ag", "port": 443, "latencyMs": 50 },
-  "httpsFetch": { "ok": true, "status": 200, "latencyMs": 150, "baseUrlUsed": "https://quote-api.jup.ag" },
-  "summary": { "dnsOk": true, "tcpOk": true, "httpsOk": true, "likelyIssue": "None - all connectivity checks passed" }
-}
-```
-
-**Environment Variables (Swap Service):**
-```bash
-# Primary Jupiter API endpoint (default: https://quote-api.jup.ag)
-JUPITER_BASE_URL=https://quote-api.jup.ag
-
-# Comma-separated fallback URLs (optional)
-JUPITER_FALLBACK_URLS=https://quote-api.jup.ag
-
-# Solana RPC endpoint (required)
-SOLANA_RPC_URL=https://your-helius-rpc-url
-```
-
-**Troubleshooting:**
-- **404 on /api/swap/health**: Backend not deployed with latest code. Redeploy.
-- **Jupiter DNS fail**: Hosting provider is blocking DNS or egress is restricted. Move backend or fix egress.
-- **Jupiter TCP fail**: Firewall blocking outbound HTTPS (port 443).
-- **Jupiter HTTPS fail but DNS/TCP ok**: TLS handshake issue or Jupiter API error.
-- **RPC errors**: Check SOLANA_RPC_URL secret is set correctly in production.
-
-**Local Development:**
-```bash
-# Test swap health locally
-npm run server:dev
-curl http://localhost:5000/api/swap/health
-
-# Full Jupiter diagnostics
-curl http://localhost:5000/api/swap/diag/jupiter
-```
