@@ -15,6 +15,9 @@ import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
+const ICON_SIZE = 22;
+const ICON_HIT_SLOP = 12;
+
 export function PortfolioHeaderTitle() {
   const { theme } = useTheme();
   const { activeWallet } = useWallet();
@@ -29,11 +32,11 @@ export function PortfolioHeaderTitle() {
 
   return (
     <>
-      <Pressable onPress={handlePress} style={styles.container}>
+      <Pressable onPress={handlePress} style={styles.titleContainer} hitSlop={8}>
         <ThemedText style={styles.walletName} numberOfLines={1}>
           {walletName}
         </ThemedText>
-        <Feather name="chevron-down" size={16} color={theme.text} style={{ marginLeft: 4 }} />
+        <Feather name="chevron-down" size={14} color={theme.textSecondary} style={styles.chevron} />
       </Pressable>
       <WalletSwitcherSheet 
         visible={switcherVisible} 
@@ -53,8 +56,12 @@ export function PortfolioHeaderLeft() {
   }, [navigation]);
 
   return (
-    <Pressable onPress={handlePress} hitSlop={12} style={styles.headerButton}>
-      <Feather name="settings" size={22} color={theme.text} />
+    <Pressable 
+      onPress={handlePress} 
+      hitSlop={ICON_HIT_SLOP} 
+      style={styles.iconButton}
+    >
+      <Feather name="settings" size={ICON_SIZE} color={theme.text} />
     </Pressable>
   );
 }
@@ -87,19 +94,31 @@ export function PortfolioHeaderRight() {
   }, [activeWallet, selectedNetwork]);
 
   return (
-    <View style={styles.headerRightContainer}>
-      <Pressable onPress={handleScan} hitSlop={12} style={styles.headerButton}>
-        <Feather name="maximize" size={20} color={theme.text} />
+    <View style={styles.rightContainer}>
+      <Pressable 
+        onPress={handleScan} 
+        hitSlop={ICON_HIT_SLOP} 
+        style={styles.iconButton}
+      >
+        <Feather name="maximize" size={ICON_SIZE} color={theme.text} />
       </Pressable>
-      <Pressable onPress={handleCopy} hitSlop={12} style={[styles.headerButton, { marginLeft: Spacing.md }]}>
-        <Feather name={copied ? "check" : "copy"} size={20} color={copied ? theme.success : theme.text} />
+      <Pressable 
+        onPress={handleCopy} 
+        hitSlop={ICON_HIT_SLOP} 
+        style={[styles.iconButton, styles.iconButtonSpaced]}
+      >
+        <Feather 
+          name={copied ? "check" : "copy"} 
+          size={ICON_SIZE} 
+          color={copied ? theme.success : theme.text} 
+        />
       </Pressable>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  titleContainer: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -107,12 +126,21 @@ const styles = StyleSheet.create({
   walletName: {
     fontSize: 17,
     fontWeight: "600",
-    maxWidth: 200,
+    maxWidth: 180,
   },
-  headerButton: {
-    padding: Spacing.xs,
+  chevron: {
+    marginLeft: 4,
   },
-  headerRightContainer: {
+  iconButton: {
+    width: 40,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  iconButtonSpaced: {
+    marginLeft: Spacing.xs,
+  },
+  rightContainer: {
     flexDirection: "row",
     alignItems: "center",
   },
