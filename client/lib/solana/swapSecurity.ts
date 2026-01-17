@@ -45,18 +45,29 @@ export function decodeAndValidateSwapTx(
     const message = transaction.message;
     const staticKeys = message.staticAccountKeys;
     
+    const hasLuts = !!(message as any).addressTableLookups && (message as any).addressTableLookups.length > 0;
+    
     if (staticKeys.length > 0) {
       feePayer = staticKeys[0].toBase58();
       feePayerIsUser = feePayer.toLowerCase() === expectedUserPubkey.toLowerCase();
     }
     
-    if (!feePayerIsUser) {
-      errors.push(`Fee payer mismatch: expected ${expectedUserPubkey.slice(0, 8)}..., got ${feePayer.slice(0, 8)}...`);
+    if (!hasLuts) {
+      if (!feePayerIsUser) {
+        errors.push(`Fee payer mismatch: expected ${expectedUserPubkey.slice(0, 8)}..., got ${feePayer.slice(0, 8)}...`);
+      }
+    } else {
+      if (!feePayerIsUser) {
+        warnings.push("Fee payer cannot be fully verified client-side for LUT transactions.");
+      }
     }
     
     const compiledInstructions = message.compiledInstructions;
     
     for (const ix of compiledInstructions) {
+      if (ix.programIdIndex >= staticKeys.length) {
+        continue;
+      }
       const programId = staticKeys[ix.programIdIndex].toBase58();
       
       if (!programIds.includes(programId)) {
@@ -71,9 +82,11 @@ export function decodeAndValidateSwapTx(
         hasPumpProgram = true;
       }
       
-      if (!ALLOWED_PROGRAM_IDS.has(programId)) {
-        if (!unknownPrograms.includes(programId)) {
-          unknownPrograms.push(programId);
+      if (!hasLuts) {
+        if (!ALLOWED_PROGRAM_IDS.has(programId)) {
+          if (!unknownPrograms.includes(programId)) {
+            unknownPrograms.push(programId);
+          }
         }
       }
       
@@ -91,14 +104,20 @@ export function decodeAndValidateSwapTx(
       }
     }
     
-    if (unknownPrograms.length > 0) {
-      errors.push(
-        `Blocked for safety: unexpected program detected: ${unknownPrograms.map(p => p.slice(0, 8) + "...").join(", ")}`
-      );
+    if (hasLuts) {
+      warnings.push("Tx uses address lookup tables; client cannot fully verify program allowlist. Validation will be handled server-side.");
+    } else {
+      if (unknownPrograms.length > 0) {
+        errors.push(
+          `Blocked for safety: unexpected program detected: ${unknownPrograms.map(p => p.slice(0, 8) + "...").join(", ")}`
+        );
+      }
     }
     
     if (!hasJupiterProgram && !hasPumpProgram) {
-      if (routeType === "pump") {
+      if (hasLuts) {
+        warnings.push("Route program not detected in static keys (LUT tx); this can be normal.");
+      } else if (routeType === "pump") {
         warnings.push("No Pump.fun program detected in transaction.");
       } else {
         warnings.push("No Jupiter program detected in transaction. This may not be a Jupiter swap.");
