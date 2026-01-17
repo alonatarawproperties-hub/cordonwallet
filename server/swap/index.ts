@@ -15,28 +15,70 @@ export const swapRouter = Router();
 
 initTokenList();
 
-// Health check for swap service
+// Health check for swap service with detailed diagnostics
 swapRouter.get("/health", async (_req: Request, res: Response) => {
-  try {
-    // Test Jupiter API connectivity
-    const jupiterOk = await fetch("https://quote-api.jup.ag/v6/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&amount=1000000&slippageBps=50", {
-      signal: AbortSignal.timeout(5000)
-    }).then(r => r.ok).catch(() => false);
+  const results: {
+    jupiter: { ok: boolean; status?: number; latencyMs?: number; error?: string };
+    rpc: { ok: boolean; latencyMs?: number; url: string; error?: string };
+  } = {
+    jupiter: { ok: false },
+    rpc: { ok: false, url: process.env.SOLANA_RPC_URL ? "configured" : "missing" },
+  };
 
-    res.json({
-      ok: true,
-      timestamp: Date.now(),
-      services: {
-        jupiter: jupiterOk ? "ok" : "unreachable",
-      }
-    });
+  // Jupiter check
+  const jupiterStart = Date.now();
+  try {
+    const jupiterRes = await fetch(
+      "https://quote-api.jup.ag/v6/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&amount=1000000&slippageBps=50",
+      { signal: AbortSignal.timeout(5000) }
+    );
+    results.jupiter = {
+      ok: jupiterRes.ok,
+      status: jupiterRes.status,
+      latencyMs: Date.now() - jupiterStart,
+    };
   } catch (err: any) {
-    res.status(500).json({
+    results.jupiter = {
       ok: false,
-      timestamp: Date.now(),
-      error: err.message
-    });
+      latencyMs: Date.now() - jupiterStart,
+      error: err.name === "TimeoutError" ? "timeout" : err.message?.slice(0, 50),
+    };
   }
+
+  // RPC check
+  const rpcStart = Date.now();
+  try {
+    if (process.env.SOLANA_RPC_URL) {
+      const rpcRes = await fetch(process.env.SOLANA_RPC_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "getHealth" }),
+        signal: AbortSignal.timeout(5000),
+      });
+      const rpcData = await rpcRes.json();
+      results.rpc = {
+        ok: rpcRes.ok && rpcData.result === "ok",
+        latencyMs: Date.now() - rpcStart,
+        url: "configured",
+      };
+    } else {
+      results.rpc = { ok: false, url: "missing", error: "SOLANA_RPC_URL not set" };
+    }
+  } catch (err: any) {
+    results.rpc = {
+      ok: false,
+      latencyMs: Date.now() - rpcStart,
+      url: "configured",
+      error: err.name === "TimeoutError" ? "timeout" : err.message?.slice(0, 50),
+    };
+  }
+
+  const allOk = results.jupiter.ok && results.rpc.ok;
+  res.status(allOk ? 200 : 503).json({
+    ok: allOk,
+    ts: Date.now(),
+    services: results,
+  });
 });
 
 const tokenLookupRateLimit = new Map<string, { count: number; resetAt: number }>();
