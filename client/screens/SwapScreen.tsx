@@ -834,14 +834,28 @@ export default function SwapScreen({ route }: Props) {
 
             <View style={styles.confirmButtons}>
               <Pressable
-                style={[styles.cancelButton, { borderColor: theme.border }]}
-                onPress={() => setShowConfirmModal(false)}
+                style={({ pressed }) => [
+                  styles.cancelButton, 
+                  { borderColor: theme.border },
+                  pressed && { opacity: 0.7, transform: [{ scale: 0.97 }] }
+                ]}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setShowConfirmModal(false);
+                }}
               >
                 <ThemedText type="body">Cancel</ThemedText>
               </Pressable>
               <Pressable
-                style={[styles.confirmButton, { backgroundColor: theme.accent }]}
-                onPress={confirmAndExecuteSwap}
+                style={({ pressed }) => [
+                  styles.confirmButton, 
+                  { backgroundColor: theme.accent },
+                  pressed && { opacity: 0.85, transform: [{ scale: 0.97 }] }
+                ]}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                  confirmAndExecuteSwap();
+                }}
               >
                 <ThemedText type="body" style={{ color: "#fff", fontWeight: "600" }}>
                   Confirm Swap
