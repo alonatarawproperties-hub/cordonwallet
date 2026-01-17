@@ -14,7 +14,7 @@ export const POPULAR_DAPPS: DApp[] = [
     name: "Roachy Games",
     category: "Gaming",
     url: "https://roachy.games",
-    iconUrl: "https://roachy.games/favicon.ico",
+    iconUrl: "https://icons.duckduckgo.com/ip3/roachy.games.ico",
     chains: ["solana"],
     description: "Play-to-earn Solana games",
   },
