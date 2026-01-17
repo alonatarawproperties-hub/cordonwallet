@@ -295,6 +295,15 @@ class QuoteEngine {
           const errorData = await response.json().catch(() => ({ error: "Unknown error" }));
 
           if (response.status === 404) {
+            // Check if this is "API not deployed" vs "no route found"
+            const isApiNotDeployed = !errorData.route && !errorData.reason;
+            if (isApiNotDeployed) {
+              // API endpoint itself doesn't exist - this is a deployment issue
+              const err: any = new Error("Swap API not deployed (404). Check backend routing for /api/swap/*");
+              err.status = 404;
+              throw err;
+            }
+            // Normal "no route found" response from the API
             return {
               ok: false,
               route: "none",
@@ -315,7 +324,9 @@ class QuoteEngine {
             continue;
           }
 
-          throw new Error(`Quote failed (${response.status}): ${errorData.error || errorData.message || JSON.stringify(errorData)}`);
+          const err: any = new Error(`Quote failed (${response.status}): ${errorData.error || errorData.message || JSON.stringify(errorData)}`);
+          err.status = response.status;
+          throw err;
         }
 
         return await response.json();

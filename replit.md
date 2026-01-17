@@ -176,3 +176,43 @@ The project is organized into `/client` (frontend), `/server` (backend), and `/s
 - [ ] Manual mint paste works for pump tokens
 - [ ] Quote updates match speed mode cadence (Standard ~12s, Fast ~6s, Turbo ~2.5s)
 - [ ] Quote polling pauses when navigating away or backgrounding app
+
+## Deployment Verification
+
+After deploying, verify the backend is correctly serving all API routes:
+
+**Health Check Commands:**
+```bash
+# General health check
+curl https://app.cordonwallet.com/api/health
+
+# Solana RPC health
+curl https://app.cordonwallet.com/api/solana/health
+
+# Swap service health (checks Jupiter + RPC connectivity)
+curl https://app.cordonwallet.com/api/swap/health
+```
+
+**Expected /api/swap/health Response:**
+```json
+{
+  "ok": true,
+  "ts": 1234567890123,
+  "services": {
+    "jupiter": { "ok": true, "status": 200, "latencyMs": 150 },
+    "rpc": { "ok": true, "latencyMs": 50, "url": "configured" }
+  }
+}
+```
+
+**Troubleshooting:**
+- **404 on /api/swap/health**: Backend not deployed with latest code. Redeploy.
+- **Jupiter unreachable**: Network issue from host to Jupiter API. Usually transient.
+- **RPC errors**: Check SOLANA_RPC_URL secret is set correctly in production.
+
+**Local Development:**
+```bash
+# Test swap health locally
+npm run server:dev
+curl http://localhost:5000/api/swap/health
+```

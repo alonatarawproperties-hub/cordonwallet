@@ -71,12 +71,20 @@ export function isRetryableError(status: number): boolean {
 
 export function getUserFriendlyErrorMessage(error: any): string {
   const msg = error?.message || String(error);
+  const status = error?.status || error?.statusCode;
   
+  // API route not deployed (404 on the endpoint itself)
+  if (/swap api not deployed|404.*api.*swap/i.test(msg) || (status === 404 && /api.*swap/i.test(msg))) {
+    return "Swap service unavailable. Please try again later.";
+  }
   if (/429|rate.?limit|too many requests/i.test(msg)) {
-    return "Network busy, retrying...";
+    return "Rate limited — retrying...";
   }
   if (/503|UPSTREAM_BUSY/i.test(msg)) {
     return "Service temporarily unavailable, retrying...";
+  }
+  if (status >= 500 || /5\d{2}/.test(msg)) {
+    return `Backend error (${status || "5xx"}). Please try again.`;
   }
   if (/timeout|timed out/i.test(msg)) {
     return "Request timed out, retrying...";
@@ -84,7 +92,7 @@ export function getUserFriendlyErrorMessage(error: any): string {
   if (/no route|no swap routes/i.test(msg)) {
     return "No route found for this swap pair.";
   }
-  if (/network|fetch failed|connection/i.test(msg)) {
+  if (/network|fetch failed|connection|cannot reach/i.test(msg)) {
     return "Network issue, please check your connection.";
   }
   

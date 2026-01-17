@@ -300,6 +300,7 @@ function setupErrorHandler(app: express.Application) {
   
   // Swap API routes
   app.use("/api/swap", swapRouter);
+  log("[Swap] Router mounted at /api/swap");
   
   configureExpoAndLanding(app);
 
