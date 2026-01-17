@@ -177,6 +177,13 @@ function AssetRow({
               {asset.chainName}
             </ThemedText>
           </View>
+          {securityRisk && securityRisk !== "safe" && onSecurityPress ? (
+            <TokenSecurityBadge 
+              riskLevel={securityRisk} 
+              onPress={onSecurityPress}
+              size="small"
+            />
+          ) : null}
         </View>
         <View style={styles.priceRow}>
           <ThemedText type="caption" style={{ color: theme.textSecondary }}>
@@ -200,15 +207,6 @@ function AssetRow({
           <ThemedText type="caption" style={{ color: theme.textSecondary }}>
             {formatValue(asset.valueUsd)}
           </ThemedText>
-        ) : null}
-      </View>
-      <View style={styles.securityBadgeSlot}>
-        {securityRisk && onSecurityPress ? (
-          <TokenSecurityBadge 
-            riskLevel={securityRisk} 
-            onPress={onSecurityPress}
-            size="small"
-          />
         ) : null}
       </View>
       <Feather name="chevron-right" size={18} color={theme.textSecondary} style={{ opacity: 0.6 }} />
