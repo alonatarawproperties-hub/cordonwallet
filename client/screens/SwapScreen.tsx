@@ -82,6 +82,16 @@ import {
   formatFeeBreakdown,
 } from "@/lib/solana/feeReserve";
 import { likelyNeedsAtaRent } from "@/lib/solana/ataCheck";
+import {
+  getSuccessFeeLamports,
+  getSuccessFeeSol,
+  SUCCESS_FEE_SOL,
+} from "@/constants/successFee";
+import {
+  tryChargeSuccessFeeNow,
+  retryPendingFeesForCurrentWallet,
+  hasPendingFeeForSwap,
+} from "@/services/successFeeService";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
@@ -193,6 +203,9 @@ export default function SwapScreen({ route }: Props) {
   const [needsAtaRent, setNeedsAtaRent] = useState(true);
   const [showFeeDetails, setShowFeeDetails] = useState(false);
 
+  const [successFeeEnabled, setSuccessFeeEnabled] = useState(true);
+  const [isPro] = useState(false); // Mock for now - Pro users skip success fee
+
   const quoteEngineRef = useRef(getQuoteEngine());
 
   const getTokenBalance = useCallback((mint: string): number => {
@@ -256,13 +269,18 @@ export default function SwapScreen({ route }: Props) {
     return solToLamports(capSol);
   }, [customCapSol, speed]);
 
+  const successFeeLamports = useMemo(() => {
+    return getSuccessFeeLamports(speed, isPro, successFeeEnabled);
+  }, [speed, isPro, successFeeEnabled]);
+
   const feeReserve: FeeReserveResult = useMemo(() => {
     return estimateFeeReserveLamports({
       solBalanceLamports,
       priorityCapLamports,
       needsAtaRent,
+      successFeeLamports,
     });
-  }, [solBalanceLamports, priorityCapLamports, needsAtaRent]);
+  }, [solBalanceLamports, priorityCapLamports, needsAtaRent, successFeeLamports]);
 
   const spendableSol = feeReserve.spendableLamports / LAMPORTS_PER_SOL;
   const isInputSol = inputToken?.mint === SOL_MINT;
@@ -337,10 +355,21 @@ export default function SwapScreen({ route }: Props) {
       const engine = quoteEngineRef.current;
       engine.setFocused(true);
       
+      if (activeWallet?.id && activeWallet?.addresses?.solana) {
+        retryPendingFeesForCurrentWallet(
+          activeWallet.id,
+          activeWallet.addresses.solana
+        ).then((result) => {
+          if (result.paid > 0) {
+            console.log(`[Swap] Retried ${result.retried} pending fees, ${result.paid} paid`);
+          }
+        }).catch(() => {});
+      }
+      
       return () => {
         engine.setFocused(false);
       };
-    }, [])
+    }, [activeWallet?.id, activeWallet?.addresses?.solana])
   );
 
   useEffect(() => {
@@ -693,9 +722,27 @@ export default function SwapScreen({ route }: Props) {
       );
 
       if (result.status === "confirmed" || result.status === "finalized") {
+        let feeStatus = "";
+        
+        if (successFeeLamports > 0 && activeWallet?.id && solanaAddr) {
+          setSwapStatus("Charging success fee...");
+          const feeResult = await tryChargeSuccessFeeNow(
+            activeWallet.id,
+            solanaAddr,
+            successFeeLamports,
+            result.signature
+          );
+          
+          if (feeResult.success && feeResult.signature) {
+            feeStatus = "\n\nSuccess fee charged.";
+          } else if (!feeResult.success) {
+            feeStatus = "\n\nSuccess fee pending.";
+          }
+        }
+        
         showAlert(
           "Swap Successful",
-          `Swapped ${inputAmount} ${inputToken.symbol} for ${outAmount} ${outputToken.symbol}`,
+          `Swapped ${inputAmount} ${inputToken.symbol} for ${outAmount} ${outputToken.symbol}${feeStatus}`,
           [
             { text: "View", onPress: () => {
               const url = getExplorerUrl(result.signature);
@@ -1648,6 +1695,52 @@ export default function SwapScreen({ route }: Props) {
             ) : null}
           </View>
 
+          <View style={[styles.successFeeSection, { backgroundColor: theme.glass, borderColor: theme.glassBorder }]}>
+            <View style={styles.successFeeHeader}>
+              <View style={{ flex: 1 }}>
+                <ThemedText type="small" style={{ color: theme.text, fontWeight: "600" }}>
+                  Cordon Success Fee
+                </ThemedText>
+                <ThemedText type="caption" style={{ color: theme.textSecondary, marginTop: 2 }}>
+                  {successFeeLamports > 0 
+                    ? `${getSuccessFeeSol(speed, isPro, successFeeEnabled)} SOL — charged only if swap confirms.`
+                    : "Free for Pro users"}
+                </ThemedText>
+              </View>
+              <Pressable
+                style={[
+                  styles.successFeeToggle,
+                  { backgroundColor: successFeeEnabled && !isPro ? theme.accent : theme.backgroundSecondary },
+                ]}
+                onPress={() => {
+                  if (isPro) {
+                    setSuccessFeeEnabled(!successFeeEnabled);
+                  }
+                }}
+                disabled={!isPro}
+              >
+                <View
+                  style={[
+                    styles.successFeeKnob,
+                    { 
+                      backgroundColor: "#fff",
+                      transform: [{ translateX: successFeeEnabled && !isPro ? 18 : 2 }],
+                    },
+                  ]}
+                />
+              </Pressable>
+            </View>
+            {!isPro ? (
+              <ThemedText type="caption" style={{ color: theme.textSecondary, marginTop: Spacing.sm }}>
+                This does not affect slippage or swap price.
+              </ThemedText>
+            ) : (
+              <ThemedText type="caption" style={{ color: theme.success, marginTop: Spacing.sm }}>
+                Pro member — success fee waived.
+              </ThemedText>
+            )}
+          </View>
+
           <Pressable
             style={({ pressed }) => [
               styles.advancedToggle,
@@ -2153,6 +2246,27 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   liveQuotesKnob: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+  },
+  successFeeSection: {
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.lg,
+    marginBottom: Spacing.md,
+    borderWidth: 1,
+  },
+  successFeeHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  successFeeToggle: {
+    width: 48,
+    height: 28,
+    borderRadius: 14,
+    justifyContent: "center",
+  },
+  successFeeKnob: {
     width: 24,
     height: 24,
     borderRadius: 12,
