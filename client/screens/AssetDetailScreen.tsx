@@ -642,6 +642,16 @@ export default function AssetDetailScreen({ route }: Props) {
           onPress={() => activeWallet && navigation.navigate("Receive", { 
             walletAddress: activeWallet.addresses?.evm || activeWallet.address,
             solanaAddress: activeWallet.addresses?.solana,
+            preselectedToken: {
+              symbol: tokenSymbol,
+              name: tokenName,
+              chainType: route.params.chainType || "evm",
+              chainId: chainId,
+              chainName: chainName,
+              logoUrl: tokenLogoUrl || undefined,
+              address: address,
+              mint: route.params.chainType === "solana" ? address : undefined,
+            },
           })}
         >
           <Feather name="arrow-down-left" size={20} color={theme.success} />

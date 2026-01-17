@@ -110,6 +110,23 @@ export default function ReceiveScreen({ navigation, route }: Props) {
   const evmAddress = route.params.walletAddress;
   const solanaAddress = route.params.solanaAddress || activeWallet?.addresses?.solana || "";
   const isSolanaOnly = activeWallet?.walletType === "solana-only";
+  const preselectedToken = route.params.preselectedToken;
+
+  // Auto-select preselected token on mount
+  useEffect(() => {
+    if (preselectedToken && !selectedAsset) {
+      setSelectedAsset({
+        symbol: preselectedToken.symbol,
+        name: preselectedToken.name,
+        chainId: preselectedToken.chainId,
+        chainName: preselectedToken.chainName,
+        chainType: preselectedToken.chainType,
+        address: preselectedToken.address,
+        mint: preselectedToken.mint,
+        logoUrl: preselectedToken.logoUrl,
+      });
+    }
+  }, [preselectedToken]);
 
   const { assets: evmAssets, isLoading: evmLoading } = useAllChainsPortfolio(
     isSolanaOnly ? undefined : evmAddress || undefined

@@ -64,7 +64,20 @@ export type RootStackParamList = {
   Unlock: undefined;
   Main: undefined;
   Send: { tokenSymbol?: string } | undefined;
-  Receive: { walletAddress: string; solanaAddress?: string };
+  Receive: { 
+    walletAddress: string; 
+    solanaAddress?: string;
+    preselectedToken?: {
+      symbol: string;
+      name: string;
+      chainType: "evm" | "solana";
+      chainId: number | string;
+      chainName: string;
+      logoUrl?: string;
+      address?: string;
+      mint?: string;
+    };
+  };
   AssetDetail: {
     tokenSymbol: string;
     tokenName: string;
