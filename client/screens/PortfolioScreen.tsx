@@ -21,6 +21,7 @@ import { getTokenLogoUrl } from "@/lib/token-logos";
 import type { ChainType } from "@/components/ChainSelector";
 import { getCustomTokens, getHiddenTokens, CustomToken, buildCustomTokenMap } from "@/lib/token-preferences";
 import { savePortfolioDisplayCache } from "@/lib/portfolio-cache";
+import { AnimatedRefreshIndicator } from "@/components/AnimatedRefreshIndicator";
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
@@ -387,13 +388,18 @@ export default function PortfolioScreen() {
         <RefreshControl 
           refreshing={isRefreshing} 
           onRefresh={handleRefreshWithHaptic} 
-          tintColor={theme.accent}
-          colors={[theme.accent]} // Android spinner color
-          progressBackgroundColor={theme.backgroundDefault} // Android background
+          tintColor="transparent"
+          colors={["transparent"]}
+          progressBackgroundColor="transparent"
           progressViewOffset={headerHeight}
         />
       }
     >
+      <AnimatedRefreshIndicator 
+        isRefreshing={isRefreshing} 
+        color={theme.accent}
+        size={24}
+      />
       <View style={[styles.balanceCard, { backgroundColor: theme.backgroundDefault }]}>
         <View style={styles.totalValueContainer}>
           <ThemedText type="h1" style={styles.totalValue}>
