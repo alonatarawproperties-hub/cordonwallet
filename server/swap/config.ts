@@ -1,3 +1,6 @@
+export const CORDON_TREASURY_WALLET = "6pcN26cpKbWmGyRn8DgRjqRzpBW2CFp8PK5wZ9gTArpE";
+export const CORDON_SUCCESS_FEE_BPS = 50; // 0.50%
+
 export const swapConfig = {
   solanaRpcUrl: process.env.SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com",
   solanaRpcUrlFallback: process.env.SOLANA_RPC_URL_FALLBACK || "https://api.mainnet-beta.solana.com",

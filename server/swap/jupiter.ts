@@ -1,4 +1,6 @@
-import { swapConfig, getPriorityFeeCap, SpeedMode } from "./config";
+import { Connection, PublicKey } from "@solana/web3.js";
+import { getAssociatedTokenAddress } from "@solana/spl-token";
+import { swapConfig, getPriorityFeeCap, SpeedMode, CORDON_TREASURY_WALLET, CORDON_SUCCESS_FEE_BPS } from "./config";
 import type { QuoteResult, BuildResult } from "./types";
 
 export async function getQuote(params: {
@@ -119,6 +121,29 @@ export async function getQuote(params: {
   }
 }
 
+async function getTreasuryFeeAccount(outputMint: string): Promise<{ feeAccount: string | null; feeBps: number }> {
+  try {
+    const treasuryPubkey = new PublicKey(CORDON_TREASURY_WALLET);
+    const mintPubkey = new PublicKey(outputMint);
+    
+    const treasuryAta = await getAssociatedTokenAddress(mintPubkey, treasuryPubkey);
+    
+    const connection = new Connection(swapConfig.solanaRpcUrl);
+    const accountInfo = await connection.getAccountInfo(treasuryAta);
+    
+    if (accountInfo) {
+      console.log(`[SwapFee] Treasury ATA exists for mint ${outputMint.slice(0, 8)}..., applying ${CORDON_SUCCESS_FEE_BPS}bps fee`);
+      return { feeAccount: treasuryAta.toBase58(), feeBps: CORDON_SUCCESS_FEE_BPS };
+    } else {
+      console.log(`[SwapFee] Treasury ATA missing for mint ${outputMint.slice(0, 8)}... Fee waived.`);
+      return { feeAccount: null, feeBps: 0 };
+    }
+  } catch (err: any) {
+    console.warn(`[SwapFee] Error checking treasury ATA for ${outputMint}: ${err.message}. Fee waived.`);
+    return { feeAccount: null, feeBps: 0 };
+  }
+}
+
 export async function buildSwapTransaction(params: {
   userPublicKey: string;
   quote: any;
@@ -130,16 +155,31 @@ export async function buildSwapTransaction(params: {
   
   const priorityFeeCap = getPriorityFeeCap(speedMode, maxPriorityFeeLamports);
   
-  const url = `${swapConfig.jupiterBaseUrl}${swapConfig.jupiterSwapPath}`;
-  console.log("[Jupiter] Build swap request for:", userPublicKey, "speedMode:", speedMode, "feeCap:", priorityFeeCap);
+  const outputMint = quote?.outputMint;
+  let feeAccount: string | null = null;
+  let feeBps = 0;
   
-  const body = {
+  if (outputMint) {
+    const feeInfo = await getTreasuryFeeAccount(outputMint);
+    feeAccount = feeInfo.feeAccount;
+    feeBps = feeInfo.feeBps;
+  }
+  
+  const url = `${swapConfig.jupiterBaseUrl}${swapConfig.jupiterSwapPath}`;
+  console.log("[Jupiter] Build swap request for:", userPublicKey, "speedMode:", speedMode, "feeCap:", priorityFeeCap, "feeBps:", feeBps);
+  
+  const body: Record<string, any> = {
     quoteResponse: quote,
     userPublicKey,
     wrapAndUnwrapSol,
     dynamicComputeUnitLimit: true,
     prioritizationFeeLamports: priorityFeeCap,
   };
+  
+  if (feeAccount && feeBps > 0) {
+    body.feeAccount = feeAccount;
+    body.platformFeeBps = feeBps;
+  }
   
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), swapConfig.jupiterTimeoutMs);
