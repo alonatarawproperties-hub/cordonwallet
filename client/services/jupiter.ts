@@ -147,8 +147,9 @@ export async function buildSwapTransaction(
   const baseUrl = getApiUrl();
   const url = `${baseUrl}/api/jupiter/swap`;
   
-  // Try with shared accounts first, then fallback to non-shared for Simple AMM tokens
-  for (const useSharedAccounts of [true, false]) {
+  // Try with shared accounts disabled first (better Token-2022 compatibility), then with shared
+  // Many newer tokens use Token-2022 which has issues with shared accounts
+  for (const useSharedAccounts of [false, true]) {
     const request: SwapRequest = {
       quoteResponse,
       userPublicKey,
@@ -181,9 +182,11 @@ export async function buildSwapTransaction(
         const errorData = await response.json().catch(() => ({ error: "Unknown error" }));
         const errorStr = JSON.stringify(errorData);
         
-        // If Simple AMM error and we used shared accounts, retry without
-        if (useSharedAccounts && errorStr.includes("Simple AMMs are not supported with shared accounts")) {
-          console.log("[Jupiter] Simple AMM detected, retrying without shared accounts...");
+        // If AMM/Token-2022 compatibility error, try with different shared accounts setting
+        if (errorStr.includes("Simple AMMs are not supported with shared accounts") ||
+            errorStr.includes("0x177e") ||
+            errorStr.includes("IncorrectTokenProgramID")) {
+          console.log("[Jupiter] Compatibility issue detected, trying alternate mode...");
           continue;
         }
         

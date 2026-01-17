@@ -350,6 +350,16 @@ export function classifyError(error: string): {
     };
   }
   
+  // Token-2022 compatibility error
+  if (errorLower.includes("0x177e") || errorLower.includes("incorrecttokenprogramid")) {
+    return {
+      category: "unknown",
+      userMessage: "This token uses Token-2022 which may have limited swap support. Try a smaller amount or different token.",
+      canRetry: true,
+      needsRebuild: true,
+    };
+  }
+  
   // Be specific about insufficient funds - 0x1 by itself (word boundary) or explicit text
   if (errorLower.includes("insufficient") || 
       /\b0x1\b/.test(errorLower) ||
