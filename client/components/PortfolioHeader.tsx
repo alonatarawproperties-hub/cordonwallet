@@ -15,7 +15,7 @@ import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
-const ICON_SIZE = 22;
+const ICON_SIZE = 24;
 const ICON_HIT_SLOP = 12;
 
 export function PortfolioHeaderTitle() {
@@ -59,7 +59,7 @@ export function PortfolioHeaderLeft() {
     <Pressable 
       onPress={handlePress} 
       hitSlop={ICON_HIT_SLOP} 
-      style={styles.iconButton}
+      style={styles.leftIconButton}
     >
       <Feather name="settings" size={ICON_SIZE} color={theme.text} />
     </Pressable>
@@ -105,7 +105,7 @@ export function PortfolioHeaderRight() {
       <Pressable 
         onPress={handleCopy} 
         hitSlop={ICON_HIT_SLOP} 
-        style={[styles.iconButton, styles.iconButtonSpaced]}
+        style={styles.iconButton}
       >
         <Feather 
           name={copied ? "check" : "copy"} 
@@ -131,17 +131,17 @@ const styles = StyleSheet.create({
   chevron: {
     marginLeft: 4,
   },
-  iconButton: {
-    width: 40,
-    height: 40,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  iconButtonSpaced: {
+  leftIconButton: {
     marginLeft: Spacing.xs,
+    padding: Spacing.xs,
+  },
+  iconButton: {
+    padding: Spacing.xs,
+    marginLeft: Spacing.sm,
   },
   rightContainer: {
     flexDirection: "row",
     alignItems: "center",
+    marginRight: Spacing.xs,
   },
 });
