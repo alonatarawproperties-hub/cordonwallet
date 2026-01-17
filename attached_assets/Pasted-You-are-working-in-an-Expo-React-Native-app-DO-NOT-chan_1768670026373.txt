@@ -1,0 +1,108 @@
+You are working in an Expo React Native app. DO NOT change any swap execution logic, quote logic, server endpoints, signing, transaction building, or security checks. This task is UI/state-only and must be minimal and safe.
+
+GOAL
+Fix the contradictory UI state where Speed Mode shows Turbo 0.005 SOL but “Max Priority Fee Cap” shows 0.001 SOL. Make the cap a single source of truth: selecting Standard/Fast/Turbo sets the max priority fee cap accordingly. The displayed numbers must always match.
+
+SECONDARY GOAL
+Hide/remove any “Cordon Success Fee” UI card/toggle from Swap screen (UI only), but do not remove underlying fee functionality in code paths if it exists. Just hide it in UI.
+
+REQUIREMENTS
+1) Single source of truth for priority fee cap:
+   - State variable: maxPriorityFeeCapSol (number) is the canonical value displayed and used by UI.
+   - Speed mode is derived from cap OR maintained but must never contradict cap.
+2) Presets:
+   - Standard = 0.0008 SOL
+   - Fast = 0.002 SOL
+   - Turbo = 0.005 SOL
+3) When user taps a Speed Mode button:
+   - set maxPriorityFeeCapSol to the preset value
+   - update selected speed mode to match
+4) When user taps a cap chip (0.001 / 0.005 / 0.01 / 0.02 etc):
+   - set maxPriorityFeeCapSol to that chip value
+   - speed mode should automatically become:
+       - "standard" if cap equals 0.0008
+       - "fast" if cap equals 0.002
+       - "turbo" if cap equals 0.005
+       - otherwise "custom" (no speed mode highlighted)
+5) UI rules:
+   - The “Cap: X SOL” label must always show maxPriorityFeeCapSol (formatted).
+   - The Speed Mode cards must show their preset values, BUT their active highlight must reflect derived speed mode:
+       - if cap equals preset value -> highlight that mode
+       - if cap is not one of the 3 preset values -> none highlighted (or show subtle “Custom” label if exists; do not add new big UI)
+6) Do not break layout.
+7) Add small helper formatting so we never show ugly floats:
+   - Priority fee display should be 4-6 decimals max depending on value (e.g. 0.0008, 0.002, 0.005, 0.0010).
+   - Use toFixed smartly but avoid trailing long decimals.
+
+WHERE TO EDIT
+- Client swap screen is: client/screens/SwapScreen.tsx
+- Find the “Speed Mode” section and the “Max Priority Fee” section.
+- There is currently a mismatch because Speed Mode is showing Turbo 0.005 while cap label shows 0.0010.
+- Implement the change inside SwapScreen.tsx only, unless there is a small shared helper already used for formatting.
+
+IMPLEMENTATION DETAILS (SAFE)
+A) Define constants near the top of SwapScreen.tsx (or near related state):
+   const PRIORITY_PRESETS = {
+     standard: 0.0008,
+     fast: 0.002,
+     turbo: 0.005,
+   } as const;
+
+   type SpeedMode = "standard" | "fast" | "turbo" | "custom";
+
+   function inferSpeedModeFromCap(cap: number): SpeedMode {
+     if (Math.abs(cap - PRIORITY_PRESETS.standard) < 1e-9) return "standard";
+     if (Math.abs(cap - PRIORITY_PRESETS.fast) < 1e-9) return "fast";
+     if (Math.abs(cap - PRIORITY_PRESETS.turbo) < 1e-9) return "turbo";
+     return "custom";
+   }
+
+   function formatSol(x: number): string {
+     // show up to 6 decimals, trim trailing zeros
+     const s = x >= 0.01 ? x.toFixed(2) : x >= 0.001 ? x.toFixed(4) : x.toFixed(6);
+     return s.replace(/0+$/, "").replace(/\.$/, "");
+   }
+
+B) Ensure SwapScreen has a state for cap:
+   const [maxPriorityFeeCapSol, setMaxPriorityFeeCapSol] = useState<number>(PRIORITY_PRESETS.standard);
+
+   If state already exists under a different name, reuse it and rename only if easy. Otherwise keep existing name but ensure it’s the canonical one used by UI.
+
+C) Derived mode:
+   const speedMode: SpeedMode = useMemo(() => inferSpeedModeFromCap(maxPriorityFeeCapSol), [maxPriorityFeeCapSol]);
+
+   If there is already speedMode state, remove it OR keep it but ensure it is always set consistently and never used for display if it can drift. Prefer derived mode (no drift).
+
+D) Speed mode button handlers:
+   onPress Standard -> setMaxPriorityFeeCapSol(PRIORITY_PRESETS.standard)
+   onPress Fast -> setMaxPriorityFeeCapSol(PRIORITY_PRESETS.fast)
+   onPress Turbo -> setMaxPriorityFeeCapSol(PRIORITY_PRESETS.turbo)
+
+E) Cap chip handlers:
+   - Wherever chips exist (0.001, 0.005, 0.01, 0.02), update handler to:
+     setMaxPriorityFeeCapSol(value)
+
+F) Active UI highlight:
+   - Standard card active if speedMode === "standard"
+   - Fast card active if speedMode === "fast"
+   - Turbo card active if speedMode === "turbo"
+   - If speedMode === "custom", none active (leave normal styling)
+
+G) The “Cap:” label:
+   Replace any old cap display with:
+     Cap: {formatSol(maxPriorityFeeCapSol)} SOL
+
+H) Remove the “Cordon Success Fee” UI:
+   - Search in SwapScreen.tsx for “Cordon Success Fee” text or the toggle block.
+   - Remove that block from render or wrap it with `false && (...)`.
+   - Do NOT remove any fee logic used in swap; only hide UI element.
+
+I) Quick sanity:
+   - When Turbo is selected, cap must show 0.005 SOL and chip selection should reflect it if 0.005 chip exists.
+   - When user selects 0.001 chip, Turbo must NOT remain highlighted; it becomes custom and cap shows 0.001 SOL.
+   - No other features should change.
+
+DELIVERABLE
+- Commit changes only to client/screens/SwapScreen.tsx (and a small helper if already exists).
+- After changes, run TypeScript check/build, ensure no lint/type errors.
+- Do not change any server files.

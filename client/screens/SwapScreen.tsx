@@ -101,6 +101,19 @@ const CUSTOM_TOKENS_KEY = "swap_custom_tokens";
 const MAX_CUSTOM_TOKENS = 25;
 const SHOW_CORDON_FEE_UI = false; // hidden in open beta
 
+function inferSpeedFromCap(capSol: number): SwapSpeed | null {
+  if (Math.abs(capSol - SPEED_CONFIGS.standard.capSol) < 1e-9) return "standard";
+  if (Math.abs(capSol - SPEED_CONFIGS.fast.capSol) < 1e-9) return "fast";
+  if (Math.abs(capSol - SPEED_CONFIGS.turbo.capSol) < 1e-9) return "turbo";
+  return null; // custom cap
+}
+
+function formatCapSol(x: number): string {
+  if (x >= 0.01) return x.toFixed(2);
+  if (x >= 0.001) return x.toFixed(4);
+  return x.toFixed(6).replace(/0+$/, "").replace(/\.$/, "");
+}
+
 interface CustomTokenInfo extends TokenInfo {
   verified: boolean;
   sources: string[];
@@ -1640,7 +1653,9 @@ export default function SwapScreen({ route }: Props) {
             </ThemedText>
             <View style={styles.speedButtons}>
               {(["standard", "fast", "turbo"] as SwapSpeed[]).map((s) => {
-                const isActive = speed === s;
+                const effectiveCap = customCapSol ?? SPEED_CONFIGS[speed].capSol;
+                const inferredSpeed = inferSpeedFromCap(effectiveCap);
+                const isActive = customCapSol === null ? speed === s : inferredSpeed === s;
                 return (
                   <Pressable
                     key={s}
@@ -1767,11 +1782,12 @@ export default function SwapScreen({ route }: Props) {
                 Max Priority Fee
               </ThemedText>
               <ThemedText type="caption" style={{ color: theme.textSecondary, marginBottom: Spacing.md }}>
-                Cap: {(customCapSol ?? SPEED_CONFIGS[speed].capSol).toFixed(4)} SOL
+                Cap: {formatCapSol(customCapSol ?? SPEED_CONFIGS[speed].capSol)} SOL
               </ThemedText>
               <View style={styles.capButtons}>
                 {[0.001, 0.005, 0.01, 0.02].map((cap) => {
-                  const isActive = customCapSol === cap;
+                  const effectiveCapValue = customCapSol ?? SPEED_CONFIGS[speed].capSol;
+                  const isActive = Math.abs(effectiveCapValue - cap) < 1e-9;
                   return (
                     <Pressable
                       key={cap}
@@ -1783,7 +1799,11 @@ export default function SwapScreen({ route }: Props) {
                           opacity: pressed ? 0.8 : 1,
                         },
                       ]}
-                      onPress={() => setCustomCapSol(cap)}
+                      onPress={() => {
+                        setCustomCapSol(cap);
+                        const matchedSpeed = inferSpeedFromCap(cap);
+                        if (matchedSpeed) setSpeed(matchedSpeed);
+                      }}
                     >
                       <ThemedText
                         type="caption"
