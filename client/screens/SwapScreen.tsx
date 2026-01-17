@@ -791,9 +791,12 @@ export default function SwapScreen({ route }: Props) {
 
     return (
       <Modal visible={showSlippageModal} transparent animationType="slide">
-        <View style={styles.slippageModalOverlay}>
-          <Pressable style={styles.slippageModalDismiss} onPress={() => setShowSlippageModal(false)} />
-          <View style={[styles.slippageModalContent, { backgroundColor: theme.backgroundSecondary }]}>
+        <KeyboardAvoidingView 
+          style={styles.slippageModalOverlay}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+        >
+          <Pressable style={styles.slippageModalDismiss} onPress={() => { Keyboard.dismiss(); setShowSlippageModal(false); }} />
+          <Pressable style={[styles.slippageModalContent, { backgroundColor: theme.backgroundSecondary }]} onPress={Keyboard.dismiss}>
             <View style={styles.slippageModalHandle} />
             
             <View style={styles.slippageHeader}>
@@ -802,7 +805,7 @@ export default function SwapScreen({ route }: Props) {
               </ThemedText>
               <Pressable 
                 style={[styles.slippageCloseBtn, { backgroundColor: theme.glass }]}
-                onPress={() => setShowSlippageModal(false)}
+                onPress={() => { Keyboard.dismiss(); setShowSlippageModal(false); }}
               >
                 <Feather name="x" size={18} color={theme.textSecondary} />
               </Pressable>
@@ -825,12 +828,12 @@ export default function SwapScreen({ route }: Props) {
                         borderColor: theme.glassBorder,
                       }
                     ]}
-                    onPress={() => adjustSlippage(-SLIPPAGE_STEP)}
+                    onPress={() => { Keyboard.dismiss(); adjustSlippage(-SLIPPAGE_STEP); }}
                   >
                     <Feather name="chevron-down" size={20} color={theme.text} />
                   </Pressable>
 
-                  <View style={styles.slippageValueCenter}>
+                  <Pressable style={styles.slippageValueCenter} onPress={Keyboard.dismiss}>
                     <TextInput
                       style={[styles.slippageInput, { color: theme.text }]}
                       value={slippagePercent.toFixed(1)}
@@ -846,11 +849,13 @@ export default function SwapScreen({ route }: Props) {
                       keyboardType="decimal-pad"
                       selectTextOnFocus
                       maxLength={4}
+                      returnKeyType="done"
+                      onSubmitEditing={Keyboard.dismiss}
                     />
                     <ThemedText style={{ fontSize: 24, fontWeight: "600", color: theme.textSecondary, marginLeft: 2, marginTop: 8 }}>
                       %
                     </ThemedText>
-                  </View>
+                  </Pressable>
 
                   <Pressable
                     style={({ pressed }) => [
@@ -861,7 +866,7 @@ export default function SwapScreen({ route }: Props) {
                         borderColor: theme.glassBorder,
                       }
                     ]}
-                    onPress={() => adjustSlippage(SLIPPAGE_STEP)}
+                    onPress={() => { Keyboard.dismiss(); adjustSlippage(SLIPPAGE_STEP); }}
                   >
                     <Feather name="chevron-up" size={20} color={theme.text} />
                   </Pressable>
@@ -936,8 +941,8 @@ export default function SwapScreen({ route }: Props) {
                 );
               })}
             </View>
-          </View>
-        </View>
+          </Pressable>
+        </KeyboardAvoidingView>
       </Modal>
     );
   };
