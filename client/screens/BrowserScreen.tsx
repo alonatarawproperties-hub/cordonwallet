@@ -185,9 +185,8 @@ export default function BrowserScreen() {
                   style={[styles.featuredGradient, { borderColor: getCategoryColor(dapp.category) + "30" }]}
                 >
                   <Image
-                    source={{ uri: dapp.iconUrl }}
+                    source={{ uri: dapp.iconUrl || getFaviconUrl(dapp.url) }}
                     style={styles.featuredIcon}
-                    defaultSource={{ uri: getFaviconUrl(dapp.url) }}
                   />
                   <View style={styles.featuredInfo}>
                     <ThemedText type="body" style={{ fontWeight: "700" }}>
