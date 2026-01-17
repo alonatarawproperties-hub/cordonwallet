@@ -178,6 +178,7 @@ export default function SwapScreen({ route }: Props) {
     route: SwapRoute;
   } | null>(null);
   const [showSlippageModal, setShowSlippageModal] = useState(false);
+  const [slippageInputText, setSlippageInputText] = useState("");
 
   const quoteEngineRef = useRef(getQuoteEngine());
 
@@ -783,20 +784,40 @@ export default function SwapScreen({ route }: Props) {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       const newValue = Math.max(SLIPPAGE_STEP, Math.min(MAX_SLIPPAGE_BPS, slippageBps + delta));
       setSlippageBps(newValue);
+      setSlippageInputText((newValue / 100).toString());
     };
 
-    const slippagePercent = slippageBps / 100;
+    const applySlippageInput = () => {
+      const cleaned = slippageInputText.replace(/[^0-9.]/g, "");
+      const parsed = parseFloat(cleaned);
+      if (!isNaN(parsed) && parsed > 0) {
+        const bps = Math.round(parsed * 100);
+        const clamped = Math.max(SLIPPAGE_STEP, Math.min(MAX_SLIPPAGE_BPS, bps));
+        setSlippageBps(clamped);
+        setSlippageInputText((clamped / 100).toString());
+      } else {
+        setSlippageInputText((slippageBps / 100).toString());
+      }
+      Keyboard.dismiss();
+    };
+
+    const displayValue = slippageInputText || (slippageBps / 100).toString();
     const isHighSlippage = slippageBps >= 500;
     const isLowSlippage = slippageBps <= 30;
 
     return (
-      <Modal visible={showSlippageModal} transparent animationType="slide">
+      <Modal 
+        visible={showSlippageModal} 
+        transparent 
+        animationType="slide"
+        onShow={() => setSlippageInputText((slippageBps / 100).toString())}
+      >
         <KeyboardAvoidingView 
           style={styles.slippageModalOverlay}
           behavior={Platform.OS === "ios" ? "padding" : "height"}
         >
-          <Pressable style={styles.slippageModalDismiss} onPress={() => { Keyboard.dismiss(); setShowSlippageModal(false); }} />
-          <Pressable style={[styles.slippageModalContent, { backgroundColor: theme.backgroundSecondary }]} onPress={Keyboard.dismiss}>
+          <Pressable style={styles.slippageModalDismiss} onPress={() => { applySlippageInput(); setShowSlippageModal(false); }} />
+          <Pressable style={[styles.slippageModalContent, { backgroundColor: theme.backgroundSecondary }]} onPress={applySlippageInput}>
             <View style={styles.slippageModalHandle} />
             
             <View style={styles.slippageHeader}>
@@ -805,7 +826,7 @@ export default function SwapScreen({ route }: Props) {
               </ThemedText>
               <Pressable 
                 style={[styles.slippageCloseBtn, { backgroundColor: theme.glass }]}
-                onPress={() => { Keyboard.dismiss(); setShowSlippageModal(false); }}
+                onPress={() => { applySlippageInput(); setShowSlippageModal(false); }}
               >
                 <Feather name="x" size={18} color={theme.textSecondary} />
               </Pressable>
@@ -828,34 +849,27 @@ export default function SwapScreen({ route }: Props) {
                         borderColor: theme.glassBorder,
                       }
                     ]}
-                    onPress={() => { Keyboard.dismiss(); adjustSlippage(-SLIPPAGE_STEP); }}
+                    onPress={() => { applySlippageInput(); adjustSlippage(-SLIPPAGE_STEP); }}
                   >
                     <Feather name="chevron-down" size={20} color={theme.text} />
                   </Pressable>
 
-                  <Pressable style={styles.slippageValueCenter} onPress={Keyboard.dismiss}>
+                  <View style={styles.slippageValueCenter}>
                     <TextInput
                       style={[styles.slippageInput, { color: theme.text }]}
-                      value={slippagePercent.toFixed(1)}
-                      onChangeText={(text) => {
-                        const cleaned = text.replace(/[^0-9.]/g, "");
-                        const parsed = parseFloat(cleaned);
-                        if (!isNaN(parsed)) {
-                          const bps = Math.round(parsed * 100);
-                          const clamped = Math.max(SLIPPAGE_STEP, Math.min(MAX_SLIPPAGE_BPS, bps));
-                          setSlippageBps(clamped);
-                        }
-                      }}
+                      value={displayValue}
+                      onChangeText={setSlippageInputText}
+                      onBlur={applySlippageInput}
+                      onSubmitEditing={applySlippageInput}
                       keyboardType="decimal-pad"
                       selectTextOnFocus
-                      maxLength={4}
+                      maxLength={5}
                       returnKeyType="done"
-                      onSubmitEditing={Keyboard.dismiss}
                     />
                     <ThemedText style={{ fontSize: 24, fontWeight: "600", color: theme.textSecondary, marginLeft: 2, marginTop: 8 }}>
                       %
                     </ThemedText>
-                  </Pressable>
+                  </View>
 
                   <Pressable
                     style={({ pressed }) => [
@@ -866,7 +880,7 @@ export default function SwapScreen({ route }: Props) {
                         borderColor: theme.glassBorder,
                       }
                     ]}
-                    onPress={() => { Keyboard.dismiss(); adjustSlippage(SLIPPAGE_STEP); }}
+                    onPress={() => { applySlippageInput(); adjustSlippage(SLIPPAGE_STEP); }}
                   >
                     <Feather name="chevron-up" size={20} color={theme.text} />
                   </Pressable>
@@ -911,6 +925,8 @@ export default function SwapScreen({ route }: Props) {
                     onPress={() => {
                       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                       setSlippageBps(bps);
+                      setSlippageInputText((bps / 100).toString());
+                      Keyboard.dismiss();
                     }}
                   >
                     {isActive ? (
