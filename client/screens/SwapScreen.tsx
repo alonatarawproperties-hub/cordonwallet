@@ -1036,10 +1036,10 @@ export default function SwapScreen() {
                   </ThemedText>
                 </View>
               )}
-              <ThemedText type="h4" style={{ fontWeight: "700", flex: 1 }}>
+              <ThemedText type="body" style={{ fontWeight: "600", flex: 1 }}>
                 {inputToken?.symbol || "Select token"}
               </ThemedText>
-              <Feather name="chevron-down" size={20} color={theme.textSecondary} />
+              <Feather name="chevron-down" size={16} color={theme.textSecondary} />
             </Pressable>
             <View style={styles.amountRow}>
               <TextInput
@@ -1085,7 +1085,7 @@ export default function SwapScreen() {
               end={{ x: 1, y: 1 }}
               style={styles.swapDirectionIcon}
             >
-              <Feather name="arrow-down" size={22} color="#fff" />
+              <Feather name="arrow-down" size={16} color="#fff" />
             </LinearGradient>
           </Pressable>
 
@@ -1112,10 +1112,10 @@ export default function SwapScreen() {
                   </ThemedText>
                 </View>
               )}
-              <ThemedText type="h4" style={{ fontWeight: "700", flex: 1 }}>
+              <ThemedText type="body" style={{ fontWeight: "600", flex: 1 }}>
                 {outputToken?.symbol || "Select token"}
               </ThemedText>
-              <Feather name="chevron-down" size={20} color={theme.textSecondary} />
+              <Feather name="chevron-down" size={16} color={theme.textSecondary} />
             </Pressable>
             <View style={styles.outputRow}>
               {quote ? (
@@ -1421,7 +1421,7 @@ export default function SwapScreen() {
         </View>
       </KeyboardAwareScrollViewCompat>
 
-      <View style={[styles.ctaContainer, { paddingBottom: insets.bottom + Spacing.lg, backgroundColor: theme.backgroundRoot }]}>
+      <View style={[styles.ctaContainer, { paddingBottom: insets.bottom + 70, backgroundColor: theme.backgroundRoot }]}>
         {canSwap && !isSwapping ? (
           <Pressable
             style={({ pressed }) => [
@@ -1439,7 +1439,7 @@ export default function SwapScreen() {
               end={{ x: 1, y: 0 }}
               style={styles.swapCtaGradient}
             >
-              <ThemedText type="h3" style={{ color: "#fff", fontWeight: "700", letterSpacing: 0.5 }}>
+              <ThemedText type="body" style={{ color: "#fff", fontWeight: "600", fontSize: 15 }}>
                 Swap
               </ThemedText>
             </LinearGradient>
@@ -1483,14 +1483,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.xl,
   },
   swapCard: {
-    borderRadius: BorderRadius.xl,
-    padding: Spacing.xl,
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.md,
     borderWidth: 1,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.15,
-    shadowRadius: 24,
-    elevation: 8,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 3,
   },
   tokenSection: {
     marginBottom: Spacing.md,
@@ -1505,22 +1505,22 @@ const styles = StyleSheet.create({
   tokenSelector: {
     flexDirection: "row",
     alignItems: "center",
-    padding: Spacing.md,
-    borderRadius: BorderRadius.lg,
-    marginBottom: Spacing.md,
+    padding: Spacing.sm,
+    borderRadius: BorderRadius.md,
+    marginBottom: Spacing.sm,
     borderWidth: 1,
   },
   selectorLogo: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    marginRight: Spacing.md,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    marginRight: Spacing.sm,
   },
   selectorLogoPlaceholder: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    marginRight: Spacing.md,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    marginRight: Spacing.sm,
     justifyContent: "center",
     alignItems: "center",
   },
@@ -1530,28 +1530,28 @@ const styles = StyleSheet.create({
   },
   amountInput: {
     flex: 1,
-    fontSize: 36,
-    fontWeight: "700",
-    letterSpacing: -0.5,
+    fontSize: 28,
+    fontWeight: "600",
+    letterSpacing: -0.3,
   },
   maxButton: {
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.sm,
-    borderRadius: BorderRadius.full,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.xs,
+    borderRadius: BorderRadius.sm,
     borderWidth: 1,
   },
   balanceRow: {
     marginTop: Spacing.sm,
   },
   outputRow: {
-    minHeight: 52,
+    minHeight: 40,
     justifyContent: "center",
   },
   outputAmount: {
-    fontSize: 32,
-    fontWeight: "700",
-    color: "#22C55E",
-    letterSpacing: -0.5,
+    fontSize: 26,
+    fontWeight: "600",
+    color: "#10B981",
+    letterSpacing: -0.3,
   },
   outputWithIndicator: {
     flexDirection: "row",
@@ -1568,16 +1568,16 @@ const styles = StyleSheet.create({
     zIndex: 1,
   },
   swapDirectionIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     justifyContent: "center",
     alignItems: "center",
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
-    elevation: 6,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 4,
   },
   quoteCard: {
     borderRadius: BorderRadius.xl,
@@ -1624,13 +1624,13 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   slippagePillInner: {
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.xs,
     alignItems: "center",
   },
   slippagePill: {
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.xs,
     borderRadius: BorderRadius.full,
     borderWidth: 1,
     alignItems: "center",
@@ -1649,14 +1649,14 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   speedButtonGradientBg: {
-    padding: Spacing.md,
+    padding: Spacing.sm,
     alignItems: "center",
-    gap: 4,
+    gap: 2,
   },
   speedButtonContent: {
-    padding: Spacing.md,
+    padding: Spacing.sm,
     alignItems: "center",
-    gap: 4,
+    gap: 2,
   },
   speedHint: {
     marginTop: Spacing.md,
@@ -1729,14 +1729,14 @@ const styles = StyleSheet.create({
     elevation: 12,
   },
   swapCtaGradient: {
-    height: 56,
-    borderRadius: BorderRadius.lg,
+    height: 48,
+    borderRadius: BorderRadius.md,
     alignItems: "center",
     justifyContent: "center",
   },
   swapCtaDisabled: {
-    height: 56,
-    borderRadius: BorderRadius.lg,
+    height: 48,
+    borderRadius: BorderRadius.md,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
