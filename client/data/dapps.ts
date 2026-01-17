@@ -10,6 +10,15 @@ export interface DApp {
 
 export const POPULAR_DAPPS: DApp[] = [
   {
+    id: "roachy-games",
+    name: "Roachy Games",
+    category: "Gaming",
+    url: "https://roachygames.io",
+    iconUrl: "https://roachygames.io/favicon.ico",
+    chains: ["solana"],
+    description: "Play-to-earn Solana games",
+  },
+  {
     id: "uniswap",
     name: "Uniswap",
     category: "DEX",
