@@ -547,20 +547,6 @@ export default function AssetDetailScreen({ route }: Props) {
             <ThemedText type="small" style={{ color: theme.textSecondary }}>
               Profit / Loss
             </ThemedText>
-            <View style={[styles.priceChip, { backgroundColor: theme.border + "30" }]}>
-              <ThemedText type="small" style={{ color: theme.textSecondary, fontSize: 11 }}>
-                ${priceUsd ? formatPrice(priceUsd) : "0.00"}
-              </ThemedText>
-              <ThemedText
-                type="small"
-                style={{
-                  fontSize: 11,
-                  color: priceChange24h && priceChange24h >= 0 ? "#22C55E" : "#EF4444",
-                }}
-              >
-                {priceChange24h && priceChange24h >= 0 ? "+" : ""}{priceChange24h?.toFixed(2) || 0}%
-              </ThemedText>
-            </View>
           </View>
           
           <View style={styles.pnlValueRow}>
