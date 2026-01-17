@@ -5,7 +5,7 @@ import { getNativeBalance, getERC20Balance, isBalanceError, BalanceResult } from
 import { getTokensForChain } from "@/lib/blockchain/tokens";
 import { supportedChains, getChainById } from "@/lib/blockchain/chains";
 import { getApiUrl } from "@/lib/query-client";
-import { getPreloadedCache, clearPreloadedCache, savePortfolioDisplayCache } from "@/lib/portfolio-cache";
+import { getPreloadedCache, clearPreloadedCache, savePortfolioDisplayCache, getDefaultNativeTokens } from "@/lib/portfolio-cache";
 
 const POLLING_INTERVAL = 60000; // 60 seconds - less disruptive
 
@@ -36,13 +36,16 @@ const CACHE_KEY_PREFIX = "@cordon/all_chains_portfolio_v2_";
 const CACHE_DURATION = 30000;
 
 export function useAllChainsPortfolio(address: string | undefined) {
-  const [state, setState] = useState<AllChainsPortfolioState>({
-    assets: [],
+  // Initialize with default native tokens for instant visual feedback
+  const defaultEvmAssets = getDefaultNativeTokens().evm;
+  
+  const [state, setState] = useState<AllChainsPortfolioState>(() => ({
+    assets: address ? defaultEvmAssets : [],
     isLoading: true,
     isRefreshing: false,
     error: null,
     lastUpdated: null,
-  });
+  }));
 
   const isMounted = useRef(true);
   const lastFetchRef = useRef<string>("");

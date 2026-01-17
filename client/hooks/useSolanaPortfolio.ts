@@ -3,7 +3,7 @@ import { AppState, AppStateStatus } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { getApiUrl } from "@/lib/query-client";
 import { getCustomTokens, getHiddenTokens, CustomToken } from "@/lib/token-preferences";
-import { getPreloadedCache, clearPreloadedCache } from "@/lib/portfolio-cache";
+import { getPreloadedCache, clearPreloadedCache, getDefaultNativeTokens } from "@/lib/portfolio-cache";
 
 const POLLING_INTERVAL = 60000; // 60 seconds - less disruptive
 
@@ -68,13 +68,16 @@ const CACHE_KEY_PREFIX = "@cordon/solana_portfolio_v2_";
 const CACHE_DURATION = 30000;
 
 export function useSolanaPortfolio(address: string | undefined) {
-  const [state, setState] = useState<SolanaPortfolioState>({
-    assets: [],
+  // Initialize with default native SOL token for instant visual feedback
+  const defaultSolAsset = getDefaultNativeTokens().solana;
+  
+  const [state, setState] = useState<SolanaPortfolioState>(() => ({
+    assets: address ? defaultSolAsset : [],
     isLoading: true,
     isRefreshing: false,
     error: null,
     lastUpdated: null,
-  });
+  }));
 
   const isMounted = useRef(true);
   const lastFetchRef = useRef<string>("");
