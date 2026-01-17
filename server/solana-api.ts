@@ -654,47 +654,75 @@ export async function getSolanaTransactionHistory(
         if (ix.parsed?.type !== "transfer" && ix.parsed?.type !== "transferChecked") return false;
         
         const info = ix.parsed.info;
-        const sourceOwner = info.authority || info.source;
-        const destOwner = info.destination;
+        
+        // For SPL transfers, authority is the wallet owner, source/destination are TOKEN ACCOUNTS
+        const authority = info.authority;
+        const sourceTokenAccount = info.source;
+        const destTokenAccount = info.destination;
         
         // For transferChecked, mint is in info.mint
         // For regular transfer, we need to look it up from the token account
         tokenMint = info.mint;
+        let decimals = 9; // Default for most tokens
         
-        // Resolve mint from token account FIRST (needed for regular 'transfer' instructions)
-        if (!tokenMint && info.source) {
+        // Resolve mint and owner from source token account (needed for regular 'transfer' instructions)
+        let sourceOwner = authority;
+        let destOwner = destTokenAccount; // Will try to resolve below
+        
+        if (sourceTokenAccount) {
           try {
-            const tokenAcct = await connection.getParsedAccountInfo(new PublicKey(info.source));
+            const tokenAcct = await connection.getParsedAccountInfo(new PublicKey(sourceTokenAccount));
             if (tokenAcct.value?.data && "parsed" in tokenAcct.value.data) {
-              tokenMint = tokenAcct.value.data.parsed.info.mint;
+              const parsedData = tokenAcct.value.data.parsed.info;
+              if (!tokenMint) tokenMint = parsedData.mint;
+              sourceOwner = parsedData.owner || authority;
             }
-          } catch {}
+          } catch (e) {
+            console.log(`[Solana History] Could not parse source token account:`, e);
+          }
+        }
+        
+        // Try to resolve destination owner from token account
+        if (destTokenAccount) {
+          try {
+            const destAcct = await connection.getParsedAccountInfo(new PublicKey(destTokenAccount));
+            if (destAcct.value?.data && "parsed" in destAcct.value.data) {
+              const parsedData = destAcct.value.data.parsed.info;
+              destOwner = parsedData.owner || destTokenAccount;
+            }
+          } catch (e) {
+            // Keep the token account address as fallback
+          }
+        }
+        
+        // Get decimals from mint
+        if (tokenMint) {
+          try {
+            const mintInfo = await connection.getParsedAccountInfo(new PublicKey(tokenMint));
+            if (mintInfo.value?.data && "parsed" in mintInfo.value.data) {
+              decimals = mintInfo.value.data.parsed.info.decimals || 9;
+            }
+          } catch (e) {
+            console.log(`[Solana History] Could not get mint decimals, using default 9:`, e);
+          }
         }
         
         if (info.tokenAmount) {
           // transferChecked has tokenAmount with UI values
           amount = info.tokenAmount.uiAmountString || info.tokenAmount.uiAmount?.toString();
         } else if (info.amount) {
-          // Regular transfer only has raw amount - need to convert using decimals
-          if (tokenMint) {
-            try {
-              const mintInfo = await connection.getParsedAccountInfo(new PublicKey(tokenMint));
-              let decimals = 9;
-              if (mintInfo.value?.data && "parsed" in mintInfo.value.data) {
-                decimals = mintInfo.value.data.parsed.info.decimals;
-              }
-              const rawAmount = BigInt(info.amount);
-              const divisor = BigInt(10 ** decimals);
-              const uiAmount = Number(rawAmount) / Number(divisor);
-              amount = uiAmount.toString();
-              console.log(`[Solana History] Converted SPL amount: ${info.amount} -> ${amount} (${decimals} decimals)`);
-            } catch (e) {
-              console.error(`[Solana History] Failed to get decimals for mint ${tokenMint}:`, e);
-              amount = info.amount;
-            }
-          } else {
-            console.log(`[Solana History] No mint found for transfer, using raw amount: ${info.amount}`);
-            amount = info.amount;
+          // Regular transfer only has raw amount - ALWAYS convert using decimals
+          try {
+            const rawAmount = BigInt(info.amount);
+            const divisor = BigInt(10 ** decimals);
+            const uiAmount = Number(rawAmount) / Number(divisor);
+            amount = uiAmount.toString();
+            console.log(`[Solana History] Converted SPL amount: ${info.amount} -> ${amount} (${decimals} decimals)`);
+          } catch (e) {
+            console.error(`[Solana History] Failed to convert amount:`, e);
+            // Convert assuming 9 decimals as safe fallback
+            const rawNum = Number(info.amount) || 0;
+            amount = (rawNum / 1e9).toString();
           }
         }
         
@@ -715,10 +743,14 @@ export async function getSolanaTransactionHistory(
         from = sourceOwner;
         to = destOwner;
         
-        if (sourceOwner === address) {
+        // Determine send/receive based on wallet address matching the authority/owner
+        if (sourceOwner === address || authority === address) {
           type = "send";
-        } else {
+        } else if (destOwner === address) {
           type = "receive";
+        } else {
+          // Check if the user's address is involved in the source or dest token account
+          type = "send"; // Default to send if we can't determine
         }
         
         return true;
