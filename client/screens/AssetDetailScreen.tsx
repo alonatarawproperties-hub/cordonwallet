@@ -355,7 +355,7 @@ export default function AssetDetailScreen({ route }: Props) {
         <View style={styles.holdingRow}>
           <View style={styles.holdingChain}>
             <View style={[styles.chainDot, { backgroundColor: getChainColor(chainName) }]} />
-            <ThemedText type="body">{chainName}</ThemedText>
+            <ThemedText type="body">{tokenName}</ThemedText>
           </View>
           <View style={styles.holdingValues}>
             <ThemedText type="body" style={{ fontWeight: "600", textAlign: "right" }}>
