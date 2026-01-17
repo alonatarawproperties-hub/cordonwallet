@@ -25,7 +25,8 @@ import { AnimatedRefreshIndicator } from "@/components/AnimatedRefreshIndicator"
 import { TokenSecurityBadge } from "@/components/TokenSecurityBadge";
 import { TokenSecurityModal } from "@/components/TokenSecurityModal";
 import { analyzeTokenSecurity, TokenSecurityAssessment, RiskLevel } from "@/lib/token-security";
-import { getSolanaConnection } from "@/lib/solana/rpc";
+import { Connection } from "@solana/web3.js";
+import { RPC_PRIMARY } from "@/constants/solanaSwap";
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
@@ -399,7 +400,7 @@ export default function PortfolioScreen() {
       if (solanaAssets.length === 0) return;
 
       try {
-        const connection = getSolanaConnection();
+        const connection = new Connection(RPC_PRIMARY, { commitment: "confirmed" });
         const newAssessments = new Map(securityAssessments);
         
         for (const asset of solanaAssets) {
