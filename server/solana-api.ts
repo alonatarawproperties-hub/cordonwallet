@@ -283,6 +283,39 @@ export async function getSplTokenMetadata(mintAddress: string): Promise<SplToken
         const symbolBytes = data.slice(symbolOffset, symbolOffset + Math.min(symbolLength, 10));
         const symbol = symbolBytes.toString("utf8").replace(/\0/g, "").trim();
         
+        // Parse URI from Metaplex metadata (after symbol)
+        const uriOffset = symbolOffset + 10 + 4;
+        const uriLength = Math.min(data.readUInt32LE(uriOffset - 4), 200);
+        const uriBytes = data.slice(uriOffset, uriOffset + uriLength);
+        const uri = uriBytes.toString("utf8").replace(/\0/g, "").trim();
+        
+        let logoUri: string | undefined;
+        
+        // Try to fetch the off-chain metadata JSON for the logo
+        if (uri && (uri.startsWith("http://") || uri.startsWith("https://") || uri.startsWith("ipfs://"))) {
+          try {
+            let fetchUrl = uri;
+            if (uri.startsWith("ipfs://")) {
+              fetchUrl = `https://ipfs.io/ipfs/${uri.slice(7)}`;
+            }
+            console.log(`[Solana API] Fetching off-chain metadata from ${fetchUrl.slice(0, 50)}...`);
+            const offChainRes = await fetch(fetchUrl, { 
+              headers: { "Accept": "application/json" },
+              signal: AbortSignal.timeout(5000),
+            });
+            if (offChainRes.ok) {
+              const offChainData = await offChainRes.json();
+              logoUri = offChainData.image || offChainData.logo || offChainData.icon;
+              if (logoUri?.startsWith("ipfs://")) {
+                logoUri = `https://ipfs.io/ipfs/${logoUri.slice(7)}`;
+              }
+              console.log(`[Solana API] Got logo from off-chain metadata: ${logoUri?.slice(0, 50) || "none"}`);
+            }
+          } catch (offChainErr) {
+            console.log("[Solana API] Failed to fetch off-chain metadata for logo");
+          }
+        }
+        
         if (name && symbol) {
           console.log(`[Solana API] Found token via Metaplex: ${symbol}`);
           return {
@@ -290,6 +323,7 @@ export async function getSplTokenMetadata(mintAddress: string): Promise<SplToken
             name,
             symbol,
             decimals,
+            logoUri,
           };
         }
       }
