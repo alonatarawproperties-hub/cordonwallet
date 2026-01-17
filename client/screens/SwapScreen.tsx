@@ -785,53 +785,109 @@ export default function SwapScreen({ route }: Props) {
       setSlippageBps(newValue);
     };
 
+    const slippagePercent = slippageBps / 100;
+    const isHighSlippage = slippageBps >= 500;
+    const isLowSlippage = slippageBps <= 30;
+
     return (
-      <Modal visible={showSlippageModal} transparent animationType="fade">
-        <Pressable style={styles.slippageModalOverlay} onPress={() => setShowSlippageModal(false)}>
-          <Pressable style={[styles.slippageModalContent, { backgroundColor: theme.backgroundSecondary }]} onPress={() => {}}>
-            <ThemedText type="h3" style={{ fontWeight: "700", marginBottom: Spacing.xs }}>
-              Set max slippage
-            </ThemedText>
-            <ThemedText type="caption" style={{ color: theme.textSecondary, lineHeight: 18, marginBottom: Spacing.xl }}>
-              This helps you avoid drastic swap price changes. The swap will revert if the price shifts beyond this percentage.
-            </ThemedText>
-
-            <View style={styles.slippageAdjuster}>
-              <Pressable
-                style={[styles.slippageAdjustButton, { backgroundColor: theme.glass }]}
-                onPress={() => adjustSlippage(-SLIPPAGE_STEP)}
+      <Modal visible={showSlippageModal} transparent animationType="slide">
+        <View style={styles.slippageModalOverlay}>
+          <Pressable style={styles.slippageModalDismiss} onPress={() => setShowSlippageModal(false)} />
+          <View style={[styles.slippageModalContent, { backgroundColor: theme.backgroundSecondary }]}>
+            <View style={styles.slippageModalHandle} />
+            
+            <View style={styles.slippageHeader}>
+              <ThemedText type="h3" style={{ fontWeight: "700" }}>
+                Slippage Tolerance
+              </ThemedText>
+              <Pressable 
+                style={[styles.slippageCloseBtn, { backgroundColor: theme.glass }]}
+                onPress={() => setShowSlippageModal(false)}
               >
-                <Feather name="minus" size={24} color={theme.text} />
-              </Pressable>
-
-              <View style={styles.slippageValueDisplay}>
-                <ThemedText style={{ fontSize: 48, fontWeight: "700", color: theme.text }}>
-                  {(slippageBps / 100).toFixed(1)}
-                </ThemedText>
-                <ThemedText style={{ fontSize: 32, fontWeight: "600", color: theme.textSecondary, marginLeft: 4 }}>
-                  %
-                </ThemedText>
-              </View>
-
-              <Pressable
-                style={[styles.slippageAdjustButton, { backgroundColor: theme.glass }]}
-                onPress={() => adjustSlippage(SLIPPAGE_STEP)}
-              >
-                <Feather name="plus" size={24} color={theme.text} />
+                <Feather name="x" size={18} color={theme.textSecondary} />
               </Pressable>
             </View>
 
-            <View style={styles.slippagePresets}>
-              {SLIPPAGE_PRESETS.map((bps) => {
+            <View style={styles.slippageValueSection}>
+              <LinearGradient
+                colors={[theme.accent + "15", theme.accentSecondary + "10"]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.slippageValueCard}
+              >
+                <View style={styles.slippageValueRow}>
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.slippageStepBtn,
+                      { 
+                        backgroundColor: theme.glass,
+                        opacity: pressed ? 0.7 : 1,
+                        borderColor: theme.glassBorder,
+                      }
+                    ]}
+                    onPress={() => adjustSlippage(-SLIPPAGE_STEP)}
+                  >
+                    <Feather name="chevron-down" size={20} color={theme.text} />
+                  </Pressable>
+
+                  <View style={styles.slippageValueCenter}>
+                    <ThemedText style={{ fontSize: 56, fontWeight: "800", color: theme.text, letterSpacing: -2 }}>
+                      {slippagePercent.toFixed(1)}
+                    </ThemedText>
+                    <ThemedText style={{ fontSize: 24, fontWeight: "600", color: theme.textSecondary, marginLeft: 2, marginTop: 8 }}>
+                      %
+                    </ThemedText>
+                  </View>
+
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.slippageStepBtn,
+                      { 
+                        backgroundColor: theme.glass,
+                        opacity: pressed ? 0.7 : 1,
+                        borderColor: theme.glassBorder,
+                      }
+                    ]}
+                    onPress={() => adjustSlippage(SLIPPAGE_STEP)}
+                  >
+                    <Feather name="chevron-up" size={20} color={theme.text} />
+                  </Pressable>
+                </View>
+
+                {isHighSlippage ? (
+                  <View style={[styles.slippageWarning, { backgroundColor: "#F59E0B" + "20" }]}>
+                    <Feather name="alert-triangle" size={14} color="#F59E0B" />
+                    <ThemedText type="caption" style={{ color: "#F59E0B", marginLeft: 6 }}>
+                      High slippage may result in unfavorable rates
+                    </ThemedText>
+                  </View>
+                ) : isLowSlippage ? (
+                  <View style={[styles.slippageWarning, { backgroundColor: theme.accent + "20" }]}>
+                    <Feather name="info" size={14} color={theme.accent} />
+                    <ThemedText type="caption" style={{ color: theme.accent, marginLeft: 6 }}>
+                      Low slippage may cause transaction to fail
+                    </ThemedText>
+                  </View>
+                ) : null}
+              </LinearGradient>
+            </View>
+
+            <ThemedText type="caption" style={{ color: theme.textSecondary, marginBottom: Spacing.md }}>
+              Quick Select
+            </ThemedText>
+
+            <View style={styles.slippageQuickSelect}>
+              {SLIPPAGE_PRESETS.map((bps, index) => {
                 const isActive = slippageBps === bps;
+                const labels = ["Conservative", "Standard", "Moderate", "Aggressive"];
                 return (
                   <Pressable
                     key={bps}
-                    style={[
-                      styles.slippagePresetButton,
+                    style={({ pressed }) => [
+                      styles.slippageQuickBtn,
                       { 
-                        backgroundColor: isActive ? theme.accent + "20" : theme.glass,
                         borderColor: isActive ? theme.accent : theme.glassBorder,
+                        opacity: pressed ? 0.8 : 1,
                       }
                     ]}
                     onPress={() => {
@@ -839,33 +895,36 @@ export default function SwapScreen({ route }: Props) {
                       setSlippageBps(bps);
                     }}
                   >
-                    <ThemedText 
-                      type="body" 
-                      style={{ 
-                        fontWeight: "600", 
-                        color: isActive ? theme.accent : theme.textSecondary 
-                      }}
-                    >
-                      {(bps / 100).toFixed(1)}%
-                    </ThemedText>
+                    {isActive ? (
+                      <LinearGradient
+                        colors={[theme.accent, theme.accentSecondary]}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 0 }}
+                        style={styles.slippageQuickBtnInner}
+                      >
+                        <ThemedText type="body" style={{ fontWeight: "700", color: "#fff" }}>
+                          {(bps / 100).toFixed(1)}%
+                        </ThemedText>
+                        <ThemedText type="caption" style={{ color: "rgba(255,255,255,0.8)", fontSize: 10 }}>
+                          {labels[index]}
+                        </ThemedText>
+                      </LinearGradient>
+                    ) : (
+                      <View style={[styles.slippageQuickBtnInner, { backgroundColor: theme.glass }]}>
+                        <ThemedText type="body" style={{ fontWeight: "600", color: theme.text }}>
+                          {(bps / 100).toFixed(1)}%
+                        </ThemedText>
+                        <ThemedText type="caption" style={{ color: theme.textSecondary, fontSize: 10 }}>
+                          {labels[index]}
+                        </ThemedText>
+                      </View>
+                    )}
                   </Pressable>
                 );
               })}
             </View>
-
-            <Pressable
-              style={[styles.slippageDoneButton, { backgroundColor: theme.accent }]}
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                setShowSlippageModal(false);
-              }}
-            >
-              <ThemedText type="body" style={{ color: "#fff", fontWeight: "600" }}>
-                Done
-              </ThemedText>
-            </Pressable>
-          </Pressable>
-        </Pressable>
+          </View>
+        </View>
       </Modal>
     );
   };
@@ -1766,52 +1825,88 @@ const styles = StyleSheet.create({
   },
   slippageModalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.7)",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: Spacing.xl,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    justifyContent: "flex-end",
   },
-  slippageModalContent: {
-    width: "100%",
-    borderRadius: BorderRadius.xl,
-    padding: Spacing.xl,
-  },
-  slippageAdjuster: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: Spacing.xl,
-  },
-  slippageAdjustButton: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  slippageValueDisplay: {
-    flexDirection: "row",
-    alignItems: "baseline",
-    justifyContent: "center",
+  slippageModalDismiss: {
     flex: 1,
   },
-  slippagePresets: {
+  slippageModalContent: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: Spacing.xl,
+    paddingTop: Spacing.md,
+  },
+  slippageModalHandle: {
+    width: 36,
+    height: 4,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    borderRadius: 2,
+    alignSelf: "center",
+    marginBottom: Spacing.lg,
+  },
+  slippageHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: Spacing.xl,
+  },
+  slippageCloseBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  slippageValueSection: {
+    marginBottom: Spacing.xl,
+  },
+  slippageValueCard: {
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.lg,
+  },
+  slippageValueRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  slippageStepBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+  },
+  slippageValueCenter: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "center",
+  },
+  slippageWarning: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: Spacing.md,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    borderRadius: BorderRadius.lg,
+  },
+  slippageQuickSelect: {
     flexDirection: "row",
     gap: Spacing.sm,
     marginBottom: Spacing.xl,
   },
-  slippagePresetButton: {
+  slippageQuickBtn: {
     flex: 1,
-    paddingVertical: Spacing.md,
     borderRadius: BorderRadius.lg,
     borderWidth: 1,
-    alignItems: "center",
-    justifyContent: "center",
+    overflow: "hidden",
   },
-  slippageDoneButton: {
+  slippageQuickBtnInner: {
     paddingVertical: Spacing.md,
-    borderRadius: BorderRadius.lg,
     alignItems: "center",
+    gap: 2,
   },
   speedSection: {
     marginBottom: Spacing.md,
