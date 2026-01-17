@@ -202,6 +202,9 @@ export async function getSolanaPortfolio(address: string): Promise<SolanaPortfol
 export async function getSplTokenMetadata(mintAddress: string): Promise<SplTokenMetadata | null> {
   console.log(`[Solana API] Starting metadata fetch for ${mintAddress.slice(0, 8)}...`);
   
+  // Store DexScreener results to potentially combine with Metaplex logo
+  let dexScreenerResult: { name: string; symbol: string; logoUri?: string } | null = null;
+  
   // First try DexScreener API - it's reliable and doesn't need RPC
   try {
     console.log("[Solana API] Trying DexScreener API first...");
@@ -223,18 +226,68 @@ export async function getSplTokenMetadata(mintAddress: string): Promise<SplToken
         
         if (tokenInfo && tokenInfo.name && tokenInfo.symbol) {
           console.log(`[Solana API] Found via DexScreener: ${tokenInfo.symbol} (${tokenInfo.name})`);
-          return {
-            mint: mintAddress,
+          dexScreenerResult = {
             name: tokenInfo.name,
             symbol: tokenInfo.symbol,
-            decimals: 9, // Default for Solana tokens
             logoUri: pair.info?.imageUrl,
           };
+          
+          // If DexScreener has logo, return immediately
+          if (dexScreenerResult.logoUri) {
+            console.log(`[Solana API] DexScreener has logo: ${dexScreenerResult.logoUri.slice(0, 50)}`);
+            return {
+              mint: mintAddress,
+              name: dexScreenerResult.name,
+              symbol: dexScreenerResult.symbol,
+              decimals: 9,
+              logoUri: dexScreenerResult.logoUri,
+            };
+          }
+          // Otherwise, continue to try Helius DAS API for the logo
+          console.log("[Solana API] DexScreener has no logo, will try Helius DAS API...");
         }
       }
     }
   } catch (dexError) {
     console.log("[Solana API] DexScreener lookup failed:", dexError);
+  }
+  
+  // Try Helius DAS API for logo (works well for pump tokens)
+  if (dexScreenerResult && !dexScreenerResult.logoUri && process.env.SOLANA_RPC_URL?.includes("helius")) {
+    try {
+      console.log("[Solana API] Trying Helius DAS API for logo...");
+      const dasResponse = await fetch(process.env.SOLANA_RPC_URL!, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "getAsset",
+          params: { id: mintAddress },
+        }),
+      });
+      
+      if (dasResponse.ok) {
+        const dasData = await dasResponse.json();
+        const imageUri = dasData.result?.content?.links?.image || 
+                        dasData.result?.content?.files?.[0]?.uri ||
+                        dasData.result?.content?.files?.[0]?.cdn_uri;
+        const decimals = dasData.result?.token_info?.decimals || 9;
+        
+        if (imageUri) {
+          console.log(`[Solana API] Got logo from Helius DAS: ${imageUri.slice(0, 50)}`);
+          return {
+            mint: mintAddress,
+            name: dexScreenerResult.name,
+            symbol: dexScreenerResult.symbol,
+            decimals,
+            logoUri: imageUri,
+          };
+        }
+      }
+    } catch (dasError) {
+      console.log("[Solana API] Helius DAS API lookup failed:", dasError);
+    }
   }
   
   // If DexScreener didn't work, try Solana RPC for basic info
@@ -316,6 +369,18 @@ export async function getSplTokenMetadata(mintAddress: string): Promise<SplToken
           }
         }
         
+        // If we have DexScreener data, use its name/symbol but add Metaplex logo
+        if (dexScreenerResult && logoUri) {
+          console.log(`[Solana API] Combining DexScreener data with Metaplex logo for ${dexScreenerResult.symbol}`);
+          return {
+            mint: mintAddress,
+            name: dexScreenerResult.name,
+            symbol: dexScreenerResult.symbol,
+            decimals,
+            logoUri,
+          };
+        }
+        
         if (name && symbol) {
           console.log(`[Solana API] Found token via Metaplex: ${symbol}`);
           return {
@@ -329,6 +394,17 @@ export async function getSplTokenMetadata(mintAddress: string): Promise<SplToken
       }
     } catch (metaplexError) {
       console.log("[Solana API] Metaplex metadata lookup failed");
+    }
+    
+    // If we have DexScreener result (but no logo), return it
+    if (dexScreenerResult) {
+      console.log(`[Solana API] Returning DexScreener data without logo for ${dexScreenerResult.symbol}`);
+      return {
+        mint: mintAddress,
+        name: dexScreenerResult.name,
+        symbol: dexScreenerResult.symbol,
+        decimals,
+      };
     }
     
     // Final fallback: return with minimal info
