@@ -77,6 +77,10 @@ export function getUserFriendlyErrorMessage(error: any): string {
   if (/swap api not deployed|404.*api.*swap/i.test(msg) || (status === 404 && /api.*swap/i.test(msg))) {
     return "Swap service unavailable. Please try again later.";
   }
+  // Jupiter unreachable from backend
+  if (/jupiter.*unreachable|jupiter.*blocked|jupiter.*down/i.test(msg)) {
+    return "Swap routing provider (Jupiter) unreachable. Try again shortly.";
+  }
   if (/429|rate.?limit|too many requests/i.test(msg)) {
     return "Rate limited — retrying...";
   }
@@ -97,6 +101,39 @@ export function getUserFriendlyErrorMessage(error: any): string {
   }
   
   return msg;
+}
+
+export interface SwapHealthStatus {
+  ok: boolean;
+  rpcOk: boolean;
+  jupiterOk: boolean;
+  jupiterError?: string;
+}
+
+export function parseSwapHealthResponse(data: any): SwapHealthStatus {
+  const services = data?.services || {};
+  const rpcOk = services.rpc?.ok === true;
+  const jupiterOk = services.jupiter?.ok === true;
+  
+  let jupiterError: string | undefined;
+  if (!jupiterOk && services.jupiter?.error) {
+    const err = services.jupiter.error;
+    jupiterError = err.causeMessage || err.message || "Unknown error";
+  }
+
+  return {
+    ok: data?.ok === true,
+    rpcOk,
+    jupiterOk,
+    jupiterError,
+  };
+}
+
+export function getJupiterDownMessage(health: SwapHealthStatus): string | null {
+  if (health.rpcOk && !health.jupiterOk) {
+    return `Swap routing provider unreachable from backend (Jupiter). ${health.jupiterError ? `Reason: ${health.jupiterError}` : "Try again or switch endpoint."}`;
+  }
+  return null;
 }
 
 export function shouldSuppressLogBox(error: any): boolean {

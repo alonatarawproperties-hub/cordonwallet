@@ -191,6 +191,9 @@ curl https://app.cordonwallet.com/api/solana/health
 
 # Swap service health (checks Jupiter + RPC connectivity)
 curl https://app.cordonwallet.com/api/swap/health
+
+# Deep Jupiter diagnostics (DNS, TCP, HTTPS)
+curl https://app.cordonwallet.com/api/swap/diag/jupiter
 ```
 
 **Expected /api/swap/health Response:**
@@ -199,15 +202,40 @@ curl https://app.cordonwallet.com/api/swap/health
   "ok": true,
   "ts": 1234567890123,
   "services": {
-    "jupiter": { "ok": true, "status": 200, "latencyMs": 150 },
+    "jupiter": { "ok": true, "status": 200, "latencyMs": 150, "baseUrlUsed": "https://quote-api.jup.ag" },
     "rpc": { "ok": true, "latencyMs": 50, "url": "configured" }
   }
 }
 ```
 
+**Expected /api/swap/diag/jupiter Response:**
+```json
+{
+  "ts": 1234567890123,
+  "dnsLookup": { "ok": true, "host": "quote-api.jup.ag", "addresses": [...], "latencyMs": 15 },
+  "tcpConnect": { "ok": true, "host": "quote-api.jup.ag", "port": 443, "latencyMs": 50 },
+  "httpsFetch": { "ok": true, "status": 200, "latencyMs": 150, "baseUrlUsed": "https://quote-api.jup.ag" },
+  "summary": { "dnsOk": true, "tcpOk": true, "httpsOk": true, "likelyIssue": "None - all connectivity checks passed" }
+}
+```
+
+**Environment Variables (Swap Service):**
+```bash
+# Primary Jupiter API endpoint (default: https://quote-api.jup.ag)
+JUPITER_BASE_URL=https://quote-api.jup.ag
+
+# Comma-separated fallback URLs (optional)
+JUPITER_FALLBACK_URLS=https://quote-api.jup.ag
+
+# Solana RPC endpoint (required)
+SOLANA_RPC_URL=https://your-helius-rpc-url
+```
+
 **Troubleshooting:**
 - **404 on /api/swap/health**: Backend not deployed with latest code. Redeploy.
-- **Jupiter unreachable**: Network issue from host to Jupiter API. Usually transient.
+- **Jupiter DNS fail**: Hosting provider is blocking DNS or egress is restricted. Move backend or fix egress.
+- **Jupiter TCP fail**: Firewall blocking outbound HTTPS (port 443).
+- **Jupiter HTTPS fail but DNS/TCP ok**: TLS handshake issue or Jupiter API error.
 - **RPC errors**: Check SOLANA_RPC_URL secret is set correctly in production.
 
 **Local Development:**
@@ -215,4 +243,7 @@ curl https://app.cordonwallet.com/api/swap/health
 # Test swap health locally
 npm run server:dev
 curl http://localhost:5000/api/swap/health
+
+# Full Jupiter diagnostics
+curl http://localhost:5000/api/swap/diag/jupiter
 ```
