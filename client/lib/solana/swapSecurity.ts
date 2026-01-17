@@ -4,7 +4,7 @@ import {
   PublicKey,
 } from "@solana/web3.js";
 import bs58 from "bs58";
-import { ALLOWED_PROGRAM_IDS, JUPITER_PROGRAM_IDS } from "@/constants/solanaSwap";
+import { ALLOWED_PROGRAM_IDS, JUPITER_PROGRAM_IDS, PUMP_PROGRAM_IDS } from "@/constants/solanaSwap";
 
 export interface SwapSecurityResult {
   safe: boolean;
@@ -16,6 +16,7 @@ export interface SwapSecurityResult {
     programIds: string[];
     unknownPrograms: string[];
     hasJupiterProgram: boolean;
+    hasPumpProgram: boolean;
     destinationAccounts: string[];
   };
 }
@@ -23,7 +24,8 @@ export interface SwapSecurityResult {
 export function decodeAndValidateSwapTx(
   txBase64: string,
   expectedUserPubkey: string,
-  expectedOutputMint?: string
+  expectedOutputMint?: string,
+  routeType?: "jupiter" | "pump" | "none"
 ): SwapSecurityResult {
   const warnings: string[] = [];
   const errors: string[] = [];
@@ -34,6 +36,7 @@ export function decodeAndValidateSwapTx(
   let feePayer = "";
   let feePayerIsUser = false;
   let hasJupiterProgram = false;
+  let hasPumpProgram = false;
   
   try {
     const txBuffer = Buffer.from(txBase64, "base64");
@@ -64,6 +67,10 @@ export function decodeAndValidateSwapTx(
         hasJupiterProgram = true;
       }
       
+      if (PUMP_PROGRAM_IDS.has(programId)) {
+        hasPumpProgram = true;
+      }
+      
       if (!ALLOWED_PROGRAM_IDS.has(programId)) {
         if (!unknownPrograms.includes(programId)) {
           unknownPrograms.push(programId);
@@ -90,8 +97,12 @@ export function decodeAndValidateSwapTx(
       );
     }
     
-    if (!hasJupiterProgram) {
-      warnings.push("No Jupiter program detected in transaction. This may not be a Jupiter swap.");
+    if (!hasJupiterProgram && !hasPumpProgram) {
+      if (routeType === "pump") {
+        warnings.push("No Pump.fun program detected in transaction.");
+      } else {
+        warnings.push("No Jupiter program detected in transaction. This may not be a Jupiter swap.");
+      }
     }
     
     if (transaction.signatures.length === 0) {
@@ -112,6 +123,7 @@ export function decodeAndValidateSwapTx(
       programIds,
       unknownPrograms,
       hasJupiterProgram,
+      hasPumpProgram,
       destinationAccounts,
     },
   };

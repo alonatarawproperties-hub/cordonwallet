@@ -437,7 +437,8 @@ export default function SwapScreen() {
       const securityResult = decodeAndValidateSwapTx(
         swapResponse.swapTransaction,
         solanaAddr,
-        outputToken.mint
+        outputToken.mint,
+        swapRoute
       );
 
       if (!securityResult.safe) {

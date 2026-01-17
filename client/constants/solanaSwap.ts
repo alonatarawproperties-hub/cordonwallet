@@ -82,6 +82,14 @@ export const JUPITER_PROGRAM_IDS = new Set([
   "9W959DqEETiGZocYWCQPaJ6sBmUzgfxXfqGeTEdp3aQP",
 ]);
 
+export const PUMP_PROGRAM_IDS = new Set([
+  "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P",
+  "pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA",
+  "pfeeUxB6jkeY1Hxd7CsFCAjcbHA9rWtchMGdZ6VojVZ",
+  "FAdo9NCwGJpCdqL6yUdNmvR4hXC9Mnjuix8k2HyCqDc8",
+  "39azUYFWPz3VHgKCf3VChUwbpURdCHRxjWVowf5jUJjg",
+]);
+
 export const ALLOWED_PROGRAM_IDS = new Set([
   "11111111111111111111111111111111",
   "ComputeBudget111111111111111111111111111111",
@@ -89,6 +97,7 @@ export const ALLOWED_PROGRAM_IDS = new Set([
   "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
   "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
   ...JUPITER_PROGRAM_IDS,
+  ...PUMP_PROGRAM_IDS,
 ]);
 
 export const DEFAULT_SLIPPAGE_BPS = 50;
