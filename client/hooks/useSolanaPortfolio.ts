@@ -190,9 +190,14 @@ export function useSolanaPortfolio(address: string | undefined) {
       portfolio.tokens.forEach((token) => {
         // Check if this token has custom metadata saved by the user
         const customToken = customTokenMap.get(token.mint.toLowerCase());
+        const symbol = customToken?.symbol || token.symbol || shortenMint(token.mint);
+        
+        // Check if this token is hidden (chainId 0 = Solana)
+        const tokenKey = `0:${symbol}`;
+        if (hiddenTokens.includes(tokenKey)) return;
         
         assets.push({
-          symbol: customToken?.symbol || token.symbol || shortenMint(token.mint),
+          symbol,
           name: customToken?.name || token.name || `Token ${shortenMint(token.mint)}`,
           balance: formatBalance(token.uiAmount.toString()),
           rawBalance: BigInt(token.amount),
@@ -202,7 +207,7 @@ export function useSolanaPortfolio(address: string | undefined) {
           tokenAccount: token.tokenAccount,
           chainId: "solana",
           chainName: "Solana",
-          logoUrl: customToken?.logoUrl,
+          logoUrl: customToken?.logoUrl || token.logoUrl,
         });
       });
 
