@@ -1,0 +1,65 @@
+PRODUCTION ISSUE: /api/swap/health now works, RPC is OK, but Jupiter check returns:
+"jupiter": { ok:false, latencyMs:8, error:"fetch failed" }
+This points to DNS / outbound / TLS connect problems from the production server to quote-api.jup.ag.
+I need full diagnostics + hardened Jupiter client (production-ready). No questions, just implement.
+
+GOALS
+1) Add deep Jupiter connectivity diagnostics endpoints.
+2) Improve existing /api/swap/health to include structured error cause (not just "fetch failed").
+3) Implement a robust Jupiter HTTP client with:
+   - timeout, retries, keepalive agent, and fallback base URLs
+   - optional custom DNS lookup logging
+4) Update client-facing error messaging to distinguish:
+   - Backend reachable but Jupiter blocked
+   - Backend down
+   - Rate limited
+
+IMPLEMENTATION
+
+A) Add server/swap/jupiterClient.ts
+- Create a function jupiterQuotePing() that hits a minimal quote:
+  GET {JUPITER_BASE_URL}/v6/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&amount=1000000&slippageBps=50
+- Base URLs:
+  1) process.env.JUPITER_BASE_URL (default "https://quote-api.jup.ag")
+  2) process.env.JUPITER_FALLBACK_URLS as comma-separated list, try in order if the first fails
+- Use AbortController timeout = 5000ms
+- Add retries: 2 retries with backoff (250ms, 750ms)
+- Return:
+  { ok, status, latencyMs, baseUrlUsed, error?: { message, name, code?, errno?, causeMessage?, stackShort? } }
+- IMPORTANT: capture error.cause (undici often hides the real reason there)
+
+B) Add server/swap/diag.ts router and mount it under swap router
+Add endpoints:
+1) GET /api/swap/diag/jupiter
+   - dnsLookup: use dns.promises.lookup("quote-api.jup.ag", { all:true })
+   - tcpConnect: try a net.connect to port 443 with timeout 3000ms (optional but ideal)
+   - httpsFetch: call jupiterQuotePing() using the new client
+   - return a single JSON describing all stages and failures
+2) GET /api/swap/diag/dns?host=...
+   - returns dns lookup results for any host (sanitized)
+
+C) Update server/swap/index.ts
+1) Keep /health but enhance it:
+   - services.jupiter should call jupiterQuotePing() and include baseUrlUsed + status + full structured error
+   - services.rpc stays as-is
+2) If Jupiter is down, /health must still return 200 with ok:false and details.
+
+D) Update server/swap/config.ts or env docs
+- Document env:
+  JUPITER_BASE_URL=https://quote-api.jup.ag
+  JUPITER_FALLBACK_URLS=https://quote-api.jup.ag
+- Add a note in replit.md: "If diag shows DNS fail in prod, hosting provider is blocking or DNS broken; move backend or fix egress."
+
+E) Client error messages (SwapScreen / swapStore)
+- If /api/swap/health says rpc ok but jupiter ok false:
+  show a clear banner: "Swap routing provider unreachable from backend (Jupiter). Try again or switch endpoint."
+- If backend 404/5xx: show backend error accordingly.
+
+VALIDATION
+- Add a script: npm run server:diag:jupiter to hit localhost /api/swap/diag/jupiter and print JSON
+- Ensure all endpoints compile and are reachable in production after deploy.
+
+DELIVERABLE
+- Code changes committed and instructions for how I test:
+  curl https://app.cordonwallet.com/api/swap/health
+  curl https://app.cordonwallet.com/api/swap/diag/jupiter

@@ -10,40 +10,46 @@ import { buildPumpTransaction, isPumpToken } from "./pump";
 import { broadcastTransaction, getTransactionStatus } from "./broadcast";
 import { searchTokens, getToken, resolveToken, initTokenList } from "./tokenlist";
 import { getRouteQuote, getPumpMeta } from "./route";
+import { jupiterQuotePing } from "./jupiterClient";
+import { diagRouter } from "./diag";
 
 export const swapRouter = Router();
 
 initTokenList();
 
+swapRouter.use("/diag", diagRouter);
+
 // Health check for swap service with detailed diagnostics
 swapRouter.get("/health", async (_req: Request, res: Response) => {
   const results: {
-    jupiter: { ok: boolean; status?: number; latencyMs?: number; error?: string };
+    jupiter: {
+      ok: boolean;
+      status?: number;
+      latencyMs?: number;
+      baseUrlUsed?: string;
+      error?: {
+        message: string;
+        name: string;
+        code?: string;
+        errno?: number;
+        causeMessage?: string;
+      };
+    };
     rpc: { ok: boolean; latencyMs?: number; url: string; error?: string };
   } = {
     jupiter: { ok: false },
     rpc: { ok: false, url: process.env.SOLANA_RPC_URL ? "configured" : "missing" },
   };
 
-  // Jupiter check
-  const jupiterStart = Date.now();
-  try {
-    const jupiterRes = await fetch(
-      "https://quote-api.jup.ag/v6/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&amount=1000000&slippageBps=50",
-      { signal: AbortSignal.timeout(5000) }
-    );
-    results.jupiter = {
-      ok: jupiterRes.ok,
-      status: jupiterRes.status,
-      latencyMs: Date.now() - jupiterStart,
-    };
-  } catch (err: any) {
-    results.jupiter = {
-      ok: false,
-      latencyMs: Date.now() - jupiterStart,
-      error: err.name === "TimeoutError" ? "timeout" : err.message?.slice(0, 50),
-    };
-  }
+  // Jupiter check using robust client
+  const jupiterResult = await jupiterQuotePing();
+  results.jupiter = {
+    ok: jupiterResult.ok,
+    status: jupiterResult.status,
+    latencyMs: jupiterResult.latencyMs,
+    baseUrlUsed: jupiterResult.baseUrlUsed,
+    error: jupiterResult.error,
+  };
 
   // RPC check
   const rpcStart = Date.now();
@@ -74,7 +80,7 @@ swapRouter.get("/health", async (_req: Request, res: Response) => {
   }
 
   const allOk = results.jupiter.ok && results.rpc.ok;
-  res.status(allOk ? 200 : 503).json({
+  res.status(200).json({
     ok: allOk,
     ts: Date.now(),
     services: results,
