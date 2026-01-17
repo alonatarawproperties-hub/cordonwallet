@@ -70,9 +70,12 @@ The project is organized into `/client` (frontend), `/server` (backend), and `/s
 
 - **SwapScreen**: Native Solana token swap interface with token selectors, live quotes, slippage controls, and speed modes (standard/fast/turbo).
 - **Intelligent Swap Routing**: Server-side route decision engine (`server/swap/route.ts`) that automatically detects the best route:
-  - **Jupiter DEX**: Primary route for tokens with DEX liquidity (graduated tokens, established pairs).
-  - **Pump.fun Bonding Curve**: Automatic fallback for new tokens still on Pump.fun bonding curves.
-  - Route detection via pumpportal.fun API with 5-minute TTL caching.
+  - **Pump-First Detection**: For tokens ending in "pump", route detection checks bonding curve status FIRST before trying Jupiter. This prevents Jupiter from routing through incompatible DEXs.
+  - **Jupiter DEX**: Primary route for established tokens and graduated pump tokens with DEX liquidity.
+  - **Pump.fun Bonding Curve**: Used for tokens still on bonding curve (via pumpportal.fun trade-local API).
+  - **Fallback System**: When route is "pump", server also fetches Jupiter quote as fallback. If pump build fails with TOKEN_GRADUATED, client automatically falls back to Jupiter.
+  - **Token-2022 Awareness**: Some Token-2022 tokens have limited Jupiter support (error 0x177e). The app shows a user-friendly message when this occurs.
+  - Route detection caching: 5-minute TTL for pump detection, 1.5s for quotes.
 - **Unified Quote Engine**: `client/lib/quoteEngine.ts` handles both routes with:
   - Route type tracking (jupiter/pump/none) and Pump metadata (isPump, isBondingCurve, isGraduated).
   - Speed-based polling intervals: Standard (12s), Fast (6s), Turbo (2.5s).

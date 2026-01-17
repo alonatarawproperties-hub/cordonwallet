@@ -413,13 +413,20 @@ export default function SwapScreen() {
         });
 
         if (!buildResult.ok || !buildResult.swapTransactionBase64) {
-          throw new Error(buildResult.message || "Failed to build Pump transaction");
+          // If token is graduated, try to fall back to Jupiter if we have a quote
+          if ((buildResult as any).code === "TOKEN_GRADUATED" && quote) {
+            console.log("[Swap] Pump build failed (graduated), falling back to Jupiter");
+            await addDebugLog("info", "Token graduated from pump, using Jupiter", {});
+            swapResponse = await buildSwapTransaction(quote, solanaAddr, speed, capSol);
+          } else {
+            throw new Error(buildResult.message || "Failed to build Pump transaction");
+          }
+        } else {
+          swapResponse = {
+            swapTransaction: buildResult.swapTransactionBase64,
+            lastValidBlockHeight: 0,
+          };
         }
-
-        swapResponse = {
-          swapTransaction: buildResult.swapTransactionBase64,
-          lastValidBlockHeight: 0,
-        };
       } else if (quote) {
         swapResponse = await buildSwapTransaction(quote, solanaAddr, speed, capSol);
       } else {

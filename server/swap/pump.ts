@@ -74,12 +74,19 @@ export async function buildPumpTransaction(params: {
     if (!response.ok) {
       const errorText = await response.text();
       console.error("[Pump] Build error:", response.status, errorText);
+      console.error("[Pump] Request body was:", JSON.stringify(body));
+      
+      // 400 error typically means token is graduated (no longer on bonding curve)
+      const isGraduated = response.status === 400;
       
       return {
         ok: false,
-        code: "PUMP_UNAVAILABLE",
-        message: `Pump API error: ${response.status}`,
+        code: isGraduated ? "TOKEN_GRADUATED" : "PUMP_UNAVAILABLE",
+        message: isGraduated 
+          ? "Token has graduated from bonding curve. Try using Jupiter instead."
+          : `Pump API error: ${response.status}`,
         details: errorText,
+        isGraduated,
       };
     }
     

@@ -231,9 +231,19 @@ class QuoteEngine {
         this.emit({ quote: result.quoteResponse, route: "jupiter", pumpMeta: null, isUpdating: false, error: null });
         swapLogger.info("QuoteEngine", "Jupiter quote updated", { outAmount: result.quoteResponse.outAmount });
       } else if (result.route === "pump" && result.pumpMeta) {
-        this.lastQuote = null;
-        this.emit({ quote: null, route: "pump", pumpMeta: result.pumpMeta, isUpdating: false, error: null });
-        swapLogger.info("QuoteEngine", "Pump route detected", { mint: result.pumpMeta.mint });
+        // Store Jupiter quote as fallback for graduated tokens
+        this.lastQuote = result.quoteResponse || null;
+        this.emit({ 
+          quote: result.quoteResponse || null, 
+          route: "pump", 
+          pumpMeta: result.pumpMeta, 
+          isUpdating: false, 
+          error: null 
+        });
+        swapLogger.info("QuoteEngine", "Pump route detected", { 
+          mint: result.pumpMeta.mint,
+          hasJupiterFallback: !!result.quoteResponse
+        });
       } else {
         this.lastQuote = null;
         this.emit({ quote: null, route: "none", pumpMeta: null, isUpdating: false, error: result.message || "No route available" });

@@ -106,6 +106,64 @@ export async function getRouteQuote(params: {
   }
   
   const result = await quoteDeduper.dedupe(cacheKey, async () => {
+    const isBuying = inputMint === SOL_MINT;
+    const pumpMint = isBuying ? outputMint : inputMint;
+    
+    // For pump tokens (ending in "pump"), check bonding curve status FIRST
+    // This prevents Jupiter from trying routes that don't work with Token-2022
+    const looksLikePumpToken = pumpMint.toLowerCase().endsWith("pump");
+    
+    if (swapConfig.pumpModeEnabled && looksLikePumpToken) {
+      console.log("[Route] Detected pump token format, checking bonding curve status first:", pumpMint);
+      const pumpMeta = await detectPumpStatus(pumpMint);
+      console.log("[Route] Pump detection result:", JSON.stringify(pumpMeta));
+      
+      // If confirmed on bonding curve, use pump route directly
+      if (pumpMeta.isPump && pumpMeta.isBondingCurve) {
+        console.log("[Route] Token is on bonding curve, using pump route");
+        const routeResult: RouteQuoteResult = {
+          ok: true,
+          route: "pump",
+          pumpMeta,
+          message: "Token is on Pump.fun bonding curve",
+        };
+        quoteCache.set(cacheKey, routeResult);
+        return routeResult;
+      }
+      
+      // If token is graduated, try Jupiter but warn about potential Token-2022 issues
+      if (pumpMeta.isGraduated) {
+        console.log("[Route] Token is graduated from Pump.fun, trying Jupiter (may have Token-2022 issues)");
+        // Fall through to Jupiter routing below
+      } else {
+        // If detection failed but it looks like a pump token, ALWAYS try pump first
+        // The pumpportal API often fails detection, but trade-local still works
+        console.log("[Route] Pump token (bonding curve assumed due to format), trying pump route");
+        
+        // Also fetch Jupiter quote as fallback for graduated tokens
+        const jupiterFallback = await getQuote({
+          inputMint,
+          outputMint,
+          amount,
+          slippageBps,
+          swapMode: "ExactIn",
+        });
+        
+        const routeResult: RouteQuoteResult = {
+          ok: true,
+          route: "pump",
+          pumpMeta: { ...pumpMeta, isPump: true, isBondingCurve: true },
+          message: "Pump.fun token (bonding curve assumed)",
+          // Include Jupiter quote as fallback
+          quoteResponse: jupiterFallback.ok ? jupiterFallback.quote : undefined,
+          normalized: jupiterFallback.ok ? jupiterFallback.normalized : undefined,
+        };
+        quoteCache.set(cacheKey, routeResult);
+        return routeResult;
+      }
+    }
+    
+    // For non-pump tokens or graduated tokens, try Jupiter
     const jupiterResult = await getQuote({
       inputMint,
       outputMint,
@@ -125,31 +183,19 @@ export async function getRouteQuote(params: {
       return routeResult;
     }
     
-    if (jupiterResult.code === "NO_ROUTE" && swapConfig.pumpModeEnabled) {
-      const isBuying = inputMint === SOL_MINT;
-      const pumpMint = isBuying ? outputMint : inputMint;
-      
+    // If Jupiter fails with NO_ROUTE and it's a pump-format token, try pump route
+    if (jupiterResult.code === "NO_ROUTE" && swapConfig.pumpModeEnabled && isPumpMintFormat(pumpMint)) {
+      console.log("[Route] Jupiter has no route, falling back to pump for:", pumpMint);
       const pumpMeta = await detectPumpStatus(pumpMint);
       
-      if (pumpMeta.isPump && pumpMeta.isBondingCurve) {
-        const routeResult: RouteQuoteResult = {
-          ok: true,
-          route: "pump",
-          pumpMeta,
-          message: "Token is on Pump.fun bonding curve",
-        };
-        quoteCache.set(cacheKey, routeResult);
-        return routeResult;
-      }
-      
-      if (pumpMeta.isPump && pumpMeta.isGraduated) {
-        return {
-          ok: false,
-          route: "none",
-          reason: "GRADUATED_NO_LIQUIDITY",
-          message: "Token graduated from Pump.fun but has no Jupiter liquidity yet",
-        };
-      }
+      const routeResult: RouteQuoteResult = {
+        ok: true,
+        route: "pump",
+        pumpMeta: { ...pumpMeta, isPump: true, isBondingCurve: true },
+        message: "Fallback to Pump.fun bonding curve",
+      };
+      quoteCache.set(cacheKey, routeResult);
+      return routeResult;
     }
     
     return {
