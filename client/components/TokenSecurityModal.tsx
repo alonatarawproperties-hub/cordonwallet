@@ -114,8 +114,16 @@ export function TokenSecurityModal({
                 </ThemedText>
               ) : null}
             </View>
-            <Pressable onPress={onClose} hitSlop={12}>
-              <Feather name="x" size={24} color={theme.text} />
+            <Pressable 
+              onPress={onClose} 
+              hitSlop={12}
+              style={({ pressed }) => [
+                styles.closeButton,
+                { backgroundColor: theme.backgroundSecondary },
+                pressed && { opacity: 0.7, transform: [{ scale: 0.95 }] }
+              ]}
+            >
+              <Feather name="x" size={18} color={theme.text} />
             </Pressable>
           </View>
 
@@ -199,7 +207,7 @@ const styles = StyleSheet.create({
   sheet: {
     borderTopLeftRadius: BorderRadius.xl,
     borderTopRightRadius: BorderRadius.xl,
-    height: "60%",
+    height: "75%",
     paddingHorizontal: Spacing.lg,
     paddingTop: Spacing.sm,
     paddingBottom: Spacing.lg,
@@ -293,5 +301,12 @@ const styles = StyleSheet.create({
   disclaimerText: {
     flex: 1,
     lineHeight: 18,
+  },
+  closeButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
   },
 });
