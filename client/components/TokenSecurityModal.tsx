@@ -7,13 +7,8 @@ import { BlurView } from "expo-blur";
 import { ThemedText } from "@/components/ThemedText";
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius } from "@/constants/theme";
-import { 
-  TokenSecurityAssessment, 
-  RiskLevel, 
-  getRiskColor, 
-  getRiskIcon,
-  SecurityCheck 
-} from "@/lib/token-security";
+import { RiskLevel, getRiskColor, getRiskIcon } from "@/lib/token-security-ui";
+import type { TokenSecurityAssessment, SecurityCheck } from "@/lib/token-security";
 
 interface TokenSecurityModalProps {
   visible: boolean;

@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { View, StyleSheet, ScrollView, Pressable, RefreshControl, ActivityIndicator, Image } from "react-native";
+import { View, StyleSheet, ScrollView, Pressable, RefreshControl, ActivityIndicator, Image, Platform } from "react-native";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -24,9 +24,8 @@ import { savePortfolioDisplayCache } from "@/lib/portfolio-cache";
 import { AnimatedRefreshIndicator } from "@/components/AnimatedRefreshIndicator";
 import { TokenSecurityBadge } from "@/components/TokenSecurityBadge";
 import { TokenSecurityModal } from "@/components/TokenSecurityModal";
-import { analyzeTokenSecurity, TokenSecurityAssessment, RiskLevel } from "@/lib/token-security";
-import { Connection } from "@solana/web3.js";
-import { RPC_PRIMARY } from "@/constants/solanaSwap";
+import type { TokenSecurityAssessment } from "@/lib/token-security";
+import type { RiskLevel } from "@/lib/token-security-ui";
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
@@ -395,11 +394,17 @@ export default function PortfolioScreen() {
   }, [lastUpdated, isLoading, isRefreshing, evmPortfolio.assets, solanaPortfolio.assets, evmAddress, solanaAddress]);
 
   useEffect(() => {
+    if (Platform.OS === "web") return;
+    
     const analyzeSolanaTokens = async () => {
       const solanaAssets = assets.filter(a => a.chainType === "solana" && "mint" in a && a.mint);
       if (solanaAssets.length === 0) return;
 
       try {
+        const { Connection } = await import("@solana/web3.js");
+        const { RPC_PRIMARY } = await import("@/constants/solanaSwap");
+        const { analyzeTokenSecurity } = await import("@/lib/token-security");
+        
         const connection = new Connection(RPC_PRIMARY, { commitment: "confirmed" });
         const newAssessments = new Map(securityAssessments);
         

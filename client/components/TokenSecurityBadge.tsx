@@ -1,7 +1,7 @@
 import React from "react";
 import { View, StyleSheet, Pressable } from "react-native";
 import { Feather } from "@expo/vector-icons";
-import { RiskLevel, getRiskColor, getRiskIcon } from "@/lib/token-security";
+import { RiskLevel, getRiskColor, getRiskIcon } from "@/lib/token-security-ui";
 
 interface TokenSecurityBadgeProps {
   riskLevel: RiskLevel;
