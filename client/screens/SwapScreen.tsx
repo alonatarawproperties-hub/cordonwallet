@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo, useLayoutEffect } from "react";
 import Animated, { useSharedValue, useAnimatedStyle, withSpring } from "react-native-reanimated";
 import {
   View,
@@ -17,7 +17,7 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useHeaderHeight } from "@react-navigation/elements";
+import { useHeaderHeight, HeaderButton } from "@react-navigation/elements";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { NativeStackNavigationProp, NativeStackScreenProps } from "@react-navigation/native-stack";
 import { Feather } from "@expo/vector-icons";
@@ -39,6 +39,8 @@ import {
   SPEED_CONFIGS,
   DEFAULT_SLIPPAGE_BPS,
   MAX_SLIPPAGE_BPS,
+  SLIPPAGE_PRESETS,
+  SLIPPAGE_STEP,
   QUOTE_REFRESH_INTERVALS,
   SOL_MINT,
   USDC_MINT,
@@ -175,6 +177,7 @@ export default function SwapScreen({ route }: Props) {
     swapResponse: SwapResponse;
     route: SwapRoute;
   } | null>(null);
+  const [showSlippageModal, setShowSlippageModal] = useState(false);
 
   const quoteEngineRef = useRef(getQuoteEngine());
 
@@ -196,6 +199,22 @@ export default function SwapScreen({ route }: Props) {
   }, [solanaAssets]);
 
   const inputTokenBalance = inputToken ? getTokenBalance(inputToken.mint) : 0;
+
+  // Header with slippage button
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerRight: () => (
+        <HeaderButton onPress={() => setShowSlippageModal(true)}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, backgroundColor: theme.glass }}>
+            <Feather name="sliders" size={14} color={theme.text} />
+            <ThemedText type="caption" style={{ fontWeight: "600" }}>
+              {(slippageBps / 100).toFixed(1)}%
+            </ThemedText>
+          </View>
+        </HeaderButton>
+      ),
+    });
+  }, [navigation, theme, slippageBps]);
 
   useEffect(() => {
     const initTokens = async () => {
@@ -759,6 +778,98 @@ export default function SwapScreen({ route }: Props) {
     );
   };
 
+  const renderSlippageModal = () => {
+    const adjustSlippage = (delta: number) => {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      const newValue = Math.max(SLIPPAGE_STEP, Math.min(MAX_SLIPPAGE_BPS, slippageBps + delta));
+      setSlippageBps(newValue);
+    };
+
+    return (
+      <Modal visible={showSlippageModal} transparent animationType="fade">
+        <Pressable style={styles.slippageModalOverlay} onPress={() => setShowSlippageModal(false)}>
+          <Pressable style={[styles.slippageModalContent, { backgroundColor: theme.backgroundSecondary }]} onPress={() => {}}>
+            <ThemedText type="h3" style={{ fontWeight: "700", marginBottom: Spacing.xs }}>
+              Set max slippage
+            </ThemedText>
+            <ThemedText type="caption" style={{ color: theme.textSecondary, lineHeight: 18, marginBottom: Spacing.xl }}>
+              This helps you avoid drastic swap price changes. The swap will revert if the price shifts beyond this percentage.
+            </ThemedText>
+
+            <View style={styles.slippageAdjuster}>
+              <Pressable
+                style={[styles.slippageAdjustButton, { backgroundColor: theme.glass }]}
+                onPress={() => adjustSlippage(-SLIPPAGE_STEP)}
+              >
+                <Feather name="minus" size={24} color={theme.text} />
+              </Pressable>
+
+              <View style={styles.slippageValueDisplay}>
+                <ThemedText style={{ fontSize: 48, fontWeight: "700", color: theme.text }}>
+                  {(slippageBps / 100).toFixed(1)}
+                </ThemedText>
+                <ThemedText style={{ fontSize: 32, fontWeight: "600", color: theme.textSecondary, marginLeft: 4 }}>
+                  %
+                </ThemedText>
+              </View>
+
+              <Pressable
+                style={[styles.slippageAdjustButton, { backgroundColor: theme.glass }]}
+                onPress={() => adjustSlippage(SLIPPAGE_STEP)}
+              >
+                <Feather name="plus" size={24} color={theme.text} />
+              </Pressable>
+            </View>
+
+            <View style={styles.slippagePresets}>
+              {SLIPPAGE_PRESETS.map((bps) => {
+                const isActive = slippageBps === bps;
+                return (
+                  <Pressable
+                    key={bps}
+                    style={[
+                      styles.slippagePresetButton,
+                      { 
+                        backgroundColor: isActive ? theme.accent + "20" : theme.glass,
+                        borderColor: isActive ? theme.accent : theme.glassBorder,
+                      }
+                    ]}
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      setSlippageBps(bps);
+                    }}
+                  >
+                    <ThemedText 
+                      type="body" 
+                      style={{ 
+                        fontWeight: "600", 
+                        color: isActive ? theme.accent : theme.textSecondary 
+                      }}
+                    >
+                      {(bps / 100).toFixed(1)}%
+                    </ThemedText>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            <Pressable
+              style={[styles.slippageDoneButton, { backgroundColor: theme.accent }]}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                setShowSlippageModal(false);
+              }}
+            >
+              <ThemedText type="body" style={{ color: "#fff", fontWeight: "600" }}>
+                Done
+              </ThemedText>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
+    );
+  };
+
   const selectCustomToken = () => {
     if (!customTokenResult || customTokenResult.decimals < 0) return;
     selectToken(customTokenResult);
@@ -1270,50 +1381,6 @@ export default function SwapScreen({ route }: Props) {
         ) : null}
 
         <View style={styles.settingsSection}>
-          <View style={styles.settingsRow}>
-            <ThemedText type="small" style={{ color: theme.textSecondary, fontWeight: "500" }}>Slippage</ThemedText>
-            <View style={styles.slippageButtons}>
-              {[50, 100, 300].map((bps) => {
-                const isActive = slippageBps === bps;
-                return isActive ? (
-                  <LinearGradient
-                    key={bps}
-                    colors={[theme.accent, theme.accentSecondary]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={styles.slippagePillGradient}
-                  >
-                    <Pressable
-                      style={styles.slippagePillInner}
-                      onPress={() => setSlippageBps(bps)}
-                    >
-                      <ThemedText type="caption" style={{ color: "#fff", fontWeight: "700" }}>
-                        {bps / 100}%
-                      </ThemedText>
-                    </Pressable>
-                  </LinearGradient>
-                ) : (
-                  <Pressable
-                    key={bps}
-                    style={({ pressed }) => [
-                      styles.slippagePill,
-                      { 
-                        backgroundColor: theme.glass,
-                        borderColor: theme.glassBorder,
-                        opacity: pressed ? 0.8 : 1,
-                      },
-                    ]}
-                    onPress={() => setSlippageBps(bps)}
-                  >
-                    <ThemedText type="caption" style={{ color: theme.text, fontWeight: "600" }}>
-                      {bps / 100}%
-                    </ThemedText>
-                  </Pressable>
-                );
-              })}
-            </View>
-          </View>
-
           <View style={styles.speedSection}>
             <ThemedText type="small" style={{ color: theme.textSecondary, fontWeight: "500", marginBottom: Spacing.md }}>
               Speed Mode
@@ -1527,6 +1594,7 @@ export default function SwapScreen({ route }: Props) {
 
       {renderTokenModal()}
       {renderConfirmModal()}
+      {renderSlippageModal()}
     </ThemedView>
   );
 }
@@ -1694,6 +1762,55 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.xs,
     borderRadius: BorderRadius.full,
     borderWidth: 1,
+    alignItems: "center",
+  },
+  slippageModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.7)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: Spacing.xl,
+  },
+  slippageModalContent: {
+    width: "100%",
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.xl,
+  },
+  slippageAdjuster: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: Spacing.xl,
+  },
+  slippageAdjustButton: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  slippageValueDisplay: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    justifyContent: "center",
+    flex: 1,
+  },
+  slippagePresets: {
+    flexDirection: "row",
+    gap: Spacing.sm,
+    marginBottom: Spacing.xl,
+  },
+  slippagePresetButton: {
+    flex: 1,
+    paddingVertical: Spacing.md,
+    borderRadius: BorderRadius.lg,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  slippageDoneButton: {
+    paddingVertical: Spacing.md,
+    borderRadius: BorderRadius.lg,
     alignItems: "center",
   },
   speedSection: {

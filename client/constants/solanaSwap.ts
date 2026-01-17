@@ -100,8 +100,10 @@ export const ALLOWED_PROGRAM_IDS = new Set([
   ...PUMP_PROGRAM_IDS,
 ]);
 
-export const DEFAULT_SLIPPAGE_BPS = 50;
-export const MAX_SLIPPAGE_BPS = 1000;
+export const DEFAULT_SLIPPAGE_BPS = 200; // 2% default like Trust Wallet
+export const MAX_SLIPPAGE_BPS = 5000; // 50% max
+export const SLIPPAGE_PRESETS = [10, 50, 100, 250]; // 0.1%, 0.5%, 1%, 2.5%
+export const SLIPPAGE_STEP = 10; // 0.1% increment
 
 export const QUOTE_DEBOUNCE_MS = 500;
 
