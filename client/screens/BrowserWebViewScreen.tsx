@@ -479,6 +479,7 @@ export default function BrowserWebViewScreen() {
     chain: "solana" | "evm";
     requestId: number;
     walletAddress: string;
+    isGetWalletAddress?: boolean; // For cordon.getWalletAddress() calls
   } | null>(null);
 
   const [signSheet, setSignSheet] = useState<{
@@ -600,11 +601,28 @@ export default function BrowserWebViewScreen() {
       console.log("[BrowserWebView] Message received:", data.type);
 
       if (data.type === "cordon_getWalletAddress") {
-        const response = { address: walletAddress };
-        webViewRef.current?.injectJavaScript(`
-          window.cordon._handleResponse(${data.requestId}, ${JSON.stringify(response)});
-          true;
-        `);
+        // Show connect sheet for approval before sharing wallet address
+        const solanaAddress = activeWallet?.addresses?.solana;
+        
+        if (!solanaAddress) {
+          const response = { error: "No wallet available" };
+          webViewRef.current?.injectJavaScript(`
+            window.cordon._handleResponse(${data.requestId}, ${JSON.stringify(response)});
+            true;
+          `);
+          return;
+        }
+        
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        
+        // Use the connect sheet which will trigger addConnectedDApp on approval
+        setConnectSheet({
+          visible: true,
+          chain: "solana",
+          requestId: data.requestId,
+          walletAddress: solanaAddress,
+          isGetWalletAddress: true, // Flag to return address format
+        });
       } else if (data.type === "cordon_requestAuth") {
         if (isAuthInProgress) {
           console.log("[BrowserWebView] Auth already in progress, ignoring");
@@ -1066,7 +1084,15 @@ export default function BrowserWebViewScreen() {
       walletAddress: connectSheet.walletAddress,
     });
     
-    if (connectSheet.chain === "solana") {
+    // Handle different response formats based on the request type
+    if (connectSheet.isGetWalletAddress) {
+      // cordon.getWalletAddress() expects { address: string }
+      const response = { address: connectSheet.walletAddress };
+      webViewRef.current?.injectJavaScript(`
+        window.cordon._handleResponse(${connectSheet.requestId}, ${JSON.stringify(response)});
+        true;
+      `);
+    } else if (connectSheet.chain === "solana") {
       const response = { publicKey: connectSheet.walletAddress };
       webViewRef.current?.injectJavaScript(`
         window.cordon._handleResponse(${connectSheet.requestId}, ${JSON.stringify(response)});
