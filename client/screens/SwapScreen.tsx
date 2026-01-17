@@ -354,18 +354,6 @@ export default function SwapScreen({ route }: Props) {
       return;
     }
 
-    const MIN_SOL_SWAP = 0.001;
-    const amount = parseFloat(inputAmount);
-    
-    if (inputToken.mint === SOL_MINT && amount < MIN_SOL_SWAP) {
-      setQuoteError(`Minimum swap is ${MIN_SOL_SWAP} SOL`);
-      engine.clearQuote();
-      setQuote(null);
-      setSwapRoute("none");
-      setPumpMeta(null);
-      return;
-    }
-
     const amountBaseUnits = parseTokenAmount(inputAmount, inputToken.decimals).toString();
     
     engine.updateParams({
