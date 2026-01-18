@@ -65,6 +65,7 @@ import {
   calculatePriceImpact,
   formatRoute,
   estimateNetworkFee,
+  getQuote,
   QuoteResponse,
   SwapResponse,
 } from "@/services/jupiter";
@@ -553,7 +554,7 @@ export default function SwapScreen({ route }: Props) {
     }
 
     setIsSwapping(true);
-    setSwapStatus("Building transaction...");
+    setSwapStatus("Getting fresh quote...");
 
     const timings: SwapTimings = {};
     const buildStart = Date.now();
@@ -561,6 +562,7 @@ export default function SwapScreen({ route }: Props) {
     try {
       const capSol = customCapSol ?? SPEED_CONFIGS[speed].capSol;
       let swapResponse: SwapResponse;
+      let freshQuote: QuoteResponse | null = null;
 
       if (swapRoute === "pump" && pumpMeta) {
         const isBuying = inputToken.mint === SOL_MINT;
@@ -576,11 +578,21 @@ export default function SwapScreen({ route }: Props) {
         });
 
         if (!buildResult.ok || !buildResult.swapTransactionBase64) {
-          // If token is graduated, try to fall back to Jupiter if we have a quote
-          if ((buildResult as any).code === "TOKEN_GRADUATED" && quote) {
-            console.log("[Swap] Pump build failed (graduated), falling back to Jupiter");
+          // If token is graduated, try to fall back to Jupiter with fresh quote
+          if ((buildResult as any).code === "TOKEN_GRADUATED") {
+            console.log("[Swap] Pump build failed (graduated), falling back to Jupiter with fresh quote");
             await addDebugLog("info", "Token graduated from pump, using Jupiter", {});
-            swapResponse = await buildSwapTransaction(quote, solanaAddr, speed, capSol);
+            setSwapStatus("Building transaction...");
+            // Get fresh quote for graduated token
+            const inputAmountLamports = Math.floor(parseFloat(inputAmount) * Math.pow(10, inputToken.decimals)).toString();
+            freshQuote = await getQuote({
+              inputMint: inputToken.mint,
+              outputMint: outputToken.mint,
+              amount: inputAmountLamports,
+              slippageBps,
+              swapMode: "ExactIn",
+            });
+            swapResponse = await buildSwapTransaction(freshQuote, solanaAddr, speed, capSol);
           } else {
             throw new Error(buildResult.message || "Failed to build Pump transaction");
           }
@@ -590,8 +602,21 @@ export default function SwapScreen({ route }: Props) {
             lastValidBlockHeight: 0,
           };
         }
-      } else if (quote) {
-        swapResponse = await buildSwapTransaction(quote, solanaAddr, speed, capSol);
+      } else if (swapRoute === "jupiter") {
+        // CRITICAL: Always fetch a fresh quote right before building the swap transaction
+        // Stale quotes cause 0x1788 (InvalidAccountData) errors because pool states change
+        console.log("[Swap] Fetching fresh quote to avoid stale route data...");
+        const inputAmountLamports = Math.floor(parseFloat(inputAmount) * Math.pow(10, inputToken.decimals)).toString();
+        freshQuote = await getQuote({
+          inputMint: inputToken.mint,
+          outputMint: outputToken.mint,
+          amount: inputAmountLamports,
+          slippageBps,
+          swapMode: "ExactIn",
+        });
+        console.log("[Swap] Fresh quote received, building transaction...");
+        setSwapStatus("Building transaction...");
+        swapResponse = await buildSwapTransaction(freshQuote, solanaAddr, speed, capSol);
       } else {
         throw new Error("No valid swap route");
       }
@@ -624,7 +649,8 @@ export default function SwapScreen({ route }: Props) {
         await addDebugLog("warn", "Security warnings", securityResult.warnings);
       }
 
-      setPendingSwap({ quote, swapResponse, route: swapRoute });
+      // Use freshQuote for Jupiter routes (which we just fetched), fallback to cached quote for Pump
+      setPendingSwap({ quote: freshQuote || quote, swapResponse, route: swapRoute });
       setShowConfirmModal(true);
       setIsSwapping(false);
       setSwapStatus("");
