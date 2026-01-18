@@ -417,10 +417,52 @@ export async function getSplTokenMetadata(mintAddress: string): Promise<SplToken
       };
     }
     
-    // Final fallback: return with minimal info
+    // Try Helius DAS API as final fallback for name/symbol
+    if (process.env.SOLANA_RPC_URL?.includes("helius")) {
+      try {
+        console.log("[Solana API] Trying Helius DAS API for token metadata...");
+        const dasResponse = await fetch(process.env.SOLANA_RPC_URL!, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "getAsset",
+            params: { id: mintAddress },
+          }),
+        });
+        
+        if (dasResponse.ok) {
+          const dasData = await dasResponse.json();
+          const content = dasData.result?.content;
+          const tokenInfo = dasData.result?.token_info;
+          
+          const dasName = content?.metadata?.name || dasData.result?.id?.slice(0, 8);
+          const dasSymbol = content?.metadata?.symbol || tokenInfo?.symbol || mintAddress.slice(0, 4).toUpperCase();
+          const dasLogo = content?.links?.image || content?.files?.[0]?.uri || content?.files?.[0]?.cdn_uri;
+          const dasDecimals = tokenInfo?.decimals || decimals;
+          
+          if (dasName && dasSymbol) {
+            console.log(`[Solana API] Found via Helius DAS: ${dasSymbol} (${dasName})`);
+            return {
+              mint: mintAddress,
+              name: dasName,
+              symbol: dasSymbol,
+              decimals: dasDecimals,
+              logoUri: dasLogo,
+            };
+          }
+        }
+      } catch (dasErr) {
+        console.log("[Solana API] Helius DAS fallback failed:", dasErr);
+      }
+    }
+    
+    // Final fallback: return with minimal info (should rarely happen)
+    console.log(`[Solana API] WARNING: Could not resolve metadata for ${mintAddress.slice(0, 8)}`);
     return {
       mint: mintAddress,
-      name: "Unknown Token",
+      name: `Token ${mintAddress.slice(0, 4)}...${mintAddress.slice(-4)}`,
       symbol: mintAddress.slice(0, 4).toUpperCase(),
       decimals,
     };
