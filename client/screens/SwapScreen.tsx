@@ -1583,9 +1583,9 @@ export default function SwapScreen({ route }: Props) {
                   end={{ x: 1, y: 1 }}
                   style={styles.swapDirectionIcon}
                 >
-                  <View style={styles.swapArrowsVertical}>
-                    <Feather name="arrow-down" size={14} color="#fff" style={{ marginBottom: -3 }} />
-                    <Feather name="arrow-up" size={14} color="#fff" style={{ marginTop: -3 }} />
+                  <View style={styles.swapArrowsContainer}>
+                    <Feather name="chevron-down" size={16} color="#fff" style={styles.swapArrowTop} />
+                    <Feather name="chevron-up" size={16} color="#fff" style={styles.swapArrowBottom} />
                   </View>
                 </LinearGradient>
               </Animated.View>
@@ -2142,10 +2142,22 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 6,
   },
-  swapArrowsVertical: {
-    flexDirection: "column",
+  swapArrowsContainer: {
+    width: 24,
+    height: 24,
+    position: "relative",
     alignItems: "center",
     justifyContent: "center",
+  },
+  swapArrowTop: {
+    position: "absolute",
+    top: 0,
+    left: 1,
+  },
+  swapArrowBottom: {
+    position: "absolute",
+    bottom: 0,
+    right: 1,
   },
   quoteCard: {
     borderRadius: BorderRadius.xl,
