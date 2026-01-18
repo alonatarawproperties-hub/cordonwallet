@@ -1,0 +1,64 @@
+REPLIT AGENT — ONE PROMPT
+
+Goal: Fix Expo Web preview blank screen + console error "ReferenceError: Can't find variable: Buffer".
+Metro serializer polyfill hooks are not executing on web, so we must guarantee polyfills run by creating a NEW root entry file that executes BEFORE the current app entry.
+
+Step 1) Create/replace ROOT global.js with:
+
+// global.js
+import "react-native-get-random-values";
+import { Buffer } from "buffer";
+import process from "process";
+
+if (!globalThis.Buffer) globalThis.Buffer = Buffer;
+if (!globalThis.process) globalThis.process = process;
+globalThis.process.env = globalThis.process.env || {};
+
+// Some libs expect `global`
+if (!globalThis.global) globalThis.global = globalThis;
+
+console.log("[global.js] injected early. Buffer:", !!globalThis.Buffer);
+
+Step 2) Create ROOT index.js (and index.web.js for safety) that loads global FIRST, then loads the existing entry.
+
+IMPORTANT: Determine the current entry module:
+- Check package.json "main"
+- If it points to "client/index.js" (or similar), we will require it AFTER global.
+- If it points to "expo-router/entry", we will require that AFTER global.
+
+Create/replace ROOT index.js with:
+
+import "./global";
+require("./client/index.js"); // <-- if current main was client/index.js
+
+If current entry is expo-router, use instead:
+import "./global";
+require("expo-router/entry");
+
+Create/replace ROOT index.web.js with the same contents as index.js.
+
+Step 3) Point Expo to the new entry:
+Option A (preferred): package.json
+- Set "main" to "index.js"
+
+Option B: app.json/app.config.js
+- Set expo.entryPoint to "./index.js"
+
+Do ONE of the above (don’t do both unless already needed).
+
+Step 4) Ensure deps exist (install if missing):
+- buffer
+- process
+- react-native-get-random-values
+
+Step 5) Remove/avoid duplicate Buffer polyfills in client/index.js:
+- If client/index.js currently sets window.Buffer, keep it minimal or remove it, because global.js should be the single source.
+
+Step 6) Hard clear and restart:
+- Stop dev server
+- Run: npx expo start --web --clear
+- Open preview and confirm browser console prints:
+  [global.js] injected early. Buffer: true
+and the Buffer ReferenceError is gone.
+
+If a NEW error appears (e.g. crypto, stream, util), report ONLY the first new console error line so we can polyfill the next missing global.

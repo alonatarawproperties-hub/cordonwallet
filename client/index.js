@@ -1,13 +1,20 @@
-// Polyfills - fallback in case metro polyfill didn't run
+// Polyfills MUST run first - use only require() here, NO import statements
 require("react-native-get-random-values");
 const { Buffer } = require("buffer");
-if (typeof window !== "undefined" && !window.Buffer) window.Buffer = Buffer;
-if (typeof global !== "undefined" && !global.Buffer) global.Buffer = Buffer;
+const process = require("process");
 
-import { registerRootComponent } from "expo";
-import { LogBox } from "react-native";
+// Use globalThis for web + native compatibility
+if (!globalThis.Buffer) globalThis.Buffer = Buffer;
+if (!globalThis.process) globalThis.process = process;
+globalThis.process.env = globalThis.process.env || {};
+if (!globalThis.global) globalThis.global = globalThis;
 
-import App from "@/App";
+console.log("[client/index.js] Polyfills injected. Buffer:", !!globalThis.Buffer);
+
+// Now import the rest using require to ensure polyfills are set first
+const { registerRootComponent } = require("expo");
+const { LogBox } = require("react-native");
+const App = require("@/App").default;
 
 // Suppress WalletConnect SDK internal debug errors
 LogBox.ignoreLogs([

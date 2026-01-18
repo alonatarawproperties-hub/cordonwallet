@@ -1,5 +1,6 @@
 {
   "expo": {
+    "entryPoint": "./index.js",
     "name": "Cordon",
     "slug": "cordon",
     "version": "1.0.0",
