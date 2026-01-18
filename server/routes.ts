@@ -142,14 +142,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       console.log("[Jupiter Proxy] Swap request for:", body.userPublicKey);
       
-      // QuickNode API uses /swap instead of /v6/swap
+      // Strip ALL fee-related fields to ensure clean swap (platform fees disabled)
+      const { feeAccount, platformFeeBps, ...cleanBody } = body;
+      
+      // Also strip fee fields from quoteResponse if present
+      if (cleanBody.quoteResponse) {
+        const { platformFee, ...cleanQuote } = cleanBody.quoteResponse;
+        cleanBody.quoteResponse = cleanQuote;
+      }
+      
       const response = await fetch(`${JUPITER_API}/swap`, {
         method: "POST",
         headers: {
           "Accept": "application/json",
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(body),
+        body: JSON.stringify(cleanBody),
       });
       
       if (!response.ok) {
