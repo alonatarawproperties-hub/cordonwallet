@@ -1,0 +1,73 @@
+TASK: After creating or importing a wallet, automatically set that wallet as the ACTIVE wallet, refresh UI, and return to main view showing the new active wallet (not the previous one).
+
+Scope rules:
+- Do NOT refactor architecture.
+- Make the smallest safe changes.
+- Reuse existing wallet store/actions.
+- Do NOT break current working flows.
+
+Where to implement:
+1) The screen that finishes wallet creation (Create Wallet flow).
+2) The screen that finishes wallet import (Import Wallet flow).
+3) The wallet state/store that tracks “active wallet”.
+
+Expected behavior:
+- When user completes Create Wallet successfully:
+  - The created wallet is persisted
+  - Active wallet is set to the new wallet ID
+  - UI refresh triggers (balances reload)
+  - User is returned to main wallet/portfolio screen showing that new wallet name in header.
+
+- When user completes Import Wallet successfully:
+  - The imported wallet is persisted
+  - Active wallet is set to the imported wallet ID
+  - UI refresh triggers (balances reload)
+  - User is returned to main wallet/portfolio screen showing that imported wallet.
+
+Implementation details:
+A) Find how wallets are stored and how active wallet is tracked.
+   - Search for: activeWallet, selectedWallet, setActiveWallet, setSelectedWallet, walletId, currentWallet, WalletStore, useWalletStore, walletStore, walletSlice.
+   - Identify:
+     - Function that adds wallet: addWallet(...) or saveWallet(...)
+     - Function that sets active wallet: setActiveWallet(walletId) or selectWallet(walletId)
+
+B) In Create Wallet screen:
+   - After wallet is created and stored, capture the new wallet’s id (or address).
+   - Immediately call the store action to set active wallet:
+       setActiveWallet(newWallet.id)
+     (or whichever action exists)
+   - Then trigger any existing refresh:
+       refreshBalances()
+     or invalidate queries, or emit existing event used on wallet switch.
+   - Then navigate back to main view:
+       navigation.navigate("MainTabs") or navigation.popToTop()
+     Use the existing route used when closing create/import flows.
+   - IMPORTANT: ensure the active wallet is set BEFORE navigation so the main screen renders new wallet.
+
+C) In Import Wallet screen:
+   - Same logic as Create:
+     - After import success and wallet saved -> setActiveWallet(importedWallet.id)
+     - trigger refresh
+     - navigate back
+
+D) Persistence:
+   - If active wallet is persisted in AsyncStorage/SecureStore, ensure setActiveWallet writes to storage.
+   - If not persisted currently, add persistence ONLY inside setActiveWallet action, not scattered in screens.
+
+E) Safety checks:
+   - If saveWallet returns walletId, use it.
+   - If not, ensure addWallet returns the created/imported wallet object.
+   - If wallet IDs are derived from address, compute consistently.
+
+F) Testing:
+   1) Create new wallet -> after finishing, header name shows new wallet and balances load.
+   2) Import wallet -> after finishing, header name shows imported wallet and balances load.
+   3) Switch wallets from WalletSwitcherSheet still works.
+   4) Kill and reopen app -> active wallet remains the last created/imported wallet.
+
+Deliverable:
+- Provide the exact files changed and minimal code edits:
+  - Create wallet screen: set active wallet on success
+  - Import wallet screen: set active wallet on success
+  - Wallet store: ensure setActiveWallet persists + triggers refresh signal (if needed)
+- Do not change UI components except what’s needed for correct activation.

@@ -142,9 +142,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     const newWallets = [...wallets, wallet];
     setWallets(newWallets);
     setHasWallet(true);
-    if (!activeWallet) {
-      setActiveWallet(wallet);
-    }
+    await setActiveWallet(wallet);
   };
 
   const removeWallet = async (walletId: string) => {
