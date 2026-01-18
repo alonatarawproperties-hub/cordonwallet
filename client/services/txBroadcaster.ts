@@ -30,6 +30,7 @@ export interface BroadcastConfig {
   mode: SwapSpeed;
   onStatusChange?: (status: TxStatus, signature: string) => void;
   onRebroadcast?: (count: number) => void;
+  skipPreflight?: boolean;
 }
 
 interface RpcHealth {
@@ -102,23 +103,29 @@ export function getRpcHealth(): typeof rpcHealthCache {
 async function sendWithRetry(
   connection: Connection,
   signedTx: Uint8Array,
-  maxRetries: number = 3
+  maxRetries: number = 3,
+  skipPreflight: boolean = false
 ): Promise<TransactionSignature> {
   let lastError: Error | null = null;
   
   for (let i = 0; i < maxRetries; i++) {
     try {
       const signature = await connection.sendRawTransaction(signedTx, {
-        skipPreflight: false,
+        skipPreflight,
         preflightCommitment: "confirmed",
         maxRetries: 0,
       });
       return signature;
     } catch (error: any) {
       lastError = error;
+      // Don't retry blockhash/expired errors - they need a fresh transaction
       if (error.message?.includes("blockhash") || 
           error.message?.includes("not found") ||
           error.message?.includes("expired")) {
+        throw error;
+      }
+      // Don't retry 0x1788 errors when preflight is enabled - let caller handle
+      if (error.message?.includes("0x1788")) {
         throw error;
       }
       await new Promise(r => setTimeout(r, 100 * (i + 1)));
@@ -186,16 +193,18 @@ export async function broadcastTransaction(
   let rebroadcastCount = 0;
   const startTime = Date.now();
   
+  const skipPreflight = config.skipPreflight ?? true; // Default to skip for DEX swaps
+  
   try {
     config.onStatusChange?.("submitted", "");
-    signature = await sendWithRetry(primaryConn, signedTxBytes);
+    signature = await sendWithRetry(primaryConn, signedTxBytes, 3, skipPreflight);
     config.onStatusChange?.("submitted", signature);
-    console.log(`[Broadcaster] Primary submit: ${signature}`);
+    console.log(`[Broadcaster] Primary submit: ${signature}${skipPreflight ? " (preflight skipped)" : ""}`);
   } catch (primaryError: any) {
     console.warn("[Broadcaster] Primary submit failed, trying fallback:", primaryError.message);
     
     try {
-      signature = await sendWithRetry(fallbackConn, signedTxBytes);
+      signature = await sendWithRetry(fallbackConn, signedTxBytes, 3, skipPreflight);
       usedFallback = true;
       config.onStatusChange?.("submitted", signature);
       console.log(`[Broadcaster] Fallback submit: ${signature}`);
