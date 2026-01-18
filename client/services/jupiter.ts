@@ -7,6 +7,7 @@ export interface QuoteRequest {
   amount: string;
   slippageBps: number;
   onlyDirectRoutes?: boolean;
+  swapMode?: "ExactIn" | "ExactOut";
 }
 
 export interface RouteInfo {

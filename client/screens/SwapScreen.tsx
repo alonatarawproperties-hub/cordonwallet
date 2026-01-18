@@ -1760,6 +1760,10 @@ export default function SwapScreen({ route }: Props) {
             })()}
           </View>
 
+          <ThemedText type="caption" style={{ color: theme.textSecondary, marginTop: Spacing.sm, fontSize: 10, textAlign: "center", opacity: 0.7 }}>
+            Fees: Priority (shown above) + network (~0.00001 SOL). Jupiter platform fee is currently disabled.
+          </ThemedText>
+
           {SHOW_CORDON_FEE_UI ? (
             <View style={[styles.successFeeSection, { backgroundColor: theme.glass, borderColor: theme.glassBorder }]}>
               <View style={styles.successFeeHeader}>
