@@ -4,6 +4,15 @@ import { swapConfig, getPriorityFeeCap, SpeedMode, CORDON_TREASURY_WALLET, CORDO
 import type { QuoteResult, BuildResult } from "./types";
 
 const JUPITER_REFERRAL_PROGRAM = "REFER4ZgmyYx9c6He5XfaTMiGfdLwRnkV4RPp9t9iF3";
+const NATIVE_SOL_MINT = "11111111111111111111111111111111";
+const WSOL_MINT = "So11111111111111111111111111111111111111112";
+
+function normalizeToWsol(mint: string): string {
+  if (mint === NATIVE_SOL_MINT || mint.toLowerCase() === "sol") {
+    return WSOL_MINT;
+  }
+  return mint;
+}
 
 function deriveFeeAccountAddress(referralAccount: string, mint: string): string | null {
   try {
@@ -33,32 +42,46 @@ interface FeeAccountResult {
   reason: string;
 }
 
-async function resolvePlatformFeeAccount(
-  outputMint: string,
-  inputMint: string,
-  swapMode: string
-): Promise<FeeAccountResult> {
+export interface PlatformFeeParams {
+  feeAccount: string;
+  feeBps: number;
+}
+
+export interface PlatformFeeResult {
+  params: PlatformFeeParams | null;
+  reason: string;
+  outputMint: string;
+  normalizedMint: string;
+}
+
+export async function getPlatformFeeParams(outputMint: string): Promise<PlatformFeeResult> {
+  const normalizedMint = normalizeToWsol(outputMint);
+  
+  console.log(`[SwapFee] getPlatformFeeParams: outputMint=${outputMint.slice(0, 8)}..., normalizedMint=${normalizedMint.slice(0, 8)}...`);
+  
   if (!isPlatformFeeEnabled()) {
-    return { feeAccount: null, feeBps: 0, reason: "Platform fee disabled" };
+    console.log(`[SwapFee] Platform fee disabled by config`);
+    return { params: null, reason: "Platform fee disabled", outputMint, normalizedMint };
   }
   
-  const feeMint = swapMode === "ExactOut" ? inputMint : outputMint;
-  
-  if (platformFeeConfig.knownFeeAccounts[feeMint]) {
-    const feeAccount = platformFeeConfig.knownFeeAccounts[feeMint];
-    console.log(`[SwapFee] Using known fee account for ${feeMint.slice(0, 8)}...`);
+  if (platformFeeConfig.knownFeeAccounts[normalizedMint]) {
+    const feeAccount = platformFeeConfig.knownFeeAccounts[normalizedMint];
+    console.log(`[SwapFee] Using known fee account for ${normalizedMint.slice(0, 8)}...`);
     return { 
-      feeAccount, 
-      feeBps: platformFeeConfig.feeBps, 
-      reason: "Known fee account" 
+      params: { feeAccount, feeBps: platformFeeConfig.feeBps },
+      reason: "Known fee account",
+      outputMint,
+      normalizedMint,
     };
   }
   
-  const derivedAccount = deriveFeeAccountAddress(platformFeeConfig.referralAccount, feeMint);
+  const derivedAccount = deriveFeeAccountAddress(platformFeeConfig.referralAccount, normalizedMint);
   if (!derivedAccount) {
-    console.log(`[SwapFee] Could not derive fee account for ${feeMint.slice(0, 8)}... Fee OFF.`);
-    return { feeAccount: null, feeBps: 0, reason: "Derivation failed" };
+    console.log(`[SwapFee] Could not derive fee account for ${normalizedMint.slice(0, 8)}... Fee OFF.`);
+    return { params: null, reason: "Derivation failed", outputMint, normalizedMint };
   }
+  
+  console.log(`[SwapFee] Derived feeAccount=${derivedAccount.slice(0, 8)}... for ${normalizedMint.slice(0, 8)}...`);
   
   try {
     const connection = new Connection(swapConfig.solanaRpcUrl, { commitment: "confirmed" });
@@ -68,20 +91,39 @@ async function resolvePlatformFeeAccount(
     ]);
     
     if (accountInfo) {
-      console.log(`[SwapFee] Verified fee account exists for ${feeMint.slice(0, 8)}..., applying ${platformFeeConfig.feeBps}bps`);
+      console.log(`[SwapFee] Fee account EXISTS for ${normalizedMint.slice(0, 8)}..., applying ${platformFeeConfig.feeBps}bps`);
       return { 
-        feeAccount: derivedAccount, 
-        feeBps: platformFeeConfig.feeBps, 
-        reason: "Verified on-chain" 
+        params: { feeAccount: derivedAccount, feeBps: platformFeeConfig.feeBps },
+        reason: "Verified on-chain",
+        outputMint,
+        normalizedMint,
       };
     } else {
-      console.log(`[SwapFee] Fee account not created for ${feeMint.slice(0, 8)}... Fee OFF.`);
-      return { feeAccount: null, feeBps: 0, reason: "Fee account not initialized" };
+      console.log(`[SwapFee] Fee account NOT FOUND for ${normalizedMint.slice(0, 8)}... Fee OFF.`);
+      return { params: null, reason: "Fee account not initialized", outputMint, normalizedMint };
     }
   } catch (err: any) {
-    console.warn(`[SwapFee] Error verifying fee account: ${err.message}. Fee OFF.`);
-    return { feeAccount: null, feeBps: 0, reason: `Verification error: ${err.message}` };
+    console.warn(`[SwapFee] Verification error: ${err.message}. Fee OFF.`);
+    return { params: null, reason: `Verification error: ${err.message}`, outputMint, normalizedMint };
   }
+}
+
+async function resolvePlatformFeeAccount(
+  outputMint: string,
+  inputMint: string,
+  swapMode: string
+): Promise<FeeAccountResult> {
+  const feeMint = swapMode === "ExactOut" ? inputMint : outputMint;
+  const result = await getPlatformFeeParams(feeMint);
+  
+  if (result.params) {
+    return { 
+      feeAccount: result.params.feeAccount, 
+      feeBps: result.params.feeBps, 
+      reason: result.reason 
+    };
+  }
+  return { feeAccount: null, feeBps: 0, reason: result.reason };
 }
 
 export async function getQuote(params: {

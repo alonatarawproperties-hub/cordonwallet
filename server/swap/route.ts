@@ -1,6 +1,13 @@
-import { getQuote } from "./jupiter";
+import { getQuote, getPlatformFeeParams } from "./jupiter";
 import { swapConfig } from "./config";
 import { quoteCache, quoteDeduper, pumpDetectionCache, pumpDetectionDeduper } from "./cache";
+
+export interface FeeStatus {
+  mode: "platformFee" | "disabled";
+  reason?: string;
+  outputMint?: string;
+  feeBps?: number;
+}
 
 export interface RouteQuoteResult {
   ok: boolean;
@@ -15,6 +22,7 @@ export interface RouteQuoteResult {
     priceImpactPct: number;
     routePlan: any[];
   };
+  fee?: FeeStatus;
 }
 
 export interface PumpMeta {
@@ -173,11 +181,18 @@ export async function getRouteQuote(params: {
     });
     
     if (jupiterResult.ok) {
+      // Check platform fee status for this output mint
+      const feeResult = await getPlatformFeeParams(outputMint);
+      const feeStatus: FeeStatus = feeResult.params
+        ? { mode: "platformFee", feeBps: feeResult.params.feeBps }
+        : { mode: "disabled", reason: feeResult.reason, outputMint: feeResult.normalizedMint };
+      
       const routeResult: RouteQuoteResult = {
         ok: true,
         route: "jupiter",
         quoteResponse: jupiterResult.quote,
         normalized: jupiterResult.normalized,
+        fee: feeStatus,
       };
       quoteCache.set(cacheKey, routeResult);
       return routeResult;

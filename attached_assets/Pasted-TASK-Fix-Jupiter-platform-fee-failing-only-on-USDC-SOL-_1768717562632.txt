@@ -1,0 +1,38 @@
+TASK: Fix Jupiter platform-fee failing only on USDC->SOL with custom error 0x1788, without breaking SOL->USDC.
+
+Context:
+- Quotes and routing: server/swap/route.ts decides Jupiter vs Pump.fun
+- Jupiter quotes: server/swap/jupiter.ts getQuote()
+- Jupiter client: server/swap/jupiterClient.ts
+- API endpoints: server/swap/index.ts (/api/swap/solana/quote and /api/swap/solana/route-quote)
+Problem:
+- SOL->USDC works and treasury receives fees
+- USDC->SOL fails with simulation error 0x1788 when platform fee is enabled
+Likely cause: platform fee 'feeAccount' exists for USDC output but missing/invalid for WSOL output, so USDC->SOL fails when Jupiter tries to apply platform fee.
+
+Implement:
+1) In server/swap/jupiter.ts:
+   - Add helper getPlatformFeeParams(outputMint) that:
+     a) Checks CORDON_PLATFORM_FEE_ENABLED === "true" and has CORDON_REFERRAL_ACCOUNT
+     b) Normalizes output mint for SOL routes to WSOL mint "So11111111111111111111111111111111111111112"
+     c) Derives feeAccount using existing referral derivation logic
+     d) Verifies feeAccount exists on-chain with a short timeout
+     e) Returns { platformFeeBps, feeAccount } only if exists, else returns null
+   - Update getQuote() so it only includes platform fee params if getPlatformFeeParams(outputMint) returns non-null.
+   - Add clear server logs: outputMint, normalizedMint, feeAccount, exists, and whether fee params were attached.
+
+2) In server/swap/route.ts:
+   - When platform fee was requested but disabled due to missing fee account, include optional fields in the unified quote response:
+     fee: { mode: "platformFee" | "disabled", reason?: "fee_account_missing_for_output_mint", outputMint?: string }
+
+3) In server/swap/index.ts:
+   - Return the new optional 'fee' object as part of the quote/route-quote response (non-breaking; keep old fields unchanged).
+
+Acceptance:
+- SOL->USDC continues to work with platform fee enabled and fee is collected.
+- USDC->SOL no longer fails; if WSOL fee account is missing, quote+swap proceeds with platform fee disabled and a debug reason returned.
+- No changes to Pump.fun routing behavior.
+
+Be careful:
+- Do not change existing success-fee mechanism.
+- Do not “auto-create” fee accounts during user swap; only verify existence and fallback.
