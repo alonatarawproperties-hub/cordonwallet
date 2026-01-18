@@ -1,10 +1,12 @@
-import React, { useCallback } from "react";
+import React, { useCallback, useState } from "react";
 import {
   View,
   StyleSheet,
   Modal,
   Pressable,
   ScrollView,
+  Platform,
+  ActionSheetIOS,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
@@ -32,6 +34,7 @@ export function WalletSwitcherSheet({ visible, onClose }: Props) {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<Navigation>();
   const { wallets, activeWallet, setActiveWallet } = useWallet();
+  const [addMenuVisible, setAddMenuVisible] = useState(false);
 
   const handleSelectWallet = useCallback(async (wallet: Wallet) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -39,11 +42,39 @@ export function WalletSwitcherSheet({ visible, onClose }: Props) {
     onClose();
   }, [setActiveWallet, onClose]);
 
+  const handleCreateWallet = useCallback(() => {
+    setAddMenuVisible(false);
+    onClose();
+    setTimeout(() => navigation.navigate("CreateWallet"), 0);
+  }, [navigation, onClose]);
+
+  const handleImportWallet = useCallback(() => {
+    setAddMenuVisible(false);
+    onClose();
+    setTimeout(() => navigation.navigate("ImportWallet"), 0);
+  }, [navigation, onClose]);
+
   const handleAddWallet = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    onClose();
-    navigation.navigate("CreateWallet");
-  }, [navigation, onClose]);
+    
+    if (Platform.OS === "ios") {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: ["Create New Wallet", "Import Wallet", "Cancel"],
+          cancelButtonIndex: 2,
+        },
+        (buttonIndex) => {
+          if (buttonIndex === 0) {
+            handleCreateWallet();
+          } else if (buttonIndex === 1) {
+            handleImportWallet();
+          }
+        }
+      );
+    } else {
+      setAddMenuVisible(true);
+    }
+  }, [handleCreateWallet, handleImportWallet]);
 
   const handleManageWallets = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -144,6 +175,43 @@ export function WalletSwitcherSheet({ visible, onClose }: Props) {
           </View>
         </ThemedView>
       </View>
+
+      <Modal visible={addMenuVisible} transparent animationType="fade" onRequestClose={() => setAddMenuVisible(false)}>
+        <View style={styles.menuOverlay}>
+          <Pressable style={styles.menuBackdrop} onPress={() => setAddMenuVisible(false)} />
+          <View style={[styles.menuCard, { backgroundColor: theme.backgroundDefault }]}>
+            <ThemedText type="body" style={{ fontWeight: "600", marginBottom: Spacing.lg, textAlign: "center" }}>
+              Add Wallet
+            </ThemedText>
+            <Pressable
+              onPress={handleCreateWallet}
+              style={[styles.menuOption, { backgroundColor: theme.accent + "15", borderColor: theme.accent }]}
+            >
+              <Feather name="plus-circle" size={20} color={theme.accent} />
+              <ThemedText type="body" style={{ marginLeft: Spacing.md, color: theme.accent, fontWeight: "500" }}>
+                Create New Wallet
+              </ThemedText>
+            </Pressable>
+            <Pressable
+              onPress={handleImportWallet}
+              style={[styles.menuOption, { backgroundColor: theme.backgroundSecondary, borderColor: theme.border }]}
+            >
+              <Feather name="download" size={20} color={theme.text} />
+              <ThemedText type="body" style={{ marginLeft: Spacing.md, fontWeight: "500" }}>
+                Import Wallet
+              </ThemedText>
+            </Pressable>
+            <Pressable
+              onPress={() => setAddMenuVisible(false)}
+              style={[styles.menuCancel, { borderColor: theme.border }]}
+            >
+              <ThemedText type="body" style={{ color: theme.textSecondary }}>
+                Cancel
+              </ThemedText>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </Modal>
   );
 }
@@ -242,5 +310,34 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.md,
     borderRadius: 12,
     borderWidth: 1,
+  },
+  menuOverlay: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  menuBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.6)",
+  },
+  menuCard: {
+    width: "85%",
+    borderRadius: 16,
+    padding: Spacing.lg,
+  },
+  menuOption: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: Spacing.md,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: Spacing.sm,
+  },
+  menuCancel: {
+    alignItems: "center",
+    padding: Spacing.md,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginTop: Spacing.xs,
   },
 });

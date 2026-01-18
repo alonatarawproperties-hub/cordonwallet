@@ -1,0 +1,60 @@
+TASK: Fix ONLY the “+ Add Wallet” button behavior inside:
+client/components/WalletSwitcherSheet.tsx
+
+CURRENT ISSUE:
+In the “Select Wallet” bottom sheet, tapping “+ Add Wallet” goes straight to Create Wallet. This is confusing because users also expect Import Wallet, but it’s hidden elsewhere (Manage screen).
+
+GOAL:
+When the user taps “+ Add Wallet” in WalletSwitcherSheet.tsx, show a choice:
+1) Create New Wallet
+2) Import Wallet
+3) Cancel
+
+Then route accordingly:
+- Create -> navigate to the existing Create Wallet screen
+- Import -> navigate to the existing Import Wallet screen
+
+STRICT RULES:
+- Only modify client/components/WalletSwitcherSheet.tsx.
+- Do NOT touch wallet logic, storage, PIN flow, keychain, security, or any other screens.
+- Do NOT change “Manage” button behavior.
+- Keep existing navigation routes. DO NOT invent new routes. Find the existing ones used elsewhere in the app.
+
+IMPLEMENTATION DETAILS:
+1) Open client/components/WalletSwitcherSheet.tsx and locate the “+ Add Wallet” button onPress handler.
+2) Replace direct navigation with openAddWalletMenu().
+
+3) Implement openAddWalletMenu():
+   - iOS: use ActionSheetIOS.showActionSheetWithOptions
+     options: ["Create New Wallet", "Import Wallet", "Cancel"]
+     cancelButtonIndex: 2
+
+   - Android (and fallback): implement a small local Modal inside this same file:
+     - visible boolean state (e.g., addWalletMenuVisible)
+     - a centered card or bottom sheet style with:
+       - "Create New Wallet" button
+       - "Import Wallet" button
+       - "Cancel" button
+     No extra libraries. Keep styling simple and consistent with current dark theme.
+
+4) IMPORTANT: Close the WalletSwitcherSheet first before navigating (to avoid overlay stacking).
+   - If WalletSwitcherSheet already has a close/dismiss function, call it before navigation.
+   - If it uses a ref (e.g., bottomSheetRef.current?.close()), call it.
+   - Then navigate with a short microtask delay:
+     setTimeout(() => navigate(...), 0);
+
+5) Routing:
+   - Find the existing route names by searching in the repo for navigation to Create Wallet and Import Wallet.
+     Examples: search for "CreateWallet", "ImportWallet", "create wallet", "import wallet".
+   - Use the exact route names already used in the project.
+   - Do NOT create new screens/routes.
+
+6) After change:
+   - Tapping “+ Add Wallet” always shows the menu (Create / Import / Cancel).
+   - Selecting Create navigates exactly like before (just via the menu).
+   - Selecting Import navigates to the existing Import Wallet screen.
+
+OUTPUT REQUIRED:
+After you implement, reply with:
+- the exact route names you used for Create and Import
+- confirmation that only WalletSwitcherSheet.tsx was modified
