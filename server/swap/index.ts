@@ -5,7 +5,7 @@ import {
   BuildPumpBodySchema, 
   SendBodySchema 
 } from "./types";
-import { getQuote, buildSwapTransaction } from "./jupiter";
+import { getQuote, buildSwapTransaction, getPlatformFeeStatus } from "./jupiter";
 import { buildPumpTransaction, isPumpToken } from "./pump";
 import { broadcastTransaction, getTransactionStatus } from "./broadcast";
 import { searchTokens, getToken, resolveToken, initTokenList } from "./tokenlist";
@@ -86,6 +86,17 @@ swapRouter.get("/health", async (_req: Request, res: Response) => {
     ok: allOk,
     ts: Date.now(),
     services: results,
+  });
+});
+
+swapRouter.get("/platform-fee-status", async (_req: Request, res: Response) => {
+  const feeStatus = getPlatformFeeStatus();
+  res.json({
+    ok: true,
+    platformFee: feeStatus,
+    note: feeStatus.enabled 
+      ? `Platform fee of ${feeStatus.feeBps}bps will be applied when fee accounts exist`
+      : "Platform fee is disabled. Set CORDON_PLATFORM_FEE_ENABLED=true and CORDON_REFERRAL_ACCOUNT to enable.",
   });
 });
 
