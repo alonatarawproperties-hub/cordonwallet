@@ -4,7 +4,8 @@ import { SolanaAsset } from "@/hooks/useSolanaPortfolio";
 
 const PORTFOLIO_CACHE_KEY = "@cordon/all_chains_portfolio_v2_";
 const SOLANA_CACHE_KEY = "@cordon/solana_portfolio_v2_";
-const DISPLAY_CACHE_KEY = "@cordon/portfolio_display_cache";
+// Display cache is now wallet-scoped: @cordon/portfolio_display_cache_{evmAddr}_{solAddr}
+const DISPLAY_CACHE_KEY_PREFIX = "@cordon/portfolio_display_cache_";
 const INSTANT_CACHE_DURATION = 300000;
 
 export interface PortfolioDisplayCache {
@@ -16,10 +17,18 @@ export interface PortfolioDisplayCache {
   solanaAddress?: string;
 }
 
-let preloadedCache: PortfolioDisplayCache | null = null;
+// Wallet-scoped preloaded cache: key = evmAddress:solanaAddress
+let preloadedCacheMap: Map<string, PortfolioDisplayCache> = new Map();
+let currentCacheKey: string | null = null;
+
+// Helper to build a unique cache key for a wallet
+function buildCacheKey(evmAddress?: string, solanaAddress?: string): string {
+  return `${evmAddress || ""}:${solanaAddress || ""}`;
+}
 
 export function getPreloadedCache(): PortfolioDisplayCache | null {
-  return preloadedCache;
+  if (!currentCacheKey) return null;
+  return preloadedCacheMap.get(currentCacheKey) || null;
 }
 
 export function getDefaultNativeTokens(): { solana: SolanaAsset[]; evm: MultiChainAsset[] } {
@@ -81,7 +90,28 @@ export function getDefaultNativeTokens(): { solana: SolanaAsset[]; evm: MultiCha
 }
 
 export function clearPreloadedCache(): void {
-  preloadedCache = null;
+  // Clear current wallet's cache from memory
+  if (currentCacheKey) {
+    preloadedCacheMap.delete(currentCacheKey);
+  }
+  currentCacheKey = null;
+}
+
+// Invalidate all cached data for a specific wallet
+export function invalidateWalletCache(evmAddress?: string, solanaAddress?: string): void {
+  const key = buildCacheKey(evmAddress, solanaAddress);
+  preloadedCacheMap.delete(key);
+  if (currentCacheKey === key) {
+    currentCacheKey = null;
+  }
+  console.log(`[PortfolioCache] Invalidated cache for wallet: ${key}`);
+}
+
+// Invalidate all wallet caches (use when switching wallets)
+export function invalidateAllCaches(): void {
+  preloadedCacheMap.clear();
+  currentCacheKey = null;
+  console.log("[PortfolioCache] Invalidated all wallet caches");
 }
 
 export async function prefetchPortfolioCache(
@@ -89,11 +119,17 @@ export async function prefetchPortfolioCache(
   solanaAddress?: string
 ): Promise<PortfolioDisplayCache | null> {
   try {
-    const displayCacheStr = await AsyncStorage.getItem(DISPLAY_CACHE_KEY);
+    // Build wallet-scoped cache key
+    const walletKey = buildCacheKey(evmAddress, solanaAddress);
+    currentCacheKey = walletKey;
+    const displayCacheStorageKey = `${DISPLAY_CACHE_KEY_PREFIX}${walletKey}`;
+    
+    const displayCacheStr = await AsyncStorage.getItem(displayCacheStorageKey);
     
     if (displayCacheStr) {
       const displayCache: PortfolioDisplayCache = JSON.parse(displayCacheStr);
       
+      // Verify addresses match (extra safety)
       const addressMatch = 
         (!evmAddress || displayCache.evmAddress === evmAddress) &&
         (!solanaAddress || displayCache.solanaAddress === solanaAddress);
@@ -108,9 +144,10 @@ export async function prefetchPortfolioCache(
           rawBalance: BigInt(a.rawBalance || "0"),
         }));
         
-        preloadedCache = displayCache;
-        console.log("[PortfolioCache] Loaded display cache with", 
-          displayCache.evmAssets.length, "EVM assets and",
+        // Store in wallet-scoped memory cache
+        preloadedCacheMap.set(walletKey, displayCache);
+        console.log("[PortfolioCache] Loaded display cache for wallet:", walletKey,
+          "with", displayCache.evmAssets.length, "EVM assets and",
           displayCache.solanaAssets.length, "Solana assets"
         );
         return displayCache;
@@ -148,7 +185,7 @@ export async function prefetchPortfolioCache(
         ...solanaAssets.map(a => a.valueUsd || 0),
       ].reduce((sum, val) => sum + val, 0);
 
-      preloadedCache = {
+      const cache: PortfolioDisplayCache = {
         evmAssets,
         solanaAssets,
         totalValueUsd,
@@ -156,12 +193,15 @@ export async function prefetchPortfolioCache(
         evmAddress,
         solanaAddress,
       };
+      
+      // Store in wallet-scoped memory cache
+      preloadedCacheMap.set(walletKey, cache);
 
-      console.log("[PortfolioCache] Built cache from individual caches");
-      return preloadedCache;
+      console.log("[PortfolioCache] Built cache from individual caches for wallet:", walletKey);
+      return cache;
     }
 
-    console.log("[PortfolioCache] No cached data found");
+    console.log("[PortfolioCache] No cached data found for wallet:", walletKey);
     return null;
   } catch (error) {
     console.warn("[PortfolioCache] Failed to prefetch:", error);
@@ -176,6 +216,10 @@ export async function savePortfolioDisplayCache(
   solanaAddress?: string
 ): Promise<void> {
   try {
+    // Build wallet-scoped cache key
+    const walletKey = buildCacheKey(evmAddress, solanaAddress);
+    const displayCacheStorageKey = `${DISPLAY_CACHE_KEY_PREFIX}${walletKey}`;
+    
     const totalValueUsd = [
       ...evmAssets.map(a => a.valueUsd || 0),
       ...solanaAssets.map(a => a.valueUsd || 0),
@@ -196,8 +240,8 @@ export async function savePortfolioDisplayCache(
       solanaAddress,
     };
 
-    await AsyncStorage.setItem(DISPLAY_CACHE_KEY, JSON.stringify(cache));
-    console.log("[PortfolioCache] Saved display cache");
+    await AsyncStorage.setItem(displayCacheStorageKey, JSON.stringify(cache));
+    console.log("[PortfolioCache] Saved display cache for wallet:", walletKey);
   } catch (error) {
     console.warn("[PortfolioCache] Failed to save display cache:", error);
   }

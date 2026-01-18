@@ -81,6 +81,25 @@ export function useSolanaPortfolio(address: string | undefined) {
 
   const isMounted = useRef(true);
   const lastFetchRef = useRef<string>("");
+  // Track current address for race condition prevention
+  const currentAddressRef = useRef<string | undefined>(address);
+
+  // Clear state immediately when address changes to prevent showing stale data
+  useEffect(() => {
+    if (address !== currentAddressRef.current) {
+      console.log("[SolanaPortfolio] Address changed from", currentAddressRef.current, "to", address, "- clearing state");
+      currentAddressRef.current = address;
+      lastFetchRef.current = ""; // Reset fetch tracking
+      // Clear state immediately to prevent cross-wallet data leakage
+      setState({
+        assets: address ? defaultSolAsset : [],
+        isLoading: true,
+        isRefreshing: false,
+        error: null,
+        lastUpdated: null,
+      });
+    }
+  }, [address, defaultSolAsset]);
 
   const fetchBalances = useCallback(async (isRefresh = false, isSilent = false) => {
     if (!address) {
@@ -88,6 +107,8 @@ export function useSolanaPortfolio(address: string | undefined) {
       return;
     }
 
+    // Capture the address at the start of this fetch for race condition prevention
+    const fetchAddress = address;
     const fetchKey = `solana_${address}`;
 
     if (!isRefresh && fetchKey === lastFetchRef.current && state.assets.length > 0) {
@@ -95,6 +116,9 @@ export function useSolanaPortfolio(address: string | undefined) {
     }
 
     lastFetchRef.current = fetchKey;
+    
+    // Helper to check if this fetch is still valid (address hasn't changed)
+    const isFetchValid = () => currentAddressRef.current === fetchAddress && isMounted.current;
 
     // Only show loading/refreshing UI for non-silent refreshes
     if (!isSilent) {
@@ -125,7 +149,7 @@ export function useSolanaPortfolio(address: string | undefined) {
       const preloadedCache = getPreloadedCache();
       if (preloadedCache && preloadedCache.solanaAddress === address && preloadedCache.solanaAssets.length > 0) {
         console.log("[SolanaPortfolio] Using preloaded cache with", preloadedCache.solanaAssets.length, "assets");
-        if (isMounted.current) {
+        if (isFetchValid()) {
           setState(prev => ({
             ...prev,
             assets: preloadedCache.solanaAssets,
@@ -142,7 +166,7 @@ export function useSolanaPortfolio(address: string | undefined) {
         if (cached) {
           const { assets, timestamp } = JSON.parse(cached);
           if (Date.now() - timestamp < CACHE_DURATION) {
-            if (isMounted.current) {
+            if (isFetchValid()) {
               const enrichedAssets = assets.map((a: any) => {
                 const asset = { ...a, rawBalance: BigInt(a.rawBalance) };
                 if (asset.mint) {
@@ -363,7 +387,7 @@ export function useSolanaPortfolio(address: string | undefined) {
         }));
       } catch {}
 
-      if (isMounted.current) {
+      if (isFetchValid()) {
         setState({
           assets,
           isLoading: false,
@@ -373,7 +397,7 @@ export function useSolanaPortfolio(address: string | undefined) {
         });
       }
     } catch (error) {
-      if (isMounted.current) {
+      if (isFetchValid()) {
         // Provide user-friendly error messages
         let errorMessage = "Failed to fetch Solana balances";
         if (error instanceof Error) {

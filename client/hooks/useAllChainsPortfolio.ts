@@ -49,6 +49,25 @@ export function useAllChainsPortfolio(address: string | undefined) {
 
   const isMounted = useRef(true);
   const lastFetchRef = useRef<string>("");
+  // Track current address for race condition prevention
+  const currentAddressRef = useRef<string | undefined>(address);
+
+  // Clear state immediately when address changes to prevent showing stale data
+  useEffect(() => {
+    if (address !== currentAddressRef.current) {
+      console.log("[EVMPortfolio] Address changed from", currentAddressRef.current, "to", address, "- clearing state");
+      currentAddressRef.current = address;
+      lastFetchRef.current = ""; // Reset fetch tracking
+      // Clear state immediately to prevent cross-wallet data leakage
+      setState({
+        assets: address ? defaultEvmAssets : [],
+        isLoading: true,
+        isRefreshing: false,
+        error: null,
+        lastUpdated: null,
+      });
+    }
+  }, [address, defaultEvmAssets]);
 
   const fetchAllBalances = useCallback(async (isRefresh = false, isSilent = false) => {
     if (!address) {
@@ -56,6 +75,8 @@ export function useAllChainsPortfolio(address: string | undefined) {
       return;
     }
 
+    // Capture the address at the start of this fetch for race condition prevention
+    const fetchAddress = address;
     const fetchKey = `all_${address}`;
 
     if (!isRefresh && fetchKey === lastFetchRef.current && state.assets.length > 0) {
@@ -63,6 +84,9 @@ export function useAllChainsPortfolio(address: string | undefined) {
     }
 
     lastFetchRef.current = fetchKey;
+    
+    // Helper to check if this fetch is still valid (address hasn't changed)
+    const isFetchValid = () => currentAddressRef.current === fetchAddress && isMounted.current;
 
     // Only show loading/refreshing UI for non-silent refreshes
     if (!isSilent) {
@@ -80,7 +104,7 @@ export function useAllChainsPortfolio(address: string | undefined) {
       const preloadedCache = getPreloadedCache();
       if (preloadedCache && preloadedCache.evmAddress === address && preloadedCache.evmAssets.length > 0) {
         console.log("[Portfolio] Using preloaded cache with", preloadedCache.evmAssets.length, "assets");
-        if (isMounted.current) {
+        if (isFetchValid()) {
           setState(prev => ({
             ...prev,
             assets: preloadedCache.evmAssets,
@@ -98,7 +122,7 @@ export function useAllChainsPortfolio(address: string | undefined) {
         if (cached) {
           const { assets, timestamp } = JSON.parse(cached);
           if (Date.now() - timestamp < CACHE_DURATION) {
-            if (isMounted.current) {
+            if (isFetchValid()) {
               setState(prev => ({
                 ...prev,
                 assets: assets.map((a: any) => ({ ...a, rawBalance: BigInt(a.rawBalance) })),
@@ -179,7 +203,7 @@ export function useAllChainsPortfolio(address: string | undefined) {
     try {
       const results = await Promise.all(chainPromises);
 
-      if (!isMounted.current) return;
+      if (!isFetchValid()) return;
 
       results.forEach(chainAssets => {
         allAssets.push(...chainAssets);
@@ -293,7 +317,7 @@ export function useAllChainsPortfolio(address: string | undefined) {
         }));
       } catch {}
 
-      if (isMounted.current) {
+      if (isFetchValid()) {
         setState({
           assets: allAssets,
           isLoading: false,
@@ -303,7 +327,7 @@ export function useAllChainsPortfolio(address: string | undefined) {
         });
       }
     } catch (error) {
-      if (isMounted.current) {
+      if (isFetchValid()) {
         setState(prev => ({
           ...prev,
           isLoading: false,

@@ -45,6 +45,26 @@ export function usePortfolio(address: string | undefined, networkId: NetworkId) 
   
   const isMounted = useRef(true);
   const lastFetchRef = useRef<string>("");
+  // Track current address for race condition prevention
+  const currentAddressRef = useRef<string | undefined>(address);
+
+  // Clear state immediately when address changes to prevent showing stale data
+  useEffect(() => {
+    if (address !== currentAddressRef.current) {
+      console.log("[Portfolio] Address changed from", currentAddressRef.current, "to", address, "- clearing state");
+      currentAddressRef.current = address;
+      lastFetchRef.current = ""; // Reset fetch tracking
+      // Clear state immediately to prevent cross-wallet data leakage
+      setState({
+        assets: [],
+        isLoading: true,
+        isRefreshing: false,
+        error: null,
+        lastUpdated: null,
+        rpcLatency: null,
+      });
+    }
+  }, [address]);
 
   const fetchBalances = useCallback(async (isRefresh = false) => {
     if (!address) {
@@ -52,6 +72,8 @@ export function usePortfolio(address: string | undefined, networkId: NetworkId) 
       return;
     }
 
+    // Capture the address at the start of this fetch for race condition prevention
+    const fetchAddress = address;
     const chainId = getChainIdFromNetworkId(networkId);
     const chain = getChainById(chainId);
     
@@ -71,6 +93,9 @@ export function usePortfolio(address: string | undefined, networkId: NetworkId) 
     }
     
     lastFetchRef.current = fetchKey;
+    
+    // Helper to check if this fetch is still valid (address hasn't changed)
+    const isFetchValid = () => currentAddressRef.current === fetchAddress && isMounted.current;
 
     setState(prev => ({ 
       ...prev, 
@@ -87,7 +112,7 @@ export function usePortfolio(address: string | undefined, networkId: NetworkId) 
         if (cached) {
           const { assets, timestamp } = JSON.parse(cached);
           if (Date.now() - timestamp < CACHE_DURATION) {
-            if (isMounted.current) {
+            if (isFetchValid()) {
               setState(prev => ({
                 ...prev,
                 assets: assets.map((a: any) => ({ ...a, rawBalance: BigInt(a.rawBalance) })),
@@ -109,7 +134,7 @@ export function usePortfolio(address: string | undefined, networkId: NetworkId) 
     try {
       const nativeResult = await getNativeBalance(address, chainId);
       
-      if (!isMounted.current) return;
+      if (!isFetchValid()) return;
       
       if (isBalanceError(nativeResult)) {
         hasRpcError = true;
@@ -139,7 +164,7 @@ export function usePortfolio(address: string | undefined, networkId: NetworkId) 
         )
       );
 
-      if (!isMounted.current) return;
+      if (!isFetchValid()) return;
 
       let tokenErrors = 0;
       tokenResults.forEach((result, index) => {
@@ -195,7 +220,7 @@ export function usePortfolio(address: string | undefined, networkId: NetworkId) 
         }));
       } catch {}
 
-      if (isMounted.current) {
+      if (isFetchValid()) {
         if (hasRpcError && assets.length === 0) {
           setState({
             assets: [],
@@ -217,7 +242,7 @@ export function usePortfolio(address: string | undefined, networkId: NetworkId) 
         }
       }
     } catch (error) {
-      if (isMounted.current) {
+      if (isFetchValid()) {
         setState(prev => ({
           ...prev,
           isLoading: false,

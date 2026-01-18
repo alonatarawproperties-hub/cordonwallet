@@ -1,0 +1,159 @@
+You are working on a React Native (Expo) crypto wallet app.
+
+DO NOT TOUCH SWAP LOGIC.
+Only fix: wallet switching UI/UX, active wallet correctness, portfolio cache scoping, and the freeze/backdrop bug.
+
+FILES IN SCOPE (ONLY THESE unless you absolutely must add 1 helper):
+- client/components/WalletSwitcherSheet.tsx
+- client/lib/wallet-context.tsx
+- client/hooks/usePortfolio.ts
+- client/hooks/useSolanaPortfolio.ts
+- client/hooks/useAllChainsPortfolio.ts
+- client/lib/portfolio-cache.ts
+- client/lib/solana/index.ts
+- client/lib/blockchain/index.ts
+
+BUGS TO FIX (ALL REQUIRED):
+1) After IMPORT wallet or CREATE wallet, the app should automatically set that wallet as ACTIVE and immediately show that wallet’s assets.
+   - Current bug: after creating/importing, UI stays on old wallet and shows old wallet tokens (ex: FREE token appears on a wallet that doesn’t have it).
+2) WalletSwitcherSheet Add Wallet UI is confusing and sometimes freezes the app after closing (taps stop working).
+   - Need in-theme action sheet: "Create New Wallet" + "Import Wallet" (no iOS default popup).
+   - Closing must unmount overlay/backdrop properly (no invisible blocking layer).
+3) Portfolio cache / custom tokens are leaking across wallets:
+   - custom tokens like FREE should NOT appear on other wallets.
+   - SOL/ROACHY missing on new wallet because the data shown is stale or from wrong wallet.
+   - Fix cache keying and invalidation so everything is wallet-scoped.
+
+EXPECTED USER EXPERIENCE:
+- Open wallet switcher -> tap + Add Wallet -> see two themed buttons: Create New Wallet / Import Wallet / Cancel.
+- Complete create/import -> sheet closes -> newly added wallet becomes active -> portfolio immediately refreshes and shows correct assets for that wallet.
+- Switching between wallets always shows correct assets for that wallet only.
+- No freezing after closing the sheet or action panel.
+
+========================================================
+A) FIX WALLET SWITCHER SHEET UI + FREEZE
+========================================================
+In client/components/WalletSwitcherSheet.tsx:
+
+1) Replace any ActionSheet / Alert / native popup used by "+ Add Wallet".
+   - Implement an in-sheet panel or modal that matches existing dark/glass theme.
+   - Buttons:
+     - Create New Wallet
+     - Import Wallet
+     - Cancel
+   - Ensure panel backdrop uses pointerEvents correctly:
+     - When closed, it must unmount OR pointerEvents="none".
+     - Do not leave a transparent View that intercepts touches.
+
+2) Ensure closing sequence is safe:
+   - When user chooses Create/Import:
+     a) close the add-wallet panel first
+     b) navigate to create/import screen
+   - When create/import completes successfully:
+     a) setActiveWallet(newWalletId) (or by address) using wallet-context
+     b) close WalletSwitcherSheet
+     c) trigger portfolio refresh
+
+If the current code uses multiple modals stacked, refactor to a single controlled state:
+- const [showAddWalletMenu, setShowAddWalletMenu] = useState(false)
+
+========================================================
+B) ENSURE ACTIVE WALLET IS SET AFTER CREATE/IMPORT
+========================================================
+In client/lib/wallet-context.tsx:
+
+1) Identify how wallets are stored (array) and how active wallet is stored (activeWalletId or activeWalletAddress).
+2) Add/ensure these functions exist and are used everywhere:
+   - setActiveWalletId(id: string)
+   - setActiveWalletAddress(address: string) if needed
+   - setActiveWallet(wallet: Wallet) convenience function
+
+3) Create/import flow hookup:
+   - Ensure the code path that creates/imports a wallet ALWAYS calls:
+     - addWallet(newWallet)
+     - setActiveWallet(newWallet) immediately after success
+
+If create/import screens are separate routes and do not return results:
+- Add a very small event mechanism inside wallet-context:
+  - expose a function activateWalletAfterAdd(newWallet)
+  - OR store should update active wallet immediately on add
+Preferred: “addWallet” should optionally auto-activate:
+  addWallet(newWallet, { makeActive: true })
+
+========================================================
+C) FIX PORTFOLIO CACHE LEAKING ACROSS WALLETS
+========================================================
+In client/lib/portfolio-cache.ts:
+
+This is the core cause of “FREE token appears on other wallet” and “missing SOL/ROACHY”.
+Right now caching is likely keyed too broadly (ex: by chain only, or global singleton).
+
+REQUIREMENT:
+- Cache keys MUST include walletAddress (or walletId) + chainId.
+Examples:
+  cacheKey = `${walletAddress}:${chainId}:portfolio`
+  cacheKey = `${walletAddress}:${chainId}:customTokens`
+  cacheKey = `${walletAddress}:allChains`
+
+Implement these:
+1) Update get/set methods to require walletAddress in the key or in arguments.
+2) Add an explicit invalidation function:
+   - invalidateWallet(walletAddress: string)
+   - invalidateAll()
+
+When active wallet changes, invalidate the previous wallet’s in-memory “current view cache” OR ensure hooks fetch by walletAddress key and do not reuse other wallet’s data.
+
+IMPORTANT: Do not increase network load too much — just ensure correct scoping.
+
+========================================================
+D) FORCE REFETCH ON ACTIVE WALLET CHANGE (HOOKS)
+========================================================
+In client/hooks/usePortfolio.ts, useSolanaPortfolio.ts, useAllChainsPortfolio.ts:
+
+1) Ensure each hook depends on activeWalletAddress as a primary dependency.
+   - useEffect(() => { fetch... }, [activeWalletAddress, ...])
+2) On wallet change:
+   - clear local state immediately to avoid showing stale assets
+     ex: setAssets([]); setLoading(true)
+   - then fetch new assets for new walletAddress
+3) Ensure async calls do not race:
+   - use a requestId or “cancelled flag” pattern so results from wallet A don’t overwrite wallet B.
+   Example:
+     let cancelled=false; fetch().then(r=>{ if(cancelled) return; setState(r); });
+     return ()=>{ cancelled=true; };
+
+4) Ensure custom tokens are wallet-scoped:
+   - If custom tokens are stored in cache, key them by walletAddress.
+   - If custom tokens are in context/global state, change to:
+     customTokensByWallet[walletAddress] = CustomToken[]
+   - At minimum: filter custom tokens to the active wallet before showing them.
+
+========================================================
+E) MANAGE CRYPTO SCREEN MUST NOT SHOW OTHER WALLET TOKENS
+========================================================
+Wherever “Manage crypto” reads enabled assets/custom tokens:
+- It must read based on activeWalletAddress.
+- If it currently reads a global list, change it to:
+  enabledAssetsByWallet[walletAddress]
+  customTokensByWallet[walletAddress]
+
+========================================================
+F) CONNECT WALLET SWITCHER -> PORTFOLIO REFRESH
+========================================================
+After setting active wallet in wallet-context:
+- Expose a method like refreshPortfolio() OR emit a simple "activeWalletChanged" update that hooks already respond to via activeWalletAddress dependency.
+
+Prefer simplest:
+- wallet-context changes activeWalletAddress state -> hooks re-run and refetch due to dependency.
+
+========================================================
+VALIDATION CHECKLIST (MUST PASS)
+1) Create wallet -> becomes active -> portfolio shows correct SOL/tokens for that wallet.
+2) Import wallet -> becomes active -> portfolio shows correct tokens for that wallet.
+3) Switching wallet A <-> B never shows FREE token unless that wallet actually has it.
+4) Closing wallet switcher or add-wallet menu never freezes (taps always work).
+5) No changes to swap logic.
+
+OUTPUT:
+- Implement code changes.
+- Add brief comments in the modified files explaining the wallet-scoped cache keying and the wallet-change invalidation.
