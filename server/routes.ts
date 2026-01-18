@@ -23,6 +23,64 @@ const DEXSCREENER_API = "https://api.dexscreener.com";
 const JUPITER_API = "https://lite-api.jup.ag/swap/v1";
 const JUPITER_TOKENS_API = "https://tokens.jup.ag";
 
+// SOL/WSOL mint address - Jupiter represents native SOL as WSOL
+const WSOL_MINT = "So11111111111111111111111111111111111111112";
+
+// Helper: Normalize swap params for SOL/WSOL output
+// - For SOL output: wrapAndUnwrapSol=true, NO destination token account, NO platform fees
+// - For non-SOL output: normal behavior
+function normalizeJupiterSwapParams(
+  body: Record<string, any>,
+  quoteResponse: any
+): { normalizedBody: Record<string, any>; isSolOutput: boolean; debug: Record<string, any> } {
+  const outputMint = quoteResponse?.outputMint || "";
+  const isSolOutput = outputMint === WSOL_MINT;
+  
+  // Fields to NEVER pass for SOL output (or at all for safety)
+  const dangerousFields = [
+    "destinationTokenAccount",
+    "destinationTokenAccountAddress", 
+    "outputTokenAccount",
+    "outputAccount",
+    "feeAccount",
+    "platformFeeBps",
+    "referralAccount",
+    "disablePlatformFee",
+  ];
+  
+  // Create clean body without dangerous fields
+  const normalizedBody: Record<string, any> = {};
+  for (const [key, value] of Object.entries(body)) {
+    if (!dangerousFields.includes(key)) {
+      normalizedBody[key] = value;
+    }
+  }
+  
+  // Force wrapAndUnwrapSol=true for SOL output (critical!)
+  if (isSolOutput) {
+    normalizedBody.wrapAndUnwrapSol = true;
+  }
+  
+  // Sanitize quoteResponse: remove platform fee
+  if (normalizedBody.quoteResponse) {
+    normalizedBody.quoteResponse = {
+      ...normalizedBody.quoteResponse,
+      platformFee: null,
+    };
+  }
+  
+  const debug = {
+    outputMint: outputMint.slice(0, 8) + "...",
+    isSolOutput,
+    hasDestinationTokenAccountField: "destinationTokenAccount" in body || "outputTokenAccount" in body,
+    wrapAndUnwrapSol: normalizedBody.wrapAndUnwrapSol,
+    hasPlatformFeeFields: "feeAccount" in body || "platformFeeBps" in body,
+    strippedFields: dangerousFields.filter(f => f in body),
+  };
+  
+  return { normalizedBody, isSolOutput, debug };
+}
+
 const DEXSCREENER_CHAIN_IDS: Record<number | string, string> = {
   0: "solana",
   1: "ethereum",
@@ -139,7 +197,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Jupiter API Proxy - Swap endpoint
-  // NOTE: feeAccount/platformFeeBps are NEVER sent - platform fees are disabled
+  // NOTE: Uses normalizeJupiterSwapParams to handle SOL/WSOL output properly
   app.post("/api/jupiter/swap", swapBuildRateLimiter, async (req: Request, res: Response) => {
     try {
       const body = req.body;
@@ -150,31 +208,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       console.log("[Jupiter Proxy] Swap request for:", body.userPublicKey);
       
-      // Strip ALL fee-related fields from request body
-      const { 
-        feeAccount, 
-        platformFeeBps, 
-        referralAccount,
-        disablePlatformFee, // Remove this - not a valid Jupiter API field
-        ...cleanBody 
-      } = body;
+      // Normalize swap params - handles SOL output special case
+      const { normalizedBody, isSolOutput, debug } = normalizeJupiterSwapParams(body, body.quoteResponse);
       
-      // Sanitize quoteResponse: set platformFee to null, preserve routePlan
-      if (cleanBody.quoteResponse) {
-        const hasPlatformFeeOnQuote = !!cleanBody.quoteResponse.platformFee;
-        cleanBody.quoteResponse = {
-          ...cleanBody.quoteResponse,
-          platformFee: null,
-        };
-        
-        // Log sanitization status
-        console.log("[SwapFee] swap-build sanitized:", JSON.stringify({
-          platformFeesAllowed: false,
-          hasPlatformFeeOnQuote,
-          sanitizedPlatformFee: null,
-          hasFeeAccount: false,
-          endpoint: JUPITER_API,
-        }));
+      // Log diagnostic info
+      console.log("[JUP_SWAP_DEBUG]", JSON.stringify(debug));
+      
+      // Additional validation for SOL output
+      if (isSolOutput && !normalizedBody.wrapAndUnwrapSol) {
+        console.error("[JUP_SWAP_DEBUG] CRITICAL: SOL output but wrapAndUnwrapSol is false!");
+        normalizedBody.wrapAndUnwrapSol = true;
       }
       
       const response = await fetch(`${JUPITER_API}/swap`, {
@@ -183,7 +226,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           "Accept": "application/json",
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(cleanBody),
+        body: JSON.stringify(normalizedBody),
       });
       
       if (!response.ok) {

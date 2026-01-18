@@ -306,31 +306,38 @@ export async function buildSwapTransaction(params: {
   wrapAndUnwrapSol: boolean;
   disablePlatformFee?: boolean;
 }): Promise<BuildResult> {
-  const { userPublicKey, quote, speedMode, maxPriorityFeeLamports, wrapAndUnwrapSol } = params;
+  const { userPublicKey, quote, speedMode, maxPriorityFeeLamports } = params;
   
   const priorityFeeCap = getPriorityFeeCap(speedMode, maxPriorityFeeLamports);
   
   // ALWAYS sanitize quote - never allow platform fee fields
   const sanitizedQuote = sanitizeQuoteForSwap(quote);
   
+  // Determine if output is SOL/WSOL - requires special handling
+  const outputMint = quote?.outputMint || "";
+  const isSolOutput = outputMint === WSOL_MINT;
+  
+  // For SOL output: MUST use wrapAndUnwrapSol=true, and NO destination token account
+  const effectiveWrapAndUnwrapSol = isSolOutput ? true : params.wrapAndUnwrapSol;
+  
   const url = `${swapConfig.jupiterBaseUrl}${swapConfig.jupiterSwapPath}`;
   
-  // Build swap body WITHOUT any fee fields
+  // Build swap body WITHOUT any fee fields or destination token accounts
   const body: Record<string, any> = {
     quoteResponse: sanitizedQuote,
     userPublicKey,
-    wrapAndUnwrapSol,
+    wrapAndUnwrapSol: effectiveWrapAndUnwrapSol,
     dynamicComputeUnitLimit: true,
     prioritizationFeeLamports: priorityFeeCap,
   };
   
-  // Log sanitization status
-  console.log("[SwapFee] swap-build sanitized:", JSON.stringify({
-    platformFeesAllowed: platformFeesAllowed(),
-    hasPlatformFeeOnQuote: !!(quote as any)?.platformFee,
-    sanitizedPlatformFee: (sanitizedQuote as any)?.platformFee ?? null,
-    hasFeeAccount: "feeAccount" in body,
-    endpoint: swapConfig.jupiterBaseUrl,
+  // Log SOL output debug info
+  console.log("[JUP_SWAP_DEBUG]", JSON.stringify({
+    outputMint: outputMint.slice(0, 8) + "...",
+    isSolOutput,
+    hasDestinationTokenAccountField: false,
+    wrapAndUnwrapSol: effectiveWrapAndUnwrapSol,
+    hasPlatformFeeFields: false,
   }));
   
   console.log("[Jupiter] Build swap:", {
@@ -361,11 +368,13 @@ export async function buildSwapTransaction(params: {
       return result; // Return original error
     }
     
-    // Retry with sanitized fresh quote
+    // Retry with sanitized fresh quote - use same SOL output detection
+    const freshOutputMint = freshQuoteResult.quote?.outputMint || "";
+    const freshIsSolOutput = freshOutputMint === WSOL_MINT;
     const retryBody = {
       quoteResponse: sanitizeQuoteForSwap(freshQuoteResult.quote),
       userPublicKey,
-      wrapAndUnwrapSol,
+      wrapAndUnwrapSol: freshIsSolOutput ? true : params.wrapAndUnwrapSol,
       dynamicComputeUnitLimit: true,
       prioritizationFeeLamports: priorityFeeCap,
     };
