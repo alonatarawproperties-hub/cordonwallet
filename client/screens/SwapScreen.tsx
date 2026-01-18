@@ -540,7 +540,7 @@ export default function SwapScreen({ route }: Props) {
     }
   };
 
-  const canSwap = (swapRoute === "jupiter" && quote) || (swapRoute === "pump" && pumpMeta);
+  const canSwap = ((swapRoute === "jupiter" && quote) || (swapRoute === "pump" && pumpMeta)) && !insufficientSolForFees;
 
   const handleSwapPress = async () => {
     if (!canSwap || !inputToken || !outputToken || !activeWallet) return;
@@ -1664,11 +1664,16 @@ export default function SwapScreen({ route }: Props) {
         ) : null}
 
         {insufficientSolForFees && !isInputSol ? (
-          <View style={[styles.insufficientBanner, { backgroundColor: theme.danger + "15" }]}>
-            <Feather name="alert-triangle" size={16} color={theme.danger} />
-            <ThemedText type="caption" style={{ color: theme.danger, flex: 1 }}>
-              Not enough SOL to cover network fees. Need at least {lamportsToSolString(feeReserve.reserveLamports)} SOL.
-            </ThemedText>
+          <View style={[styles.insufficientBanner, { backgroundColor: theme.danger + "15", borderColor: theme.danger + "30", borderWidth: 1 }]}>
+            <Feather name="alert-triangle" size={18} color={theme.danger} />
+            <View style={{ flex: 1, marginLeft: Spacing.sm }}>
+              <ThemedText type="small" style={{ color: theme.danger, fontWeight: "600" }}>
+                Not enough SOL for fees
+              </ThemedText>
+              <ThemedText type="caption" style={{ color: theme.danger, marginTop: 2, opacity: 0.85 }}>
+                This swap requires ~{lamportsToSolString(feeReserve.reserveLamports)} SOL for network fees and temporary WSOL/rent. Add SOL to continue.
+              </ThemedText>
+            </View>
           </View>
         ) : null}
 
@@ -1944,6 +1949,10 @@ export default function SwapScreen({ route }: Props) {
                   {swapStatus || "Processing..."}
                 </ThemedText>
               </View>
+            ) : insufficientSolForFees ? (
+              <ThemedText type="body" style={{ color: theme.danger, fontWeight: "600" }}>
+                Need more SOL for fees
+              </ThemedText>
             ) : (
               <ThemedText type="body" style={{ color: theme.textSecondary, fontWeight: "600" }}>
                 {inputAmount ? "Getting quote..." : "Enter amount"}

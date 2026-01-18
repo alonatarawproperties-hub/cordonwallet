@@ -360,7 +360,29 @@ export function classifyError(error: string): {
     };
   }
   
+  // 0x1788 = InvalidAccountData - usually stale route data or pool state changed
+  if (errorLower.includes("0x1788") || errorLower.includes("invalidaccountdata")) {
+    return {
+      category: "blockhash_expired",
+      userMessage: "Route data expired. Please try again.",
+      canRetry: true,
+      needsRebuild: true,
+    };
+  }
+  
   // Be specific about insufficient funds - 0x1 by itself (word boundary) or explicit text
+  // Also handle lamports-related errors which indicate SOL fee issues
+  if (errorLower.includes("insufficient lamports") || 
+      errorLower.includes("insufficient sol") ||
+      errorLower.includes("not enough sol")) {
+    return {
+      category: "insufficient_funds",
+      userMessage: "Not enough SOL to cover network fees and temporary account rent. Add SOL and try again.",
+      canRetry: false,
+      needsRebuild: false,
+    };
+  }
+  
   if (errorLower.includes("insufficient") || 
       /\b0x1\b/.test(errorLower) ||
       errorLower.includes("custom program error: 0x1\"") ||
