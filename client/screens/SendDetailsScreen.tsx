@@ -20,7 +20,7 @@ import { ScamExplainerModal } from "@/components/ScamExplainerModal";
 import { AnimatedRiskCard } from "@/components/AnimatedRiskCard";
 import { WalletFirewallModal, RestrictionBanner, buildRestrictionBanners } from "@/components/WalletFirewallModal";
 import { useWallet } from "@/lib/wallet-context";
-import { inspectToken2022Mint, evaluateTransferRestrictions, TransferRestriction } from "@/lib/solana/token2022Guard";
+import { TransferRestriction } from "@/lib/solana/token2022Guard";
 import { Connection } from "@solana/web3.js";
 
 const SOLANA_RPC_URL = process.env.SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com";
@@ -472,24 +472,55 @@ export default function SendDetailsScreen({ navigation, route }: Props) {
     if (params.chainType === "solana" && !params.isNative && params.tokenAddress) {
       setIsCheckingRestrictions(true);
       try {
+        const { analyzeSolanaTransfer, buildWarningBanners } = await import("@/lib/solana/transfer-analyzer");
         const connection = new Connection(SOLANA_RPC_URL, "confirmed");
-        const inspection = await inspectToken2022Mint(connection, params.tokenAddress);
         
-        if (inspection.isToken2022) {
-          restriction = evaluateTransferRestrictions(inspection, solanaAddress);
-          banners = buildRestrictionBanners(restriction);
-          
-          if (!restriction.canTransfer) {
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-            setTokenRestriction(restriction);
-            setRestrictionBanners(banners);
-            setShowFirewallModal(true);
-            setIsCheckingRestrictions(false);
-            return;
-          }
+        const analysis = await analyzeSolanaTransfer({
+          connection,
+          mintAddress: params.tokenAddress,
+          fromAddress: solanaAddress,
+          toAddress: recipient,
+          amount,
+        });
+
+        const analyzerBanners = buildWarningBanners(analysis);
+        banners = analyzerBanners.map(b => ({
+          type: b.type,
+          title: b.title,
+          message: b.message,
+          icon: b.icon as keyof typeof Feather.glyphMap,
+        }));
+
+        if (analysis.tokenStandard === "token-2022") {
+          restriction = {
+            canTransfer: analysis.canTransfer,
+            restrictionType: analysis.flags.isNonTransferable 
+              ? (analysis.isUserDelegate ? "delegate_only" : "non_transferable")
+              : analysis.flags.hasTransferHook
+                ? "transfer_hook"
+                : "none",
+            message: analysis.warnings.length > 0 ? analysis.warnings[0].message : "",
+            delegateAddress: analysis.permanentDelegate,
+            isUserDelegate: analysis.isUserDelegate,
+          };
+        }
+
+        if (!analysis.canTransfer) {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+          setTokenRestriction(restriction);
+          setRestrictionBanners(banners);
+          setShowFirewallModal(true);
+          setIsCheckingRestrictions(false);
+          return;
         }
       } catch (error) {
-        console.error("[SendDetails] Token-2022 inspection failed:", error);
+        console.error("[SendDetails] Token analysis failed:", error);
+        banners.push({
+          type: "warning",
+          title: "Analysis Unavailable",
+          message: "Couldn't analyze token restrictions. Proceed with caution.",
+          icon: "alert-circle",
+        });
       }
       setIsCheckingRestrictions(false);
     }
@@ -724,10 +755,16 @@ export default function SendDetailsScreen({ navigation, route }: Props) {
         <View style={styles.footer}>
           <Button 
             onPress={handleReview} 
-            disabled={isSending || (!risk.canProceed && !risk.isScam)}
+            disabled={isSending || isCheckingRestrictions || (!risk.canProceed && !risk.isScam)}
             style={risk.isScam && !scamOverrideAccepted ? { backgroundColor: theme.danger } : undefined}
           >
-            {isSending ? "Sending..." : risk.isScam && !scamOverrideAccepted ? "Review Warning" : "Review Transaction"}
+            {isSending 
+              ? "Sending..." 
+              : isCheckingRestrictions 
+                ? "Analyzing..." 
+                : risk.isScam && !scamOverrideAccepted 
+                  ? "Review Warning" 
+                  : "Review Transaction"}
           </Button>
         </View>
       </KeyboardAwareScrollViewCompat>
