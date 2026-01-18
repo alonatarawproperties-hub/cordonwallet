@@ -1,0 +1,86 @@
+REPLIT AGENT PROMPT (single task):
+
+Goal:
+When user is already inside an Asset/Token detail page (ex: ROACHY screen), tapping “Send” must open the Send Form directly with that asset pre-selected (pic3), NOT the asset picker list (pic2). Keep existing behavior (picker list) only when user taps Send from the main wallet/home screen.
+
+What to change:
+
+1) Find the Asset Detail screen “Send” button handler
+- Search for the asset page screen file(s):
+  - client/screens/*Asset* (AssetDetails / TokenDetails / AssetScreen / TokenScreen)
+  - or wherever the “Holdings / History / About” tabs live
+- Locate the “Send” button on that screen (likely at bottom).
+- It probably does something like navigation.navigate("Send") or opens a Send sheet that starts with token list.
+- Change it to pass a route param that includes the selected asset.
+
+Implement:
+- On Asset detail page, call:
+  navigation.navigate("Send", {
+    presetAsset: {
+      id: asset.id ?? asset.mint ?? asset.address,
+      symbol: asset.symbol,
+      name: asset.name,
+      chain: asset.chain,              // "solana" | "evm"
+      mint: asset.mint,                // for solana tokens
+      address: asset.address,          // for evm tokens
+      decimals: asset.decimals,
+      logo: asset.logo,
+      balance: asset.balance,
+      usdValue: asset.usdValue,
+    }
+  });
+
+(If your navigation structure is nested like SendStack, use:
+  navigation.navigate("SendStack", { screen: "Send", params: { presetAsset: {...} } })
+Adjust to match your app’s navigator names.)
+
+2) Update Send screen to support “presetAsset” and skip the picker step
+- Find Send screen(s):
+  - client/screens/SendScreen.tsx OR client/screens/Send/*.tsx
+- Identify how the Send flow currently works:
+  - Step A: show token list (picker) (pic2)
+  - Step B: show send form (recipient + amount) (pic3)
+- Add support for route.params.presetAsset.
+- If presetAsset exists:
+  - Set selectedAsset/token immediately
+  - Set the UI state/step directly to the Send Form
+  - DO NOT render the picker list first
+
+Pseudo-implementation (adapt to your code):
+- At top of Send screen:
+  const route = useRoute();
+  const presetAsset = route.params?.presetAsset;
+
+- If you have state like:
+  const [selectedAsset, setSelectedAsset] = useState(null);
+  const [step, setStep] = useState("picker"); // or similar
+
+- Add:
+  useEffect(() => {
+    if (presetAsset) {
+      setSelectedAsset(presetAsset);
+      setStep("form"); // whatever your form step is called
+    }
+  }, [presetAsset?.id]);
+
+- If your Send screen derives token list from portfolio hook:
+  - If presetAsset exists but the asset isn’t loaded yet, still allow form to render using presetAsset (do not block on list).
+  - When portfolio data arrives, you can “hydrate” it by matching id/mint/address and replacing selectedAsset with the full object.
+
+3) Make sure back behavior is correct
+- From asset page → send form → back should return to asset page.
+- Don’t replace the route unless you intentionally want that. Prefer navigate() not reset().
+- If you used nested stacks, ensure back pops correctly.
+
+4) Update navigation param typing (if using TS)
+- Update your navigation param list:
+  Send: { presetAsset?: PresetAssetType }
+- Add/extend the type used by Send screen.
+
+5) Quick manual test checklist
+- Open ROACHY asset detail → tap Send → should open Send form with ROACHY already selected (no picker list).
+- From Home main “Send” button → still shows picker list (pic2).
+- Deep links / other entry points should not break.
+
+Deliverable:
+- Commit changes in the asset detail screen + send screen + navigation typing (if TS) so this behavior works consistently.

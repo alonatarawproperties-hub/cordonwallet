@@ -64,7 +64,22 @@ export type RootStackParamList = {
   SeedPhrase: { seedPhrase: string[]; walletId: string };
   Unlock: undefined;
   Main: undefined;
-  Send: { tokenSymbol?: string } | undefined;
+  Send: { 
+    tokenSymbol?: string;
+    presetAsset?: {
+      symbol: string;
+      name: string;
+      chainType: "evm" | "solana";
+      chainId: number;
+      decimals: number;
+      balance: string;
+      priceUsd?: number;
+      isNative: boolean;
+      address?: string;
+      mint?: string;
+      logoUrl?: string;
+    };
+  } | undefined;
   Receive: { 
     walletAddress: string; 
     solanaAddress?: string;

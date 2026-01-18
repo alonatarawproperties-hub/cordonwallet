@@ -94,7 +94,7 @@ function getTokenLogoUrl(asset: UnifiedAsset, customTokens: CustomToken[]): stri
   return undefined;
 }
 
-export default function SendScreen({ navigation }: Props) {
+export default function SendScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
   const { theme } = useTheme();
@@ -102,6 +102,24 @@ export default function SendScreen({ navigation }: Props) {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedFilter, setSelectedFilter] = useState("all");
   const [customTokens, setCustomTokens] = useState<CustomToken[]>([]);
+
+  const presetAsset = route.params?.presetAsset;
+
+  useEffect(() => {
+    if (presetAsset) {
+      navigation.replace("SendDetails", {
+        tokenSymbol: presetAsset.symbol,
+        tokenAddress: presetAsset.address || presetAsset.mint,
+        chainType: presetAsset.chainType,
+        chainId: presetAsset.chainId,
+        decimals: presetAsset.decimals,
+        balance: presetAsset.balance,
+        priceUsd: presetAsset.priceUsd,
+        isNative: presetAsset.isNative,
+        logoUrl: presetAsset.logoUrl,
+      });
+    }
+  }, [presetAsset?.symbol]);
 
   const evmAddress = activeWallet?.addresses?.evm || activeWallet?.address || "";
   const solanaAddress = activeWallet?.addresses?.solana || "";

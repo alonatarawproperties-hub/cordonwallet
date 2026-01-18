@@ -623,7 +623,22 @@ export default function AssetDetailScreen({ route }: Props) {
       <View style={[styles.bottomActions, { backgroundColor: theme.backgroundRoot, paddingBottom: insets.bottom + Spacing.md }]}>
         <Pressable
           style={[styles.bottomButton, { backgroundColor: theme.accent + "20" }]}
-          onPress={() => navigation.navigate("Send", { tokenSymbol })}
+          onPress={() => navigation.navigate("Send", { 
+            tokenSymbol,
+            presetAsset: {
+              symbol: tokenSymbol,
+              name: tokenName,
+              chainType: route.params.chainType || (chainId === 0 ? "solana" : "evm"),
+              chainId: chainId,
+              decimals: isNative ? (chainId === 0 ? 9 : 18) : 18,
+              balance: String(balance),
+              priceUsd: priceUsd,
+              isNative: isNative,
+              address: route.params.chainType === "solana" ? undefined : address,
+              mint: route.params.chainType === "solana" ? address : undefined,
+              logoUrl: tokenLogoUrl || undefined,
+            },
+          })}
         >
           <Feather name="arrow-up-right" size={20} color={theme.accent} />
           <ThemedText type="small" style={{ color: theme.accent }}>Send</ThemedText>
