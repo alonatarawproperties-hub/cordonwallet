@@ -191,7 +191,8 @@ export default function SwapScreen({ route }: Props) {
   const [slippageBps, setSlippageBps] = useState(DEFAULT_SLIPPAGE_BPS);
   const [speed, setSpeed] = useState<SwapSpeed>("standard");
   const [customCapSol, setCustomCapSol] = useState<number | null>(null);
-  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showCustomInput, setShowCustomInput] = useState(false);
+  const [customInputValue, setCustomInputValue] = useState("");
   const [liveQuotes, setLiveQuotes] = useState(false);
 
   const [quote, setQuote] = useState<QuoteResponse | null>(null);
@@ -1734,9 +1735,7 @@ export default function SwapScreen({ route }: Props) {
             </ThemedText>
             <View style={styles.speedButtons}>
               {(["standard", "fast", "turbo"] as SwapSpeed[]).map((s) => {
-                const effectiveCap = customCapSol ?? SPEED_CONFIGS[speed].capSol;
-                const inferredSpeed = inferSpeedFromCap(effectiveCap);
-                const isActive = customCapSol === null ? speed === s : inferredSpeed === s;
+                const isActive = !showCustomInput && speed === s && customCapSol === null;
                 return (
                   <Pressable
                     key={s}
@@ -1755,6 +1754,8 @@ export default function SwapScreen({ route }: Props) {
                     onPress={() => {
                       setSpeed(s);
                       setCustomCapSol(null);
+                      setShowCustomInput(false);
+                      setCustomInputValue("");
                     }}
                   >
                     {isActive ? (
@@ -1784,26 +1785,115 @@ export default function SwapScreen({ route }: Props) {
                   </Pressable>
                 );
               })}
+              <Pressable
+                style={({ pressed }) => [
+                  styles.speedButton,
+                  {
+                    backgroundColor: theme.glass,
+                    borderColor: showCustomInput || customCapSol !== null ? theme.accent : theme.glassBorder,
+                    opacity: pressed ? 0.9 : 1,
+                    shadowColor: showCustomInput || customCapSol !== null ? theme.accent : "transparent",
+                    shadowOffset: { width: 0, height: 0 },
+                    shadowOpacity: showCustomInput || customCapSol !== null ? 0.4 : 0,
+                    shadowRadius: 8,
+                  },
+                ]}
+                onPress={() => {
+                  setShowCustomInput(true);
+                  if (customCapSol !== null) {
+                    setCustomInputValue(String(customCapSol));
+                  }
+                }}
+              >
+                {showCustomInput || customCapSol !== null ? (
+                  <LinearGradient
+                    colors={[theme.accent, theme.accentSecondary]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={styles.speedButtonGradientBg}
+                  >
+                    <ThemedText type="small" style={{ color: "#fff", fontWeight: "700" }}>
+                      Custom
+                    </ThemedText>
+                    <ThemedText type="caption" style={{ color: "rgba(255,255,255,0.8)", fontSize: 11 }}>
+                      {customCapSol !== null ? `${customCapSol} SOL` : "Set fee"}
+                    </ThemedText>
+                  </LinearGradient>
+                ) : (
+                  <View style={styles.speedButtonContent}>
+                    <ThemedText type="small" style={{ color: theme.text, fontWeight: "600" }}>
+                      Custom
+                    </ThemedText>
+                    <ThemedText type="caption" style={{ color: theme.textSecondary, fontSize: 11 }}>
+                      Set fee
+                    </ThemedText>
+                  </View>
+                )}
+              </Pressable>
             </View>
-            {(() => {
-              const effectiveCap = customCapSol ?? SPEED_CONFIGS[speed].capSol;
-              const isCustom = customCapSol !== null && inferSpeedFromCap(effectiveCap) === null;
-              if (isCustom) {
-                return (
-                  <ThemedText type="caption" style={[styles.speedHint, { color: theme.accent }]}>
-                    Custom priority cap: {formatCapSol(effectiveCap)} SOL
-                  </ThemedText>
-                );
-              }
-              if (speed === "turbo" && !isCustom) {
-                return (
-                  <ThemedText type="caption" style={[styles.speedHint, { color: theme.textSecondary }]}>
-                    Turbo uses higher priority fees for faster confirmation.
-                  </ThemedText>
-                );
-              }
-              return null;
-            })()}
+            
+            {showCustomInput ? (
+              <View style={[styles.customFeeInput, { backgroundColor: theme.glass, borderColor: theme.glassBorder }]}>
+                <ThemedText type="caption" style={{ color: theme.textSecondary, marginBottom: Spacing.sm }}>
+                  Enter max priority fee (SOL)
+                </ThemedText>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: Spacing.sm }}>
+                  <TextInput
+                    style={[
+                      styles.customFeeTextInput,
+                      { 
+                        backgroundColor: theme.backgroundSecondary, 
+                        color: theme.text,
+                        borderColor: theme.glassBorder,
+                      }
+                    ]}
+                    value={customInputValue}
+                    onChangeText={setCustomInputValue}
+                    placeholder="0.005"
+                    placeholderTextColor={theme.textSecondary}
+                    keyboardType="decimal-pad"
+                    autoFocus
+                  />
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.customFeeApplyBtn,
+                      { backgroundColor: theme.accent, opacity: pressed ? 0.8 : 1 }
+                    ]}
+                    onPress={() => {
+                      const val = parseFloat(customInputValue);
+                      if (!isNaN(val) && val > 0) {
+                        setCustomCapSol(val);
+                        const matchedSpeed = inferSpeedFromCap(val);
+                        if (matchedSpeed) setSpeed(matchedSpeed);
+                      }
+                      setShowCustomInput(false);
+                    }}
+                  >
+                    <ThemedText type="small" style={{ color: "#fff", fontWeight: "600" }}>Apply</ThemedText>
+                  </Pressable>
+                </View>
+                {parseFloat(customInputValue) > 0.01 ? (
+                  <View style={[styles.warningNote, { backgroundColor: theme.warning + "15", borderColor: theme.warning + "30", marginTop: Spacing.sm }]}>
+                    <Feather name="alert-triangle" size={14} color={theme.warning} />
+                    <ThemedText type="caption" style={{ color: theme.warning, marginLeft: Spacing.sm, flex: 1 }}>
+                      High fee may result in expensive transactions
+                    </ThemedText>
+                  </View>
+                ) : null}
+              </View>
+            ) : null}
+            
+            {!showCustomInput && speed === "turbo" && customCapSol === null ? (
+              <ThemedText type="caption" style={[styles.speedHint, { color: theme.textSecondary }]}>
+                Turbo uses higher priority fees for faster confirmation.
+              </ThemedText>
+            ) : null}
+            
+            {!showCustomInput && customCapSol !== null ? (
+              <ThemedText type="caption" style={[styles.speedHint, { color: theme.accent }]}>
+                Custom priority cap: {formatCapSol(customCapSol)} SOL
+              </ThemedText>
+            ) : null}
           </View>
 
           <ThemedText type="caption" style={{ color: theme.textSecondary, marginTop: Spacing.sm, fontSize: 10, textAlign: "center", opacity: 0.7 }}>
@@ -1858,109 +1948,6 @@ export default function SwapScreen({ route }: Props) {
             </View>
           ) : null}
 
-          <Pressable
-            style={({ pressed }) => [
-              styles.advancedToggle,
-              { opacity: pressed ? 0.7 : 1 }
-            ]}
-            onPress={() => setShowAdvanced(!showAdvanced)}
-          >
-            <ThemedText type="small" style={{ color: theme.accent, fontWeight: "600" }}>
-              {showAdvanced ? "Hide Advanced" : "Advanced Settings"}
-            </ThemedText>
-            <Feather
-              name={showAdvanced ? "chevron-up" : "chevron-down"}
-              size={18}
-              color={theme.accent}
-            />
-          </Pressable>
-
-          {showAdvanced ? (
-            <View style={[styles.advancedSection, { backgroundColor: theme.glass, borderColor: theme.glassBorder }]}>
-              <ThemedText type="small" style={{ color: theme.text, fontWeight: "600", marginBottom: Spacing.xs }}>
-                Max Priority Fee
-              </ThemedText>
-              <ThemedText type="caption" style={{ color: theme.textSecondary, marginBottom: Spacing.md }}>
-                Cap: {formatCapSol(customCapSol ?? SPEED_CONFIGS[speed].capSol)} SOL
-              </ThemedText>
-              <View style={styles.capButtons}>
-                {[0.001, 0.005, 0.01, 0.02].map((cap) => {
-                  const effectiveCapValue = customCapSol ?? SPEED_CONFIGS[speed].capSol;
-                  const isActive = Math.abs(effectiveCapValue - cap) < 1e-9;
-                  return (
-                    <Pressable
-                      key={cap}
-                      style={({ pressed }) => [
-                        styles.capButton,
-                        {
-                          backgroundColor: isActive ? theme.accent : theme.glass,
-                          borderColor: isActive ? theme.accent : theme.glassBorder,
-                          opacity: pressed ? 0.8 : 1,
-                        },
-                      ]}
-                      onPress={() => {
-                        setCustomCapSol(cap);
-                        const matchedSpeed = inferSpeedFromCap(cap);
-                        if (matchedSpeed) setSpeed(matchedSpeed);
-                      }}
-                    >
-                      <ThemedText
-                        type="caption"
-                        style={{ color: isActive ? "#fff" : theme.text, fontWeight: "600" }}
-                      >
-                        {cap}
-                      </ThemedText>
-                    </Pressable>
-                  );
-                })}
-              </View>
-              {(customCapSol || 0) > 0.01 ? (
-                <View style={[styles.warningNote, { backgroundColor: theme.warning + "15", borderColor: theme.warning + "30" }]}>
-                  <Feather name="alert-triangle" size={14} color={theme.warning} />
-                  <ThemedText type="caption" style={{ color: theme.warning, marginLeft: Spacing.sm, flex: 1 }}>
-                    High fee cap may result in expensive transactions
-                  </ThemedText>
-                </View>
-              ) : null}
-
-              <View style={[styles.liveQuotesRow, { borderTopColor: theme.glassBorder }]}>
-                <View style={{ flex: 1 }}>
-                  <ThemedText type="small" style={{ color: theme.text, fontWeight: "600" }}>
-                    Live Quotes
-                  </ThemedText>
-                  <ThemedText type="caption" style={{ color: theme.textSecondary, marginTop: 2 }}>
-                    Refresh every 2s in Turbo mode
-                  </ThemedText>
-                </View>
-                <Pressable
-                  style={[
-                    styles.liveQuotesToggle,
-                    { backgroundColor: liveQuotes ? theme.accent : theme.backgroundSecondary },
-                  ]}
-                  onPress={() => {
-                    const newValue = !liveQuotes;
-                    setLiveQuotes(newValue);
-                    quoteEngineRef.current.setLiveQuotes(newValue);
-                  }}
-                >
-                  <View
-                    style={[
-                      styles.liveQuotesKnob,
-                      { 
-                        backgroundColor: "#fff",
-                        transform: [{ translateX: liveQuotes ? 18 : 2 }],
-                      },
-                    ]}
-                  />
-                </Pressable>
-              </View>
-              {liveQuotes && speed !== "turbo" ? (
-                <ThemedText type="caption" style={{ color: theme.textSecondary, marginTop: Spacing.sm }}>
-                  Switch to Turbo speed to enable 2s refresh
-                </ThemedText>
-              ) : null}
-            </View>
-          ) : null}
         </View>
       </KeyboardAwareScrollViewCompat>
 
@@ -2326,29 +2313,24 @@ const styles = StyleSheet.create({
     fontSize: 12,
     textAlign: "center",
   },
-  advancedToggle: {
-    flexDirection: "row",
-    justifyContent: "center",
-    alignItems: "center",
-    paddingVertical: Spacing.lg,
-    gap: Spacing.xs,
-  },
-  advancedSection: {
-    borderRadius: BorderRadius.xl,
-    padding: Spacing.lg,
-    marginBottom: Spacing.lg,
-    borderWidth: 1,
-  },
-  capButtons: {
-    flexDirection: "row",
-    gap: Spacing.sm,
-  },
-  capButton: {
-    flex: 1,
+  customFeeInput: {
+    marginTop: Spacing.md,
     padding: Spacing.md,
     borderRadius: BorderRadius.lg,
-    alignItems: "center",
     borderWidth: 1,
+  },
+  customFeeTextInput: {
+    flex: 1,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    fontSize: 16,
+  },
+  customFeeApplyBtn: {
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.lg,
+    borderRadius: BorderRadius.md,
   },
   warningNote: {
     flexDirection: "row",
@@ -2357,24 +2339,6 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.lg,
     marginTop: Spacing.md,
     borderWidth: 1,
-  },
-  liveQuotesRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: Spacing.lg,
-    paddingTop: Spacing.lg,
-    borderTopWidth: 1,
-  },
-  liveQuotesToggle: {
-    width: 48,
-    height: 28,
-    borderRadius: 14,
-    justifyContent: "center",
-  },
-  liveQuotesKnob: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
   },
   successFeeSection: {
     borderRadius: BorderRadius.xl,
