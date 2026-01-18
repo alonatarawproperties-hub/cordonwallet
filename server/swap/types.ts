@@ -72,6 +72,8 @@ export interface BuildResponse {
   swapTransactionBase64: string;
   lastValidBlockHeight?: number;
   prioritizationFeeLamports: number;
+  appliedPlatformFee?: { feeAccount: string; feeBps: number };
+  feeDisabledReason?: string;
 }
 
 export interface BuildError {
