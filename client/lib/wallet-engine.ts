@@ -708,3 +708,85 @@ export async function hasVault(): Promise<boolean> {
   const vaultJson = await getSecureItem(STORAGE_KEYS.VAULT);
   return vaultJson !== null;
 }
+
+export async function hasDevicePin(): Promise<boolean> {
+  const storedHash = await getSecureItem(STORAGE_KEYS.PIN_HASH);
+  const result = storedHash !== null;
+  if (__DEV__) {
+    console.log("[WalletEngine] hasDevicePin:", result);
+  }
+  return result;
+}
+
+export async function addWalletToExistingVault(
+  mnemonic: string,
+  name: string,
+  walletType: WalletType = "multi-chain"
+): Promise<WalletRecord> {
+  if (!isVaultUnlocked || !cachedSecrets) {
+    throw new WalletLockedError();
+  }
+  
+  const normalizedMnemonic = mnemonic.trim().toLowerCase().replace(/\s+/g, " ");
+  
+  if (!bip39.validateMnemonic(normalizedMnemonic, wordlist)) {
+    throw new Error("Invalid mnemonic");
+  }
+  
+  const addresses = deriveMultiChainAddresses(normalizedMnemonic);
+  const walletId = `wallet_${Date.now()}`;
+  
+  const wallet: WalletRecord = {
+    id: walletId,
+    name,
+    address: walletType === "solana-only" ? addresses.solana as `0x${string}` : addresses.evm,
+    addresses,
+    walletType,
+    createdAt: Date.now(),
+  };
+  
+  const meta = await loadVaultMeta();
+  
+  const isDuplicate = meta.wallets.some(w => 
+    (w.addresses?.evm && w.addresses.evm === addresses.evm) ||
+    (w.addresses?.solana && w.addresses.solana === addresses.solana)
+  );
+  
+  if (isDuplicate) {
+    throw new Error("This wallet already exists. The same seed phrase was previously imported.");
+  }
+  
+  const newSecrets: DecryptedSecrets = {
+    ...cachedSecrets,
+    mnemonics: { ...cachedSecrets.mnemonics, [walletId]: normalizedMnemonic }
+  };
+  
+  const cachedKey = await getCachedVaultKey();
+  if (!cachedKey) {
+    throw new Error("Vault key not available. Please unlock with PIN first.");
+  }
+  
+  const salt = randomBytes(16);
+  const iv = randomBytes(12);
+  const plaintext = new TextEncoder().encode(JSON.stringify(newSecrets));
+  const cipher = gcm(cachedKey, iv);
+  const ciphertext = cipher.encrypt(plaintext);
+  
+  const encryptedVault: EncryptedVault = {
+    version: 1,
+    salt: bytesToHex(salt),
+    iv: bytesToHex(iv),
+    ciphertext: bytesToHex(ciphertext),
+  };
+  
+  await setSecureItem(STORAGE_KEYS.VAULT, JSON.stringify(encryptedVault));
+  await saveVaultMeta([...meta.wallets, wallet], walletId);
+  
+  cachedSecrets = newSecrets;
+  
+  if (__DEV__) {
+    console.log("[WalletEngine] addWalletToExistingVault: Success", { walletId, name });
+  }
+  
+  return wallet;
+}
