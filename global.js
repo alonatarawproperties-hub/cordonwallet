@@ -1,9 +1,12 @@
-require("react-native-get-random-values");
-var Buffer = require("buffer").Buffer;
-var process = require("process");
+// global.js
+import "react-native-get-random-values";
+import { Buffer } from "buffer";
+import process from "process";
 
-if (typeof global !== "undefined" && !global.Buffer) global.Buffer = Buffer;
-if (typeof window !== "undefined" && !window.Buffer) window.Buffer = Buffer;
+// IMPORTANT: use globalThis (works on web + native)
+if (!globalThis.Buffer) globalThis.Buffer = Buffer;
+if (!globalThis.process) globalThis.process = process;
+globalThis.process.env = globalThis.process.env || {};
 
-if (typeof global !== "undefined" && !global.process) global.process = process;
-if (typeof window !== "undefined" && !window.process) window.process = process;
+// Debug proof it runs first
+console.log("[global.js] injected. Buffer?", !!globalThis.Buffer);
