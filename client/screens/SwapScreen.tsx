@@ -82,6 +82,12 @@ import {
   FeeReserveResult,
   formatFeeBreakdown,
 } from "@/lib/solana/feeReserve";
+import {
+  estimateRequiredSolBufferLamports,
+  formatBufferSol,
+  hasEnoughSolForBuffer,
+} from "@/lib/solana/swapBuffer";
+import { appendOutputFeeInstruction } from "@/lib/solana/outputFee";
 import { likelyNeedsAtaRent } from "@/lib/solana/ataCheck";
 import {
   getSuccessFeeLamports,
@@ -540,6 +546,17 @@ export default function SwapScreen({ route }: Props) {
         console.log("[Swap] MAX pressed - spendable:", spendableSol, "reserve:", lamportsToSolString(feeReserve.reserveLamports));
       }
     } else {
+      const outputIsSol = outputToken?.mint === SOL_MINT;
+      const requiredBuffer = estimateRequiredSolBufferLamports(priorityCapLamports, outputIsSol);
+      
+      if (solBalanceLamports < requiredBuffer) {
+        showAlert(
+          "Not Enough SOL for Fees",
+          `Keep at least ${formatBufferSol(requiredBuffer)} SOL reserved to cover transaction fees.`
+        );
+        return;
+      }
+      
       setInputAmount(balance.toFixed(inputToken.decimals > 6 ? 6 : inputToken.decimals));
     }
   };
@@ -690,8 +707,37 @@ export default function SwapScreen({ route }: Props) {
       const { secretKey } = deriveSolanaKeypair(mnemonic);
       const keypair = Keypair.fromSecretKey(secretKey);
       
-      const txBuffer = Buffer.from(pendingSwap.swapResponse.swapTransaction, "base64");
-      const transaction = VersionedTransaction.deserialize(txBuffer);
+      let transaction: VersionedTransaction;
+      let feeAppended = false;
+      
+      if (pendingSwap.quote && outputToken) {
+        try {
+          const connection = new Connection(RPC_PRIMARY, "confirmed");
+          const feeResult = await appendOutputFeeInstruction(
+            connection,
+            pendingSwap.swapResponse.swapTransaction,
+            keypair.publicKey,
+            outputToken.mint,
+            pendingSwap.quote.outAmount
+          );
+          transaction = feeResult.transaction;
+          feeAppended = feeResult.feeAppended;
+          if (__DEV__) {
+            console.log("[CordonFee] Result:", {
+              appended: feeAppended,
+              amount: feeResult.feeAmountAtomic.toString(),
+              reason: feeResult.reason,
+            });
+          }
+        } catch (feeError: any) {
+          if (__DEV__) console.warn("[CordonFee] Fee append error:", feeError.message);
+          const txBuffer = Buffer.from(pendingSwap.swapResponse.swapTransaction, "base64");
+          transaction = VersionedTransaction.deserialize(txBuffer);
+        }
+      } else {
+        const txBuffer = Buffer.from(pendingSwap.swapResponse.swapTransaction, "base64");
+        transaction = VersionedTransaction.deserialize(txBuffer);
+      }
 
       transaction.sign([keypair]);
 
