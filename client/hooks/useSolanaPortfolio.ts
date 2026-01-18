@@ -304,7 +304,11 @@ export function useSolanaPortfolio(address: string | undefined) {
       if (tokensWithMint.length > 0) {
         // First, fetch metadata for tokens that need it (truncated names or missing metadata)
         const tokensNeedingMetadata = tokensWithMint.filter(t => 
-          t.symbol.includes("...") || t.name.includes("Token ") || !t.logoUrl
+          t.symbol.includes("...") || 
+          t.name.includes("Token ") || 
+          t.name === "Unknown Token" ||
+          t.name.toLowerCase().includes("unknown") ||
+          !t.logoUrl
         );
         
         // Fetch metadata from dedicated endpoint (uses DexScreener + Metaplex)
