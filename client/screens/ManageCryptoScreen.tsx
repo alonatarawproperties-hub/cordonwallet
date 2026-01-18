@@ -23,7 +23,7 @@ import { Spacing } from "@/constants/theme";
 import { useWallet } from "@/lib/wallet-context";
 import { useAllChainsPortfolio, MultiChainAsset } from "@/hooks/useAllChainsPortfolio";
 import { useSolanaPortfolio } from "@/hooks/useSolanaPortfolio";
-import { getHiddenTokens, hideToken, showToken, getCustomTokens, removeCustomToken, CustomToken, buildCustomTokenMap } from "@/lib/token-preferences";
+import { getHiddenTokens, hideToken, showToken, getCustomTokens, removeCustomToken, CustomToken, buildCustomTokenMap, clearGlobalCustomTokens } from "@/lib/token-preferences";
 import { supportedChains, ChainConfig } from "@/lib/blockchain/chains";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { getTokenLogoUrl } from "@/lib/token-logos";
@@ -97,6 +97,7 @@ export default function ManageCryptoScreen() {
   const loadPreferences = useCallback(async () => {
     if (!solanaAddress) return;
     setIsLoadingPrefs(true);
+    await clearGlobalCustomTokens();
     const [hidden, custom] = await Promise.all([
       getHiddenTokens(),
       getCustomTokens(solanaAddress),

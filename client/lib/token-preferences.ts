@@ -206,3 +206,13 @@ export async function getTokenPreferences(walletAddress?: string): Promise<Token
   ]);
   return { hiddenTokens, customTokens };
 }
+
+export async function clearGlobalCustomTokens(): Promise<void> {
+  try {
+    await AsyncStorage.removeItem(CUSTOM_TOKENS_KEY);
+    await clearSolanaPortfolioCache();
+    console.log("[TokenPrefs] Cleared global custom tokens");
+  } catch (e) {
+    console.log("[TokenPrefs] Error clearing global custom tokens:", e);
+  }
+}
