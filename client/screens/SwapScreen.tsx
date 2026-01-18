@@ -1704,11 +1704,25 @@ export default function SwapScreen({ route }: Props) {
                 );
               })}
             </View>
-            {speed === "turbo" ? (
-              <ThemedText type="caption" style={[styles.speedHint, { color: theme.textSecondary }]}>
-                Turbo uses higher priority fees for faster confirmation.
-              </ThemedText>
-            ) : null}
+            {(() => {
+              const effectiveCap = customCapSol ?? SPEED_CONFIGS[speed].capSol;
+              const isCustom = customCapSol !== null && inferSpeedFromCap(effectiveCap) === null;
+              if (isCustom) {
+                return (
+                  <ThemedText type="caption" style={[styles.speedHint, { color: theme.accent }]}>
+                    Custom priority cap: {formatCapSol(effectiveCap)} SOL
+                  </ThemedText>
+                );
+              }
+              if (speed === "turbo" && !isCustom) {
+                return (
+                  <ThemedText type="caption" style={[styles.speedHint, { color: theme.textSecondary }]}>
+                    Turbo uses higher priority fees for faster confirmation.
+                  </ThemedText>
+                );
+              }
+              return null;
+            })()}
           </View>
 
           {SHOW_CORDON_FEE_UI ? (
