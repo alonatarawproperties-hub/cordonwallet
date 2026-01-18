@@ -18,7 +18,10 @@ import { Input } from "@/components/Input";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import { ScamExplainerModal } from "@/components/ScamExplainerModal";
 import { AnimatedRiskCard } from "@/components/AnimatedRiskCard";
+import { WalletFirewallModal, RestrictionBanner, buildRestrictionBanners } from "@/components/WalletFirewallModal";
 import { useWallet } from "@/lib/wallet-context";
+import { inspectToken2022Mint, evaluateTransferRestrictions, Token2022InspectionResult, TransferRestriction } from "@/lib/solana/token2022Guard";
+import { getSolanaConnection } from "@/lib/solana/connection";
 import {
   sendNative,
   sendERC20,
@@ -72,6 +75,10 @@ export default function SendDetailsScreen({ navigation, route }: Props) {
   const [txSuccess, setTxSuccess] = useState<{ hash: string; explorerUrl: string } | null>(null);
   const [showScamModal, setShowScamModal] = useState(false);
   const [scamOverrideAccepted, setScamOverrideAccepted] = useState(false);
+  const [showFirewallModal, setShowFirewallModal] = useState(false);
+  const [tokenRestriction, setTokenRestriction] = useState<TransferRestriction | null>(null);
+  const [restrictionBanners, setRestrictionBanners] = useState<RestrictionBanner[]>([]);
+  const [isCheckingRestrictions, setIsCheckingRestrictions] = useState(false);
 
   const evmAddress = activeWallet?.addresses?.evm || activeWallet?.address || "";
   const solanaAddress = activeWallet?.addresses?.solana || "";
@@ -428,7 +435,7 @@ export default function SendDetailsScreen({ navigation, route }: Props) {
     }
   };
 
-  const handleReview = () => {
+  const handleReview = async () => {
     if (!recipient.trim()) {
       Alert.alert("Error", "Please enter a recipient address");
       return;
@@ -445,38 +452,78 @@ export default function SendDetailsScreen({ navigation, route }: Props) {
     }
 
     if (!risk.canProceed) {
-      Alert.alert(
-        "Transaction Blocked",
-        `This transaction cannot proceed:\n\n${risk.reasons.join("\n")}`,
-        [{ text: "OK" }]
-      );
+      setTokenRestriction(null);
+      setRestrictionBanners([{
+        type: "danger",
+        title: "Transaction Blocked",
+        message: risk.reasons.join("\n"),
+        icon: "x-octagon",
+      }]);
+      setShowFirewallModal(true);
       return;
     }
 
-    const warningText = risk.reasons.length > 0 
-      ? `\n\nWarnings:\n${risk.reasons.map(r => `- ${r}`).join("\n")}`
-      : "";
+    let banners: RestrictionBanner[] = [];
+    let restriction: TransferRestriction | null = null;
 
-    const feeText = gasEstimate 
-      ? `Fee: ~${gasEstimate.estimatedFeeFormatted}`
-      : "Fee: Estimating...";
+    if (params.chainType === "solana" && !params.isNative && params.tokenAddress) {
+      setIsCheckingRestrictions(true);
+      try {
+        const connection = getSolanaConnection();
+        const inspection = await inspectToken2022Mint(connection, params.tokenAddress);
+        
+        if (inspection.isToken2022) {
+          restriction = evaluateTransferRestrictions(inspection, solanaAddress);
+          banners = buildRestrictionBanners(restriction);
+          
+          if (!restriction.canTransfer) {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+            setTokenRestriction(restriction);
+            setRestrictionBanners(banners);
+            setShowFirewallModal(true);
+            setIsCheckingRestrictions(false);
+            return;
+          }
+        }
+      } catch (error) {
+        console.error("[SendDetails] Token-2022 inspection failed:", error);
+      }
+      setIsCheckingRestrictions(false);
+    }
 
-    const chainName = params.chainType === "solana" ? "Solana" : 
-      params.chainId === 1 ? "Ethereum" : 
-      params.chainId === 137 ? "Polygon" : "BNB Chain";
+    if (risk.reasons.length > 0) {
+      for (const reason of risk.reasons) {
+        banners.push({
+          type: risk.level === "high" ? "warning" : "info",
+          title: "Risk Warning",
+          message: reason,
+          icon: "alert-triangle",
+        });
+      }
+    }
 
-    Alert.alert(
-      "Wallet Firewall - Before You Sign",
-      `Transaction Summary:\n\nSending: ${amount} ${params.tokenSymbol}\nTo: ${recipient.slice(0, 10)}...${recipient.slice(-4)}\nNetwork: ${chainName}\n${feeText}\n\nRisk Level: ${getRiskLabel(risk.level)}${warningText}`,
-      [
-        { text: "Cancel", style: "cancel" },
-        { 
-          text: risk.level === "high" || risk.isScam ? "I Understand, Send" : "Confirm Send",
-          style: risk.level === "high" || risk.isScam ? "destructive" : "default",
-          onPress: handleSend
-        },
-      ]
-    );
+    setTokenRestriction(restriction);
+    setRestrictionBanners(banners);
+    setShowFirewallModal(true);
+  };
+
+  const handleFirewallConfirm = () => {
+    setShowFirewallModal(false);
+    handleSend();
+  };
+
+  const handleFirewallClose = () => {
+    setShowFirewallModal(false);
+  };
+
+  const getNetworkName = () => {
+    if (params.chainType === "solana") return "Solana";
+    switch (params.chainId) {
+      case 1: return "Ethereum";
+      case 137: return "Polygon";
+      case 56: return "BNB Chain";
+      default: return "EVM";
+    }
   };
 
   const handleScamModalClose = () => {
@@ -688,6 +735,22 @@ export default function SendDetailsScreen({ navigation, route }: Props) {
         reason={risk.scamReason || "Known malicious address detected"}
         onClose={handleScamModalClose}
         onProceedAnyway={handleProceedAnyway}
+      />
+
+      <WalletFirewallModal
+        visible={showFirewallModal}
+        onClose={handleFirewallClose}
+        onConfirm={handleFirewallConfirm}
+        amount={amount}
+        tokenSymbol={params.tokenSymbol}
+        recipient={recipient}
+        network={getNetworkName()}
+        fee={gasEstimate?.estimatedFeeFormatted || "Estimating..."}
+        riskLevel={risk.level}
+        riskReasons={risk.reasons}
+        restrictions={restrictionBanners}
+        isBlocked={!risk.canProceed || (tokenRestriction !== null && !tokenRestriction.canTransfer)}
+        isLoading={isSending}
       />
 
     </ThemedView>
