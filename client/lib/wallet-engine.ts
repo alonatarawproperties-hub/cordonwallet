@@ -10,6 +10,9 @@ import * as SecureStore from "expo-secure-store";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform } from "react-native";
 import { deriveSolanaAddress } from "./solana/keys";
+import { privateKeyToAccount } from "viem/accounts";
+import * as nacl from "tweetnacl";
+import bs58 from "bs58";
 
 // Check if native crypto is available (Web Crypto API)
 const hasNativeCrypto = typeof globalThis.crypto?.subtle?.deriveBits === "function";
@@ -39,6 +42,7 @@ interface EncryptedVault {
 
 interface DecryptedSecrets {
   mnemonics: Record<string, string>;
+  privateKeys?: Record<string, { type: "evm" | "solana"; key: string }>;
 }
 
 const STORAGE_KEYS = {
@@ -788,5 +792,136 @@ export async function addWalletToExistingVault(
     console.log("[WalletEngine] addWalletToExistingVault: Success", { walletId, name });
   }
   
+  return wallet;
+}
+
+export async function addWalletFromPrivateKey(
+  privateKey: string,
+  chainType: "evm" | "solana",
+  name: string
+): Promise<WalletRecord> {
+  if (!isVaultUnlocked || !cachedSecrets) {
+    throw new WalletLockedError();
+  }
+
+  const walletId = `wallet_${Date.now()}`;
+  let addresses: MultiChainAddresses;
+  let normalizedKey: string;
+
+  if (chainType === "evm") {
+    let pkHex = privateKey.trim();
+    if (pkHex.startsWith("0x")) {
+      pkHex = pkHex.slice(2);
+    }
+    if (!/^[0-9a-fA-F]{64}$/.test(pkHex)) {
+      throw new Error("Invalid EVM private key. Must be 64 hex characters.");
+    }
+    normalizedKey = pkHex.toLowerCase();
+    
+    const account = privateKeyToAccount(`0x${normalizedKey}`);
+    addresses = {
+      evm: account.address as `0x${string}`,
+      solana: "",
+    };
+  } else {
+    const trimmedKey = privateKey.trim();
+    let secretKeyBytes: Uint8Array;
+    
+    if (trimmedKey.startsWith("[")) {
+      try {
+        const numbers: number[] = JSON.parse(trimmedKey);
+        if (!Array.isArray(numbers) || numbers.length !== 64) {
+          throw new Error("Invalid Solana key: JSON array must have exactly 64 numbers");
+        }
+        if (!numbers.every(n => typeof n === "number" && n >= 0 && n <= 255)) {
+          throw new Error("Invalid Solana key: each number must be 0-255");
+        }
+        secretKeyBytes = Uint8Array.from(numbers);
+      } catch (e) {
+        if (e instanceof SyntaxError) {
+          throw new Error("Invalid JSON format for Solana secret key");
+        }
+        throw e;
+      }
+    } else {
+      try {
+        secretKeyBytes = bs58.decode(trimmedKey);
+      } catch {
+        throw new Error("Invalid base58 Solana secret key");
+      }
+    }
+    
+    if (secretKeyBytes.length !== 64) {
+      throw new Error(`Invalid Solana secret key length: expected 64 bytes, got ${secretKeyBytes.length}`);
+    }
+    
+    const keypair = nacl.sign.keyPair.fromSecretKey(secretKeyBytes);
+    const solanaAddress = bs58.encode(keypair.publicKey);
+    normalizedKey = bs58.encode(secretKeyBytes);
+    
+    addresses = {
+      evm: "" as `0x${string}`,
+      solana: solanaAddress,
+    };
+  }
+
+  const wallet: WalletRecord = {
+    id: walletId,
+    name,
+    address: chainType === "evm" ? addresses.evm : addresses.solana as `0x${string}`,
+    addresses,
+    walletType: chainType === "evm" ? "multi-chain" : "solana-only",
+    createdAt: Date.now(),
+  };
+
+  const meta = await loadVaultMeta();
+  
+  const isDuplicate = meta.wallets.some(w => {
+    if (chainType === "evm") {
+      return w.addresses?.evm && w.addresses.evm.toLowerCase() === addresses.evm.toLowerCase();
+    }
+    return w.addresses?.solana && w.addresses.solana === addresses.solana;
+  });
+  
+  if (isDuplicate) {
+    throw new Error("This wallet already exists. The same private key was previously imported.");
+  }
+
+  const newSecrets: DecryptedSecrets = {
+    ...cachedSecrets,
+    mnemonics: { ...cachedSecrets.mnemonics },
+    privateKeys: { 
+      ...(cachedSecrets.privateKeys || {}), 
+      [walletId]: { type: chainType, key: normalizedKey } 
+    }
+  };
+
+  const cachedKey = await getCachedVaultKey();
+  if (!cachedKey) {
+    throw new Error("Vault key not available. Please unlock with PIN first.");
+  }
+
+  const salt = randomBytes(16);
+  const iv = randomBytes(12);
+  const plaintext = new TextEncoder().encode(JSON.stringify(newSecrets));
+  const cipher = gcm(cachedKey, iv);
+  const ciphertext = cipher.encrypt(plaintext);
+
+  const encryptedVault: EncryptedVault = {
+    version: 1,
+    salt: bytesToHex(salt),
+    iv: bytesToHex(iv),
+    ciphertext: bytesToHex(ciphertext),
+  };
+
+  await setSecureItem(STORAGE_KEYS.VAULT, JSON.stringify(encryptedVault));
+  await saveVaultMeta([...meta.wallets, wallet], walletId);
+
+  cachedSecrets = newSecrets;
+
+  if (__DEV__) {
+    console.log("[WalletEngine] addWalletFromPrivateKey: Success", { walletId, name, chainType });
+  }
+
   return wallet;
 }

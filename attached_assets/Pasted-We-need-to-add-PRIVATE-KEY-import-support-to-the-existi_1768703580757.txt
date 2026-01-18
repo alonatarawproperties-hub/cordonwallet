@@ -1,0 +1,130 @@
+We need to add PRIVATE KEY import support to the existing Import Wallet screen WITHOUT breaking seed phrase import.
+
+PRIMARY FILE TO EDIT:
+- client/screens/ImportWalletScreen.tsx
+
+ONLY edit other files if absolutely required to reuse existing wallet creation/encryption helpers:
+- client/lib/wallet-context.tsx (only if ImportWalletScreen currently calls addWallet and it needs a new helper)
+- client/lib/solana/index.ts (only if we need a helper to create Keypair from private key)
+- client/lib/blockchain/index.ts (only if we need a helper to create EVM wallet from private key)
+
+DO NOT refactor unrelated UI or navigation.
+
+------------------------------------------------------------
+GOAL / UX
+In ImportWalletScreen.tsx, add an "Import Method" toggle at the top of the form:
+
+Import Method:
+1) Seed Phrase (default, existing behavior)
+2) Private Key (new)
+
+When "Seed Phrase" is selected:
+- Keep current UI exactly (12/24 word input)
+- Keep current import logic exactly
+
+When "Private Key" is selected:
+- Hide the seed phrase input
+- Show:
+  A) Chain Type segmented control:
+     - "EVM (ETH/POL/BNB)"
+     - "Solana (SOL)"
+  B) Private Key input (single multiline or secure input)
+  C) Keep Wallet Name field (existing)
+- Keep the existing “seed phrase never sent to servers” warning (reword optional)
+
+------------------------------------------------------------
+VALIDATION RULES
+EVM private key:
+- Accept 64 hex characters, with or without "0x"
+- Validation:
+  - After trimming, if startsWith("0x") remove it
+  - Must be exactly 64 hex chars and match /^[0-9a-fA-F]{64}$/
+- If invalid, show inline error and disable Import button
+
+Solana private key:
+Support two common formats:
+1) JSON array: "[12,34,...]" (64 numbers)
+   - Detect if trimmed starts with "["
+   - JSON.parse -> number[]
+   - Must be length 64
+   - Each number 0..255
+   - Uint8Array.from(numbers)
+2) Base58 secret key string (64 bytes)
+   - If not JSON, treat as base58
+   - Decode base58 to Uint8Array
+   - Must be length 64
+- Create Keypair.fromSecretKey(secretUint8)
+- Address = keypair.publicKey.toBase58()
+
+IMPORTANT:
+- Do NOT accept a Solana *public* address here. This is private key import.
+- Show clear error if decode fails or length not 64 bytes.
+
+------------------------------------------------------------
+IMPLEMENTATION DETAILS (ImportWalletScreen.tsx)
+1) Add state:
+- importMethod: "seed" | "private"
+- pkChain: "evm" | "solana"
+- privateKey: string
+- errorMsg: string | null
+- keep existing seed phrase state untouched
+
+2) UI:
+- Add a small segmented control / toggle for importMethod
+- If importMethod === "private", show pkChain segmented + privateKey input
+
+3) Import handler:
+- Keep existing seed import handler as-is.
+- Add a new handler for private key that:
+  - Validates according to rules above
+  - Uses existing wallet add/import flow used by seed import:
+    - Construct Wallet object in the same shape as the seed import flow produces
+    - Store secret material encrypted the same way (DO NOT store plaintext)
+    - Call addWallet(newWallet)
+  - Ensure addWallet auto-sets active wallet (do not change this if already implemented)
+
+4) Encryption / storage:
+- Reuse the same encryption helper used for seed phrase import.
+- If ImportWalletScreen currently calls something like:
+  - encryptAndStoreSeed(...)
+  - createWalletFromSeed(...)
+  - walletService.importFromMnemonic(...)
+Then mirror that pattern:
+  - encryptAndStorePrivateKey(...) (new)
+OR store as a generic “secret” payload with a type field:
+  { type: "evm_private_key", value: "<pk>" }
+  { type: "solana_secret_key", value: "<base58 or uint8 serialized>" }
+
+BUT keep it minimal: ideally create the same "Wallet" shape and store the encrypted secret in the same place as seed import does.
+
+SECURITY RULES:
+- NEVER console.log the key
+- NEVER send it to server
+- Keep everything on-device like current flow
+
+------------------------------------------------------------
+DEPENDENCIES
+EVM:
+- Use ethers if already installed/used in project.
+  const wallet = new ethers.Wallet("0x" + pkNo0x)
+  const evmAddress = wallet.address
+
+Solana:
+- Use @solana/web3.js Keypair
+- For base58 decoding:
+  - If project already uses bs58, reuse it.
+  - If not present, add bs58 dependency only if necessary (prefer existing utilities).
+
+------------------------------------------------------------
+EDGE CASES / TESTS
+1) Seed phrase import works exactly like before.
+2) EVM private key import creates wallet and shows correct EVM address.
+3) Solana private key import creates wallet and shows correct Solana address.
+4) Invalid keys show error and do not proceed.
+5) After import, navigate back to Home/Portfolio and active wallet should be the newly imported one (no extra PIN setup prompts).
+
+------------------------------------------------------------
+MAKE CHANGES SURGICALLY
+- Prefer implementing everything inside ImportWalletScreen.tsx
+- Only touch wallet-context.tsx or helper libs if ImportWalletScreen cannot create/add wallets otherwise.
+- Do not change other screens.
