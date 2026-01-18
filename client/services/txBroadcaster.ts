@@ -369,11 +369,11 @@ export function classifyError(error: string): {
     };
   }
   
-  // 0x1788 = InvalidAccountData - usually stale route data or pool state changed
+  // 0x1788 = InvalidAccountData - usually stale route data, pool state changed, or insufficient SOL for WSOL rent
   if (errorLower.includes("0x1788") || errorLower.includes("invalidaccountdata")) {
     return {
       category: "blockhash_expired",
-      userMessage: "Route data expired. Please try again.",
+      userMessage: "Swap route expired or needs more SOL for fees/rent. Add ~0.005 SOL and try again.",
       canRetry: true,
       needsRebuild: true,
     };

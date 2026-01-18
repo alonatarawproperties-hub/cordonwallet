@@ -5,12 +5,14 @@ export const FEE_CONSTANTS = {
   BASE_FEE_BUFFER_LAMPORTS: 5000,
   SAFETY_BUFFER_LAMPORTS: 200_000,
   ATA_RENT_LAMPORTS: 2_039_280,
+  WSOL_TEMP_RENT_LAMPORTS: 2_100_000,
 } as const;
 
 export interface FeeReserveBreakdown {
   priorityFeeCap: number;
   networkBaseFee: number;
   ataRent: number;
+  wsolTempRent: number;
   safetyBuffer: number;
   successFee: number;
 }
@@ -25,6 +27,7 @@ export interface EstimateFeeReserveParams {
   solBalanceLamports: number;
   priorityCapLamports: number;
   needsAtaRent: boolean;
+  isOutputSol?: boolean;
   successFeeLamports?: number;
   overrides?: Partial<typeof FEE_CONSTANTS>;
 }
@@ -34,6 +37,7 @@ export function estimateFeeReserveLamports(params: EstimateFeeReserveParams): Fe
     solBalanceLamports,
     priorityCapLamports,
     needsAtaRent,
+    isOutputSol = false,
     successFeeLamports = 0,
     overrides = {},
   } = params;
@@ -44,6 +48,7 @@ export function estimateFeeReserveLamports(params: EstimateFeeReserveParams): Fe
     priorityFeeCap: priorityCapLamports,
     networkBaseFee: constants.BASE_FEE_LAMPORTS + constants.BASE_FEE_BUFFER_LAMPORTS,
     ataRent: needsAtaRent ? constants.ATA_RENT_LAMPORTS : 0,
+    wsolTempRent: isOutputSol ? constants.WSOL_TEMP_RENT_LAMPORTS : 0,
     safetyBuffer: constants.SAFETY_BUFFER_LAMPORTS,
     successFee: successFeeLamports,
   };
@@ -52,6 +57,7 @@ export function estimateFeeReserveLamports(params: EstimateFeeReserveParams): Fe
     breakdown.priorityFeeCap +
     breakdown.networkBaseFee +
     breakdown.ataRent +
+    breakdown.wsolTempRent +
     breakdown.safetyBuffer +
     breakdown.successFee;
 
@@ -85,6 +91,9 @@ export function formatFeeBreakdown(breakdown: FeeReserveBreakdown): string[] {
   lines.push(`Network fee: ${lamportsToSolString(breakdown.networkBaseFee)} SOL`);
   if (breakdown.ataRent > 0) {
     lines.push(`Token account: ${lamportsToSolString(breakdown.ataRent)} SOL`);
+  }
+  if (breakdown.wsolTempRent > 0) {
+    lines.push(`WSOL temp rent: ${lamportsToSolString(breakdown.wsolTempRent)} SOL`);
   }
   if (breakdown.successFee > 0) {
     lines.push(`Success fee: ${lamportsToSolString(breakdown.successFee)} SOL`);

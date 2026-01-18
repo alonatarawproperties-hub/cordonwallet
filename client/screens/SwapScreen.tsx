@@ -288,17 +288,21 @@ export default function SwapScreen({ route }: Props) {
     return getSuccessFeeLamports(speed, isPro, successFeeEnabled);
   }, [speed, isPro, successFeeEnabled]);
 
+  const isOutputSolForFees = outputToken?.mint === SOL_MINT;
+  
   const feeReserve: FeeReserveResult = useMemo(() => {
     return estimateFeeReserveLamports({
       solBalanceLamports,
       priorityCapLamports,
       needsAtaRent,
+      isOutputSol: isOutputSolForFees,
       successFeeLamports,
     });
-  }, [solBalanceLamports, priorityCapLamports, needsAtaRent, successFeeLamports]);
+  }, [solBalanceLamports, priorityCapLamports, needsAtaRent, isOutputSolForFees, successFeeLamports]);
 
   const spendableSol = feeReserve.spendableLamports / LAMPORTS_PER_SOL;
   const isInputSol = inputToken?.mint === SOL_MINT;
+  const isOutputSol = outputToken?.mint === SOL_MINT;
   const insufficientSolForFees = solBalanceLamports < feeReserve.reserveLamports;
 
   // Header with slippage button
@@ -1668,10 +1672,10 @@ export default function SwapScreen({ route }: Props) {
             <Feather name="alert-triangle" size={18} color={theme.danger} />
             <View style={{ flex: 1, marginLeft: Spacing.sm }}>
               <ThemedText type="small" style={{ color: theme.danger, fontWeight: "600" }}>
-                Not enough SOL for fees
+                Need at least {lamportsToSolString(feeReserve.reserveLamports)} SOL for fees
               </ThemedText>
               <ThemedText type="caption" style={{ color: theme.danger, marginTop: 2, opacity: 0.85 }}>
-                This swap requires ~{lamportsToSolString(feeReserve.reserveLamports)} SOL for network fees and temporary WSOL/rent. Add SOL to continue.
+                Your SOL: {lamportsToSolString(solBalanceLamports)}.{isOutputSol ? " This swap to SOL needs extra for temporary WSOL rent." : ""} Add more SOL to proceed.
               </ThemedText>
             </View>
           </View>
