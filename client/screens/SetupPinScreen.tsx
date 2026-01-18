@@ -44,13 +44,12 @@ export default function SetupPinScreen({ navigation, route }: Props) {
       }
       if (pinExists) {
         if (__DEV__) {
-          console.log("[SetupPin] PIN already exists, redirecting away from SetupPin");
+          console.log("[SetupPin] PIN already exists, silently redirecting to Main");
         }
-        Alert.alert(
-          "PIN Already Set",
-          "Your device already has a PIN configured. Redirecting...",
-          [{ text: "OK", onPress: () => navigation.goBack() }]
-        );
+        navigation.reset({
+          index: 0,
+          routes: [{ name: "Main" }],
+        });
       }
     };
     checkPinExists();

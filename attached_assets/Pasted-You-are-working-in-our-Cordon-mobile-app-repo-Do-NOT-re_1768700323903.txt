@@ -1,0 +1,79 @@
+You are working in our Cordon mobile app repo. Do NOT refactor unrelated code. Make minimal, safe changes only. Goal: fix wallet add/import UX + PIN flow + active wallet refresh + freeze issue. Keep existing working features.
+
+PROBLEMS TO FIX:
+A) After creating/importing a 2nd wallet, app still navigates to Set PIN even though PIN is already set. It shows “PIN Already Set… Redirecting” popup. This is wrong: PIN is device-level; if already set, skip SetPin screen entirely.
+B) WalletSwitcherSheet “+ Add Wallet” is confusing: it only leads to Create Wallet. We want “Add Wallet” to offer BOTH Create and Import, matching our dark theme. Import should not be hidden only behind Manage.
+C) After closing the add-wallet popup/menu, sometimes the app freezes (can’t tap anything). Likely a modal/backdrop overlay not being dismissed properly.
+D) After import/create wallet, active wallet should become the newly added wallet immediately AND portfolio/assets should refresh for the new wallet address. Currently it still shows assets/custom tokens from old wallet (e.g., FREE appears, SOL/ROACHY missing), meaning active wallet and portfolio hooks/cache are stale.
+
+FILES:
+- Wallet switcher bottom sheet: client/components/WalletSwitcherSheet.tsx
+- Wallet store/context: client/lib/wallet-context.tsx
+- Portfolio hooks:
+  - client/hooks/usePortfolio.ts
+  - client/hooks/useSolanaPortfolio.ts
+  - client/hooks/useAllChainsPortfolio.ts
+- Portfolio cache layer: client/lib/portfolio-cache.ts
+- PIN flow screens/services (search these):
+  - client/screens/SetPin*.tsx or similar
+  - client/lib/pin*.ts or similar
+  - any navigation that routes to SetPin after wallet create/import
+
+IMPLEMENTATION REQUIREMENTS (MINIMAL CHANGES):
+1) FIX “ADD WALLET” UX (WalletSwitcherSheet.tsx)
+   - When user taps “+ Add Wallet”, open a small themed action sheet / modal (same dark theme) with 2 options:
+     - “Create New Wallet”
+     - “Import Wallet”
+   - Each option should navigate to the existing Create Wallet screen or Import Wallet screen.
+   - Ensure closing/dismissing the action sheet NEVER freezes touches:
+     - The modal/backdrop must unmount on close.
+     - Backdrop should not keep pointerEvents after close.
+     - Make sure state is set to false on dismiss.
+   - Use existing components/utilities if present (existing BottomSheet/Modal component). If none exists, implement a very small React Native Modal with:
+     - transparent backdrop
+     - centered card
+     - two buttons styled like our UI
+     - tapping backdrop closes it
+
+2) FIX PIN FLOW (SKIP SetPin if already set)
+   - Find where we route to SetPin after wallet create/import.
+   - Before navigating, check if a PIN already exists in secure storage (whatever our current mechanism is).
+   - If PIN exists:
+     - DO NOT navigate to SetPin.
+     - Just continue the create/import flow and navigate to Home.
+   - If PIN does NOT exist:
+     - Navigate to SetPin normally.
+   - Also make SetPin screen safe:
+     - On mount, if pinAlreadyExists, immediately navigate back/home without showing a blocking modal that might cause overlay freeze.
+
+3) AFTER CREATE/IMPORT: AUTO-SET ACTIVE WALLET + NAVIGATE HOME
+   - When create wallet succeeds OR import wallet succeeds:
+     - call setActiveWallet(newWalletId) (or setActiveWalletByAddress) in wallet-context
+     - ensure wallet dropdown/header shows the new wallet instantly
+     - navigate/reset to the main Home screen (Main tab) so user lands in the new wallet view
+   - This should happen regardless of Multi-chain or Solana-only wallet types.
+
+4) PORTFOLIO/ASSETS MUST REFRESH FOR ACTIVE WALLET
+   - Ensure portfolio hooks depend on active wallet address (and chain IDs) correctly.
+     - If using React Query/SWR-like keys, include walletAddress in the key.
+     - If using useEffect, include activeWallet.address in dependency array.
+   - Fix portfolio-cache.ts so cache keys include wallet address + chain (avoid showing old wallet balances).
+   - On setActiveWallet, invalidate/clear portfolio cache for the new address or trigger refetch.
+   - Ensure custom tokens don’t appear as “owned” unless the current wallet actually has balance. If we always list custom tokens, they should still show 0 balance but MUST NOT replace/override the wallet address used for fetching.
+
+5) QUICK SAFETY CHECKS
+   - Do not break existing swaps/transactions.
+   - Add simple console logs behind a dev flag if needed:
+     - when active wallet changes
+     - when portfolio fetch runs (print wallet address)
+   - After changes, verify:
+     - Tap “+ Add Wallet” => see Create/Import options styled correctly
+     - Closing the menu does not freeze UI
+     - Create wallet => no SetPin if PIN already set; directly goes Home; new wallet is active
+     - Import wallet => same behavior
+     - Portfolio shows SOL/ROACHY for the newly active wallet; does not show old wallet assets
+
+DELIVERABLE:
+- Implement the code changes in the files above.
+- List exactly what files changed and a short summary of each change.
+- No unrelated refactors.

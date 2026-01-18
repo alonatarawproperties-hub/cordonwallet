@@ -13,7 +13,8 @@ import { ThemedView } from "@/components/ThemedView";
 import { Button } from "@/components/Button";
 import { Input } from "@/components/Input";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
-import { generateMnemonic } from "@/lib/wallet-engine";
+import { generateMnemonic, hasDevicePin, isUnlocked, addWalletToExistingVault } from "@/lib/wallet-engine";
+import { useWallet } from "@/lib/wallet-context";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 import type { WalletType } from "@/lib/types";
 
@@ -48,6 +49,7 @@ export default function CreateWalletScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
   const { theme } = useTheme();
+  const { addWallet } = useWallet();
   const [walletName, setWalletName] = useState("Main Wallet");
   const [walletType, setWalletType] = useState<WalletType>("multi-chain");
   const [isCreating, setIsCreating] = useState(false);
@@ -67,14 +69,59 @@ export default function CreateWalletScreen({ navigation }: Props) {
     
     try {
       const mnemonic = generateMnemonic();
-      navigation.navigate("SetupPin", { 
-        mnemonic, 
-        walletName: walletName.trim(),
-        isImport: false,
-        walletType,
-      });
-    } catch (error) {
-      Alert.alert("Error", "Failed to generate wallet. Please try again.");
+      const pinExists = await hasDevicePin();
+      
+      if (__DEV__) {
+        console.log("[CreateWallet] hasDevicePin:", pinExists, "isUnlocked:", isUnlocked());
+      }
+      
+      if (!pinExists) {
+        if (__DEV__) {
+          console.log("[CreateWallet] Route: SetupPin (first time PIN creation)");
+        }
+        navigation.navigate("SetupPin", { 
+          mnemonic, 
+          walletName: walletName.trim(),
+          isImport: false,
+          walletType,
+        });
+      } else if (isUnlocked()) {
+        if (__DEV__) {
+          console.log("[CreateWallet] Route: Direct create (vault already unlocked)");
+        }
+        const wallet = await addWalletToExistingVault(mnemonic, walletName.trim(), walletType);
+        await addWallet({
+          id: wallet.id,
+          name: wallet.name,
+          address: wallet.address,
+          addresses: wallet.addresses,
+          walletType: wallet.walletType,
+          createdAt: wallet.createdAt,
+        });
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        navigation.navigate("BackupWarning", { 
+          seedPhrase: mnemonic.split(" "), 
+          walletId: wallet.id 
+        });
+      } else {
+        if (__DEV__) {
+          console.log("[CreateWallet] Route: Unlock required (PIN exists but locked)");
+        }
+        Alert.alert(
+          "Unlock Required",
+          "Please unlock your wallet first, then try creating again.",
+          [
+            { text: "Cancel", style: "cancel" },
+            { 
+              text: "Unlock", 
+              onPress: () => navigation.navigate("Unlock")
+            }
+          ]
+        );
+      }
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Failed to generate wallet. Please try again.";
+      Alert.alert("Error", message);
     } finally {
       setIsCreating(false);
     }
