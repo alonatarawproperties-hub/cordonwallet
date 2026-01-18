@@ -1,0 +1,90 @@
+TASK: Make the “Private Key” input in client/screens/ImportWalletScreen.tsx more human-readable (Solana + EVM) WITHOUT changing import logic. Only adjust UI strings + add a small helper text + optional inline “Where do I find this?” expander. Keep theme styling. Do not refactor unrelated code.
+
+FILE: client/screens/ImportWalletScreen.tsx
+SECTION: Private Key import UI (the block the user pasted, around lines 533-640)
+
+1) Add state near other useState declarations at top of component:
+   const [showPkHelp, setShowPkHelp] = useState(false);
+
+2) Update the Input label from:
+   label="Private Key"
+   to:
+   label={pkChain === "solana" ? "Secret Key (Solana)" : "Private Key (EVM)"}
+
+   (This keeps it simple and immediately understandable.)
+
+3) Update placeholder to be human:
+   Replace:
+     placeholder={pkChain === "evm"
+       ? "Enter 64-character hex key (with or without 0x)..."
+       : "Enter base58 secret key or JSON array [12,34,...]..."}
+   With:
+     placeholder={pkChain === "evm"
+       ? "Paste your EVM private key (64 hex characters, with or without 0x)"
+       : "Paste your Solana secret key (usually a long Base58 string)"}
+
+   IMPORTANT: We still accept JSON arrays — we just don’t scare users in the placeholder.
+
+4) Immediately UNDER the <Input ... /> add a small helper row + optional expander (uses Feather + ThemedText + theme colors).
+   Insert right after the </View> that wraps the Input (inside styles.seedInput), before pkError rendering:
+
+   <Pressable
+     onPress={() => setShowPkHelp(v => !v)}
+     style={{ flexDirection: "row", alignItems: "center", marginTop: 10 }}
+     hitSlop={10}
+   >
+     <Feather name="help-circle" size={16} color={theme.textSecondary} />
+     <ThemedText
+       type="small"
+       style={{ color: theme.textSecondary, marginLeft: 8, textDecorationLine: "underline" }}
+     >
+       Where do I find this?
+     </ThemedText>
+   </Pressable>
+
+   {showPkHelp ? (
+     <View style={[styles.previewCard, { backgroundColor: theme.backgroundDefault, borderColor: theme.border + "60" }]}>
+       <Feather name="info" size={18} color={theme.textSecondary} />
+       <View style={{ flex: 1 }}>
+         <ThemedText type="small" style={{ color: theme.textPrimary, fontWeight: "600" }}>
+           {pkChain === "solana" ? "Solana secret key formats" : "EVM private key format"}
+         </ThemedText>
+
+         {pkChain === "solana" ? (
+           <>
+             <ThemedText type="small" style={{ color: theme.textSecondary, marginTop: 6 }}>
+               • Most wallets export a long Base58 “Secret Key”.
+             </ThemedText>
+             <ThemedText type="small" style={{ color: theme.textSecondary, marginTop: 4 }}>
+               • Dev tools may export a JSON array like [12,34,...]. We accept both.
+             </ThemedText>
+           </>
+         ) : (
+           <>
+             <ThemedText type="small" style={{ color: theme.textSecondary, marginTop: 6 }}>
+               • 64 hex characters (sometimes starts with 0x). Example: 0xabc...
+             </ThemedText>
+             <ThemedText type="small" style={{ color: theme.textSecondary, marginTop: 4 }}>
+               • Never share this with anyone.
+             </ThemedText>
+           </>
+         )}
+       </View>
+     </View>
+   ) : null}
+
+5) Keep the existing warning card (“never sent to our servers…”) as-is.
+
+6) Do NOT change:
+   - handlePrivateKeyChange / handlePrivateKeyBlur
+   - validation logic (pkError, pkPreviewAddress)
+   - import flow (handlePrivateKeyImport)
+
+Goal:
+- The private key container should read “human”.
+- Placeholder should not mention JSON.
+- Helper explains formats only when needed.
+
+After changes:
+- Run TypeScript check / build if available.
+- Ensure no lint errors and UI compiles.

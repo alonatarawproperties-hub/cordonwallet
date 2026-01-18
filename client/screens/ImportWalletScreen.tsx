@@ -74,6 +74,7 @@ export default function ImportWalletScreen({ navigation }: Props) {
   const [privateKey, setPrivateKey] = useState("");
   const [pkError, setPkError] = useState<string | null>(null);
   const [pkPreviewAddress, setPkPreviewAddress] = useState<string | null>(null);
+  const [showPkHelp, setShowPkHelp] = useState(false);
 
   const handleSelectType = async (type: WalletType) => {
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -585,13 +586,13 @@ export default function ImportWalletScreen({ navigation }: Props) {
               
               <View style={styles.seedInput}>
                 <Input
-                  label="Private Key"
+                  label={pkChain === "solana" ? "Secret Key (Solana)" : "Private Key (EVM)"}
                   value={privateKey}
                   onChangeText={handlePrivateKeyChange}
                   onBlur={handlePrivateKeyBlur}
                   placeholder={pkChain === "evm" 
-                    ? "Enter 64-character hex key (with or without 0x)..." 
-                    : "Enter base58 secret key or JSON array [12,34,...]..."}
+                    ? "Paste your EVM private key (64 hex characters, with or without 0x)" 
+                    : "Paste your Solana secret key (usually a long Base58 string)"}
                   multiline
                   numberOfLines={4}
                   autoCapitalize="none"
@@ -600,6 +601,51 @@ export default function ImportWalletScreen({ navigation }: Props) {
                   style={styles.multilineInput}
                 />
               </View>
+
+              <Pressable
+                onPress={() => setShowPkHelp(v => !v)}
+                style={{ flexDirection: "row", alignItems: "center", marginTop: 10 }}
+                hitSlop={10}
+              >
+                <Feather name="help-circle" size={16} color={theme.textSecondary} />
+                <ThemedText
+                  type="small"
+                  style={{ color: theme.textSecondary, marginLeft: 8, textDecorationLine: "underline" }}
+                >
+                  Where do I find this?
+                </ThemedText>
+              </Pressable>
+
+              {showPkHelp ? (
+                <View style={[styles.previewCard, { backgroundColor: theme.backgroundDefault, borderColor: theme.border + "60" }]}>
+                  <Feather name="info" size={18} color={theme.textSecondary} />
+                  <View style={{ flex: 1 }}>
+                    <ThemedText type="small" style={{ color: theme.text, fontWeight: "600" }}>
+                      {pkChain === "solana" ? "Solana secret key formats" : "EVM private key format"}
+                    </ThemedText>
+
+                    {pkChain === "solana" ? (
+                      <>
+                        <ThemedText type="small" style={{ color: theme.textSecondary, marginTop: 6 }}>
+                          Most wallets export a long Base58 "Secret Key".
+                        </ThemedText>
+                        <ThemedText type="small" style={{ color: theme.textSecondary, marginTop: 4 }}>
+                          Dev tools may export a JSON array like [12,34,...]. We accept both.
+                        </ThemedText>
+                      </>
+                    ) : (
+                      <>
+                        <ThemedText type="small" style={{ color: theme.textSecondary, marginTop: 6 }}>
+                          64 hex characters (sometimes starts with 0x). Example: 0xabc...
+                        </ThemedText>
+                        <ThemedText type="small" style={{ color: theme.textSecondary, marginTop: 4 }}>
+                          Never share this with anyone.
+                        </ThemedText>
+                      </>
+                    )}
+                  </View>
+                </View>
+              ) : null}
 
               {pkError ? (
                 <View style={[styles.previewCard, { backgroundColor: theme.danger + "15", borderColor: theme.danger + "40" }]}>
