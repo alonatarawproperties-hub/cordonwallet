@@ -80,10 +80,10 @@ const EXTENSION_SECURITY_INFO: Record<number, {
     technicalDetail: "MemoTransfer requires incoming transfers to include a memo instruction.",
   },
   [ExtensionType.NonTransferable]: {
-    name: "Non-Transferable (Soulbound)",
-    riskLevel: "caution",
-    explanation: "This token cannot be sent to others. It's permanently bound to your wallet.",
-    technicalDetail: "NonTransferable makes the token soulbound - it cannot be transferred after minting.",
+    name: "Non-Transferable",
+    riskLevel: "risky",
+    explanation: "You cannot send this token to anyone. Only the permanent delegate (if set) can move it. This is common for in-game items or loyalty tokens.",
+    technicalDetail: "NonTransferable extension prevents all holder-initiated transfers. Only the permanent delegate authority can transfer.",
   },
   [ExtensionType.InterestBearingConfig]: {
     name: "Interest Bearing",

@@ -20,8 +20,11 @@ import { ScamExplainerModal } from "@/components/ScamExplainerModal";
 import { AnimatedRiskCard } from "@/components/AnimatedRiskCard";
 import { WalletFirewallModal, RestrictionBanner, buildRestrictionBanners } from "@/components/WalletFirewallModal";
 import { useWallet } from "@/lib/wallet-context";
-import { inspectToken2022Mint, evaluateTransferRestrictions, Token2022InspectionResult, TransferRestriction } from "@/lib/solana/token2022Guard";
-import { getSolanaConnection } from "@/lib/solana/connection";
+import { inspectToken2022Mint, evaluateTransferRestrictions, TransferRestriction } from "@/lib/solana/token2022Guard";
+import { Connection } from "@solana/web3.js";
+
+const SOLANA_RPC_URL = process.env.SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com";
+
 import {
   sendNative,
   sendERC20,
@@ -469,7 +472,7 @@ export default function SendDetailsScreen({ navigation, route }: Props) {
     if (params.chainType === "solana" && !params.isNative && params.tokenAddress) {
       setIsCheckingRestrictions(true);
       try {
-        const connection = getSolanaConnection();
+        const connection = new Connection(SOLANA_RPC_URL, "confirmed");
         const inspection = await inspectToken2022Mint(connection, params.tokenAddress);
         
         if (inspection.isToken2022) {
