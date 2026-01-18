@@ -1,0 +1,54 @@
+TASK: Fix WalletSwitcherSheet “Add Wallet” UX + freeze bug.
+
+Context:
+- The “Select Wallet” bottom sheet is in: client/components/WalletSwitcherSheet.tsx
+- Current behavior:
+  1) Tapping “+ Add Wallet” opens an iOS native action sheet / menu (“Create New Wallet / Import Wallet”) that does NOT match our theme.
+  2) After closing that menu, the app sometimes freezes (cannot tap anything). This is likely due to overlapping modals/overlays/backdrops where an invisible overlay remains mounted and blocks touches.
+
+Goal:
+- Remove the native action sheet/menu entirely.
+- Make “Add Wallet” expand INSIDE the WalletSwitcherSheet, using our themed UI.
+- Ensure no touch-freeze: always close/dismiss the bottom sheet before navigating to Create/Import, and avoid overlay stacking.
+
+Implementation Plan (Do not touch unrelated files):
+1) Edit ONLY: client/components/WalletSwitcherSheet.tsx
+2) Replace the “+ Add Wallet” button behavior:
+   - Instead of showing an ActionSheet/menu, toggle a local state:
+     const [showAddActions, setShowAddActions] = useState(false);
+   - When user taps “+ Add Wallet”, show a small inline section in the sheet with two themed buttons:
+     - “Create New Wallet”
+     - “Import Wallet”
+   - This inline section must match theme: same card background, radius, padding, text styles as other items in the sheet.
+   - Add a subtle divider or spacing; no iOS-native menu.
+
+3) Prevent freeze / overlay blocking:
+   - When user chooses “Create New Wallet” or “Import Wallet”:
+     a) Immediately close the WalletSwitcherSheet (call the sheet’s close/dismiss method already used by the X close button).
+     b) After the sheet finishes closing (use a short setTimeout ~250ms OR a callback if available), then navigate to the correct screen.
+   - Also ensure when the sheet is closing, showAddActions resets to false.
+   - Ensure sheet backdrop does not remain intercepting touches:
+     - If your bottom sheet uses a backdrop component, confirm pointerEvents is correct after close.
+     - Make sure we are NOT leaving any Modal/Portal mounted.
+
+4) UX rules:
+   - “+ Add Wallet” should toggle the inline options (open/close).
+   - When inline options are visible, change the “+ Add Wallet” label to “Cancel” (or “Hide”) to close that inline section.
+   - Keep “Manage” button as-is.
+   - Keep wallet list selection as-is.
+
+5) Navigation targets:
+   - Use the existing navigation logic currently triggered by the action sheet options.
+   - If current code calls something like navigation.navigate("CreateWallet") and navigation.navigate("ImportWallet"), reuse it exactly.
+   - Do not rename routes.
+
+6) Testing checklist (must do):
+   - Open WalletSwitcherSheet → tap “+ Add Wallet” → inline options appear themed.
+   - Tap outside / close (X) → sheet closes, app remains tappable.
+   - Tap “Create New Wallet” → sheet closes then navigates, no freeze.
+   - Tap “Import Wallet” → sheet closes then navigates, no freeze.
+   - Repeat multiple times quickly; ensure no stuck overlay and no double navigation.
+
+Deliverable:
+- A single clean diff in WalletSwitcherSheet.tsx implementing the above.
+- Do NOT introduce new libraries. Do NOT change styles globally. Do NOT modify other components.
