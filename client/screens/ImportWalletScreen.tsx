@@ -591,8 +591,8 @@ export default function ImportWalletScreen({ navigation }: Props) {
                   onChangeText={handlePrivateKeyChange}
                   onBlur={handlePrivateKeyBlur}
                   placeholder={pkChain === "evm" 
-                    ? "Paste your EVM private key (64 hex characters, with or without 0x)" 
-                    : "Paste your Solana secret key (usually a long Base58 string)"}
+                    ? "Paste your private key here..." 
+                    : "Paste your secret key here..."}
                   multiline
                   numberOfLines={4}
                   autoCapitalize="none"
@@ -627,19 +627,19 @@ export default function ImportWalletScreen({ navigation }: Props) {
                     {pkChain === "solana" ? (
                       <>
                         <ThemedText type="small" style={{ color: theme.textSecondary, marginTop: 6 }}>
-                          Most wallets export a long Base58 "Secret Key".
+                          In Phantom: Settings → Security → Export Secret Key
                         </ThemedText>
                         <ThemedText type="small" style={{ color: theme.textSecondary, marginTop: 4 }}>
-                          Dev tools may export a JSON array like [12,34,...]. We accept both.
+                          It's a long string of letters and numbers. Never share it with anyone.
                         </ThemedText>
                       </>
                     ) : (
                       <>
                         <ThemedText type="small" style={{ color: theme.textSecondary, marginTop: 6 }}>
-                          64 hex characters (sometimes starts with 0x). Example: 0xabc...
+                          In MetaMask: Account Details → Show Private Key
                         </ThemedText>
                         <ThemedText type="small" style={{ color: theme.textSecondary, marginTop: 4 }}>
-                          Never share this with anyone.
+                          It's a long string of letters and numbers. Never share it with anyone.
                         </ThemedText>
                       </>
                     )}
