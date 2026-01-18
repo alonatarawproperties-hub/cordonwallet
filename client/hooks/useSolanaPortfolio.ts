@@ -4,6 +4,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { getApiUrl } from "@/lib/query-client";
 import { getCustomTokens, getHiddenTokens, CustomToken } from "@/lib/token-preferences";
 import { getPreloadedCache, clearPreloadedCache, getDefaultNativeTokens } from "@/lib/portfolio-cache";
+import { useWallet } from "@/lib/wallet-context";
 
 const POLLING_INTERVAL = 60000; // 60 seconds - less disruptive
 
@@ -68,6 +69,7 @@ const CACHE_KEY_PREFIX = "@cordon/solana_portfolio_v2_";
 const CACHE_DURATION = 30000;
 
 export function useSolanaPortfolio(address: string | undefined) {
+  const { portfolioRefreshNonce } = useWallet();
   // Initialize with default native SOL token for instant visual feedback
   const defaultSolAsset = getDefaultNativeTokens().solana;
   
@@ -101,6 +103,11 @@ export function useSolanaPortfolio(address: string | undefined) {
     }
   }, [address, defaultSolAsset]);
 
+  // Reset fetch tracking when nonce changes (wallet switch/add)
+  useEffect(() => {
+    lastFetchRef.current = "";
+  }, [portfolioRefreshNonce]);
+
   const fetchBalances = useCallback(async (isRefresh = false, isSilent = false) => {
     if (!address) {
       setState(prev => ({ ...prev, isLoading: false, assets: [] }));
@@ -109,7 +116,7 @@ export function useSolanaPortfolio(address: string | undefined) {
 
     // Capture the address at the start of this fetch for race condition prevention
     const fetchAddress = address;
-    const fetchKey = `solana_${address}`;
+    const fetchKey = `solana_${address}_${portfolioRefreshNonce}`;
 
     if (!isRefresh && fetchKey === lastFetchRef.current && state.assets.length > 0) {
       return;

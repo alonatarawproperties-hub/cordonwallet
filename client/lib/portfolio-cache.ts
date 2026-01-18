@@ -114,6 +114,13 @@ export function invalidateAllCaches(): void {
   console.log("[PortfolioCache] Invalidated all wallet caches");
 }
 
+// Reset in-memory portfolio cache (called on wallet switch/add)
+export function resetPortfolioCache(): void {
+  preloadedCacheMap.clear();
+  currentCacheKey = null;
+  console.log("[PortfolioCache] Reset in-memory portfolio cache");
+}
+
 export async function prefetchPortfolioCache(
   evmAddress?: string,
   solanaAddress?: string

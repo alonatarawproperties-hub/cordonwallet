@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback, Rea
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { Wallet, Bundle, NetworkId, PolicySettings, Transaction, Approval, TokenBalance } from "./types";
 import { listWallets, getActiveWallet, setActiveWalletById, renameWallet as renameWalletEngine, WalletRecord } from "./wallet-engine";
+import { resetPortfolioCache } from "./portfolio-cache";
 
 interface WalletContextType {
   isInitialized: boolean;
@@ -15,7 +16,8 @@ interface WalletContextType {
   balances: TokenBalance[];
   transactions: Transaction[];
   approvals: Approval[];
-  setActiveWallet: (wallet: Wallet | null) => void;
+  portfolioRefreshNonce: number;
+  setActiveWallet: (wallet: Wallet | null) => Promise<void>;
   setSelectedNetwork: (networkId: NetworkId) => void;
   addWallet: (wallet: Wallet) => Promise<void>;
   removeWallet: (walletId: string) => Promise<void>;
@@ -68,6 +70,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const [balances, setBalances] = useState<TokenBalance[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [approvals, setApprovals] = useState<Approval[]>([]);
+  const [portfolioRefreshNonce, setPortfolioRefreshNonce] = useState(0);
 
   const refreshWallets = useCallback(async () => {
     try {
@@ -127,9 +130,17 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   };
 
   const setActiveWallet = async (wallet: Wallet | null) => {
+    // Clear in-memory portfolio cache before switching
+    resetPortfolioCache();
+    // Set active wallet in state immediately for UI
     setActiveWalletState(wallet);
     if (wallet) {
       await setActiveWalletById(wallet.id);
+    }
+    // Bump nonce to force portfolio refresh
+    setPortfolioRefreshNonce(n => n + 1);
+    if (__DEV__) {
+      console.log("[WalletContext] Active wallet changed, portfolio nonce bumped");
     }
   };
 
@@ -139,10 +150,20 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   };
 
   const addWallet = async (wallet: Wallet) => {
-    const newWallets = [...wallets, wallet];
-    setWallets(newWallets);
+    // Use functional update to avoid stale closure issues
+    setWallets(prev => [...prev, wallet]);
     setHasWallet(true);
-    await setActiveWallet(wallet);
+    // Clear in-memory portfolio cache before switching
+    resetPortfolioCache();
+    // Set active wallet immediately for UI responsiveness
+    setActiveWalletState(wallet);
+    // Persist active wallet ID
+    await setActiveWalletById(wallet.id);
+    // Bump nonce to force portfolio refresh
+    setPortfolioRefreshNonce(n => n + 1);
+    if (__DEV__) {
+      console.log("[WalletContext] Wallet added and set as active:", wallet.name);
+    }
   };
 
   const removeWallet = async (walletId: string) => {
@@ -224,6 +245,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         balances,
         transactions,
         approvals,
+        portfolioRefreshNonce,
         setActiveWallet,
         setSelectedNetwork,
         addWallet,

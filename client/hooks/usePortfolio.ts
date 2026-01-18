@@ -5,6 +5,7 @@ import { getTokensForChain, TokenInfo } from "@/lib/blockchain/tokens";
 import { getChainById } from "@/lib/blockchain/chains";
 import { NETWORKS, NetworkId } from "@/lib/types";
 import { getApiUrl } from "@/lib/query-client";
+import { useWallet } from "@/lib/wallet-context";
 
 export interface PortfolioAsset {
   symbol: string;
@@ -34,6 +35,7 @@ function getChainIdFromNetworkId(networkId: NetworkId): number {
 }
 
 export function usePortfolio(address: string | undefined, networkId: NetworkId) {
+  const { portfolioRefreshNonce } = useWallet();
   const [state, setState] = useState<PortfolioState>({
     assets: [],
     isLoading: true,
@@ -66,6 +68,11 @@ export function usePortfolio(address: string | undefined, networkId: NetworkId) 
     }
   }, [address]);
 
+  // Reset fetch tracking when nonce changes (wallet switch/add)
+  useEffect(() => {
+    lastFetchRef.current = "";
+  }, [portfolioRefreshNonce]);
+
   const fetchBalances = useCallback(async (isRefresh = false) => {
     if (!address) {
       setState(prev => ({ ...prev, isLoading: false, assets: [] }));
@@ -86,7 +93,7 @@ export function usePortfolio(address: string | undefined, networkId: NetworkId) 
       return;
     }
 
-    const fetchKey = `${address}_${chainId}`;
+    const fetchKey = `${address}_${chainId}_${portfolioRefreshNonce}`;
     
     if (!isRefresh && fetchKey === lastFetchRef.current && state.assets.length > 0) {
       return;

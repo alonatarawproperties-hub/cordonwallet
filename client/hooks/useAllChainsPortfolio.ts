@@ -6,6 +6,7 @@ import { getTokensForChain } from "@/lib/blockchain/tokens";
 import { supportedChains, getChainById } from "@/lib/blockchain/chains";
 import { getApiUrl } from "@/lib/query-client";
 import { getPreloadedCache, clearPreloadedCache, savePortfolioDisplayCache, getDefaultNativeTokens } from "@/lib/portfolio-cache";
+import { useWallet } from "@/lib/wallet-context";
 
 const POLLING_INTERVAL = 60000; // 60 seconds - less disruptive
 
@@ -36,6 +37,7 @@ const CACHE_KEY_PREFIX = "@cordon/all_chains_portfolio_v2_";
 const CACHE_DURATION = 30000;
 
 export function useAllChainsPortfolio(address: string | undefined) {
+  const { portfolioRefreshNonce } = useWallet();
   // Initialize with default native tokens for instant visual feedback
   const defaultEvmAssets = getDefaultNativeTokens().evm;
   
@@ -69,6 +71,11 @@ export function useAllChainsPortfolio(address: string | undefined) {
     }
   }, [address, defaultEvmAssets]);
 
+  // Reset fetch tracking when nonce changes (wallet switch/add)
+  useEffect(() => {
+    lastFetchRef.current = "";
+  }, [portfolioRefreshNonce]);
+
   const fetchAllBalances = useCallback(async (isRefresh = false, isSilent = false) => {
     if (!address) {
       setState(prev => ({ ...prev, isLoading: false, assets: [] }));
@@ -77,7 +84,7 @@ export function useAllChainsPortfolio(address: string | undefined) {
 
     // Capture the address at the start of this fetch for race condition prevention
     const fetchAddress = address;
-    const fetchKey = `all_${address}`;
+    const fetchKey = `all_${address}_${portfolioRefreshNonce}`;
 
     if (!isRefresh && fetchKey === lastFetchRef.current && state.assets.length > 0) {
       return;

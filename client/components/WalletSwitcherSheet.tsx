@@ -5,6 +5,7 @@ import {
   Modal,
   Pressable,
   ScrollView,
+  InteractionManager,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
@@ -50,18 +51,18 @@ export function WalletSwitcherSheet({ visible, onClose }: Props) {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setShowAddActions(false);
     onClose();
-    setTimeout(() => {
+    InteractionManager.runAfterInteractions(() => {
       navigation.navigate("CreateWallet");
-    }, 250);
+    });
   }, [navigation, onClose]);
 
   const handleImportWallet = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setShowAddActions(false);
     onClose();
-    setTimeout(() => {
+    InteractionManager.runAfterInteractions(() => {
       navigation.navigate("ImportWallet");
-    }, 250);
+    });
   }, [navigation, onClose]);
 
   const handleToggleAddActions = useCallback(() => {
@@ -72,9 +73,9 @@ export function WalletSwitcherSheet({ visible, onClose }: Props) {
   const handleManageWallets = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     onClose();
-    setTimeout(() => {
+    InteractionManager.runAfterInteractions(() => {
       navigation.navigate("WalletManager");
-    }, 250);
+    });
   }, [navigation, onClose]);
 
   return (

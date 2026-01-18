@@ -1,0 +1,128 @@
+You are editing an existing React Native wallet app. Do NOT refactor unrelated code. Only touch the files listed. Keep changes minimal and safe.
+
+GOAL:
+Fix wallet switching flow so that:
+1) Tapping "+ Add Wallet" ALWAYS offers BOTH "Create New Wallet" and "Import Wallet" inside the WalletSwitcherSheet, styled with our existing theme (same Button components / colors / radius).
+2) Closing the sheet NEVER freezes the UI.
+3) After importing OR creating a wallet, that wallet becomes ACTIVE immediately and the app navigates back to the Home/Portfolio screen showing balances for the new wallet (not the old one).
+4) Portfolio assets must refresh for the new wallet and must NOT show tokens/balances from the previous wallet.
+5) If device PIN already exists, DO NOT show the Set PIN screen at all. Skip directly back to Home after wallet creation/import.
+
+FILES TO EDIT:
+- client/components/WalletSwitcherSheet.tsx
+- client/lib/wallet-context.tsx
+- client/lib/portfolio-cache.ts
+- client/hooks/usePortfolio.ts
+(If wallet creation/import navigates to a PIN screen, also adjust that screen/flow only as needed.)
+
+------------------------------------------------------------
+A) client/lib/wallet-context.tsx (CRITICAL FIX)
+Problem: addWallet uses stale `wallets` closure which causes race conditions + wrong active wallet + wrong assets.
+
+Implement these changes:
+1) Update addWallet to use functional state update:
+   - setWallets(prev => [...prev, wallet])
+   - setHasWallet(true)
+   - setActiveWalletState(wallet) immediately so UI switches now
+   - THEN persist active wallet id (await setActiveWalletById(wallet.id))
+   - After setting active wallet, force portfolio cache reset and trigger refresh.
+
+2) Add a simple “portfolioRefreshNonce” state in context (number) and increment it every time active wallet changes (including after addWallet).
+   - Export it in the wallet context so portfolio hooks can depend on it.
+
+Example change:
+
+- Add near other states:
+  const [portfolioRefreshNonce, setPortfolioRefreshNonce] = useState(0);
+
+- In setActiveWallet(wallet):
+  setActiveWalletState(wallet);
+  if (wallet) await setActiveWalletById(wallet.id);
+  setPortfolioRefreshNonce(n => n + 1);
+
+- In addWallet(wallet):
+  setWallets(prev => [...prev, wallet]);
+  setHasWallet(true);
+  // set active immediately for UI
+  setActiveWalletState(wallet);
+  await setActiveWalletById(wallet.id);
+  // bump nonce to force portfolio refresh
+  setPortfolioRefreshNonce(n => n + 1);
+  // also clear any in-memory portfolio cache key
+  resetPortfolioCache();  // implement/export from portfolio-cache.ts
+
+- Make sure to export portfolioRefreshNonce via context value.
+
+DO NOT remove existing logic unless necessary; just make it stable.
+
+------------------------------------------------------------
+B) client/lib/portfolio-cache.ts (CACHE SAFETY)
+Problem: currentCacheKey can allow old wallet display cache to linger in memory.
+
+Implement:
+1) Export a function `resetPortfolioCache()` that clears:
+   - currentCacheKey = ""
+   - any in-memory cached display assets (whatever structure exists)
+   - do NOT wipe AsyncStorage keys, only memory-level caches.
+
+Example:
+export function resetPortfolioCache() {
+  currentCacheKey = "";
+  inMemoryDisplayCache = null; // or clear maps if used
+  inMemoryPortfolioCache = null;
+}
+
+(Use whatever your file already has; the idea is: new active wallet must not reuse old in-memory cache.)
+
+2) Ensure prefetchPortfolioCache keeps using walletKey = buildCacheKey(evmAddress, solanaAddress) as-is (no big changes).
+
+------------------------------------------------------------
+C) client/hooks/usePortfolio.ts (FORCE REFRESH WHEN WALLET CHANGES)
+Problem: your hook clears state on address change, which is good, but it can still reuse lastFetchRef logic if address is momentarily same/undefined or during fast switch.
+
+1) Import wallet context and include `portfolioRefreshNonce`.
+2) Update fetchKey to include the nonce:
+
+const fetchKey = `${address}_${chainId}_${portfolioRefreshNonce}`;
+
+3) Also reset lastFetchRef.current when portfolioRefreshNonce changes:
+useEffect(() => { lastFetchRef.current = ""; }, [portfolioRefreshNonce]);
+
+This guarantees a fresh fetch after create/import/active switch even if address briefly matches.
+
+------------------------------------------------------------
+D) client/components/WalletSwitcherSheet.tsx (ADD WALLET UX + NO FREEZE)
+Requirements:
+1) "+ Add Wallet" should expand inline within the same bottom sheet and show 2 buttons:
+   - "Create New Wallet"
+   - "Import Wallet"
+Use existing themed components/styles.
+2) NO nested ActionSheet/Modal that causes mismatched iOS popup theme.
+3) NO freeze after close:
+   - Replace any setTimeout-based navigation with InteractionManager.runAfterInteractions (preferred).
+   - Pattern:
+     setShowAddActions(false);
+     onClose();
+     InteractionManager.runAfterInteractions(() => navigation.navigate("CreateWallet"));
+
+4) After navigating to CreateWallet/ImportWallet, the sheet must be closed and state reset.
+
+------------------------------------------------------------
+E) PIN FLOW (SKIP IF ALREADY SET)
+Current behavior shows “PIN Already Set” screen/modal and redirects.
+Change behavior so:
+- If PIN already exists, do NOT navigate to SetPin at all.
+- After create/import completes, go directly to Home screen.
+If there is a function like `hasPin()` or `isPinSet`, check it BEFORE navigating to SetPin route.
+If PIN is set, just navigate Home and optionally show a lightweight toast (no blocking alert).
+
+------------------------------------------------------------
+ACCEPTANCE TESTS (MANUAL)
+1) Open wallet switcher sheet → Tap "+ Add Wallet" → see Create + Import options inline with theme.
+2) Tap outside / close → app remains responsive (no freeze).
+3) Create new wallet → should NOT show Set PIN if device already has PIN → go back to Home.
+4) Newly created wallet is ACTIVE immediately (header name changes) and assets match that wallet.
+5) Import wallet → same rules; wallet becomes active immediately; portfolio shows correct tokens.
+6) Switching between wallets should not show tokens that belong to the previous wallet (no FREE token bleed).
+
+Only implement the above. Keep everything else unchanged.
