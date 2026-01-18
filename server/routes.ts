@@ -61,13 +61,9 @@ function normalizeJupiterSwapParams(
     normalizedBody.wrapAndUnwrapSol = true;
   }
   
-  // Sanitize quoteResponse: remove platform fee
-  if (normalizedBody.quoteResponse) {
-    normalizedBody.quoteResponse = {
-      ...normalizedBody.quoteResponse,
-      platformFee: null,
-    };
-  }
+  // IMPORTANT: Do NOT modify the quoteResponse object at all!
+  // Jupiter's swap endpoint requires the exact quoteResponse from the quote endpoint.
+  // Any modification (even setting platformFee: null) can cause 0x1788 errors.
   
   const debug = {
     outputMint: outputMint.slice(0, 8) + "...",
