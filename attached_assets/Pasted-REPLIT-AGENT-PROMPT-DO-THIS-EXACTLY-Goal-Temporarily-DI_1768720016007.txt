@@ -1,0 +1,49 @@
+REPLIT AGENT PROMPT (DO THIS EXACTLY):
+
+Goal: Temporarily DISABLE Jupiter “platform fee / referral fee” injection (the feeAccount/feeBps params) for ALL Solana swaps, because USDC→SOL is failing with 0x1788. Keep the rest of swap logic intact (routing, quotes, speed modes, UI). We are NOT touching the separate “success fee after swap confirms” system.
+
+Steps:
+
+1) Find where platform fees are applied in the Jupiter integration:
+   - server/swap/jupiter.ts (getQuote() and/or buildSwapTx / getSwapTransaction calls)
+   - server/swap/jupiterClient.ts (if the request params are built here)
+
+2) Implement a single kill-switch that FORCE disables platform fees regardless of env values:
+   - Add constant at top of server/swap/jupiter.ts:
+     const FORCE_DISABLE_JUPITER_PLATFORM_FEES = true;
+   - Then, in the code that builds Jupiter quote/swap params, wrap ALL platform-fee fields behind:
+     const platformFeesEnabled = !FORCE_DISABLE_JUPITER_PLATFORM_FEES && process.env.CORDON_PLATFORM_FEE_ENABLED === "true";
+   - If platformFeesEnabled is false:
+       - DO NOT send platformFeeBps
+       - DO NOT send feeAccount
+       - DO NOT send referralAccount
+       - DO NOT derive fee accounts at all
+       - Also ensure your /api/swap/platform-fee-status endpoint returns “disabled: true” + “forcedDisabled: true” so we can see it’s intentionally off.
+
+3) Make sure the unified quote response still works:
+   - The quote response should still return route info, in/out amounts, slippage, price impact, etc.
+   - Only remove fee-related extras.
+   - Confirm that SOL→USDC and USDC→SOL both proceed without simulation error.
+
+4) Update logging:
+   - When FORCE_DISABLE_JUPITER_PLATFORM_FEES is true, log once at server boot:
+     “[SwapFee] Jupiter platform fees are FORCED OFF (temporary)”
+   - And per swap/quote, log:
+     “[SwapFee] platformFeesEnabled=false (forced)”
+
+5) Safety check:
+   - Do NOT modify any token transfer/send logic.
+   - Do NOT change caching, wallet-context, portfolio hooks.
+   - Do NOT touch UI calculations except fee status display if it exists.
+   - Run TypeScript compile/lint if available and restart backend.
+
+Deliverable:
+- Commit the minimal diff across:
+  - server/swap/jupiter.ts (main change)
+  - server/swap/jupiterClient.ts (only if params are built there)
+  - server/swap/index.ts or the fee-status endpoint file (to reflect forced disabled status)
+
+After changes, test:
+- Swap SOL → USDC (should succeed)
+- Swap USDC → SOL (should now succeed; no 0x1788)
+- Verify no platform-fee/referral accounts are being used anywhere in requests.

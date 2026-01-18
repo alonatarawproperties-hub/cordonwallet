@@ -142,7 +142,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       console.log("[Jupiter Proxy] Swap request for:", body.userPublicKey);
       
-      // Strip ALL fee-related fields to ensure clean swap (platform fees disabled)
+      // Strip ALL fee-related fields and force disable platform fee in Jupiter API
       const { feeAccount, platformFeeBps, ...cleanBody } = body;
       
       // Also strip fee fields from quoteResponse if present
@@ -150,6 +150,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const { platformFee, ...cleanQuote } = cleanBody.quoteResponse;
         cleanBody.quoteResponse = cleanQuote;
       }
+      
+      // CRITICAL: Tell Jupiter to NOT inject any platform fees
+      cleanBody.disablePlatformFee = true;
+      
+      console.log("[Jupiter Proxy] Platform fees disabled for swap request");
       
       const response = await fetch(`${JUPITER_API}/swap`, {
         method: "POST",

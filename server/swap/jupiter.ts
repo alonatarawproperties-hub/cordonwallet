@@ -3,6 +3,21 @@ import { getAssociatedTokenAddress } from "@solana/spl-token";
 import { swapConfig, getPriorityFeeCap, SpeedMode, CORDON_TREASURY_WALLET, CORDON_SUCCESS_FEE_BPS, platformFeeConfig, isPlatformFeeEnabled } from "./config";
 import type { QuoteResult, BuildResult } from "./types";
 
+// KILL-SWITCH: Force disable Jupiter platform fees until 0x1788 error is resolved
+const FORCE_DISABLE_JUPITER_PLATFORM_FEES = true;
+
+// Log once at module load
+if (FORCE_DISABLE_JUPITER_PLATFORM_FEES) {
+  console.log("[SwapFee] Jupiter platform fees are FORCED OFF (temporary)");
+}
+
+function arePlatformFeesEnabled(): boolean {
+  if (FORCE_DISABLE_JUPITER_PLATFORM_FEES) {
+    return false;
+  }
+  return isPlatformFeeEnabled();
+}
+
 const JUPITER_REFERRAL_PROGRAM = "REFER4ZgmyYx9c6He5XfaTMiGfdLwRnkV4RPp9t9iF3";
 const NATIVE_SOL_MINT = "11111111111111111111111111111111";
 const WSOL_MINT = "So11111111111111111111111111111111111111112";
@@ -59,9 +74,12 @@ export async function getPlatformFeeParams(outputMint: string): Promise<Platform
   
   console.log(`[SwapFee] getPlatformFeeParams: outputMint=${outputMint.slice(0, 8)}..., normalizedMint=${normalizedMint.slice(0, 8)}...`);
   
-  if (!isPlatformFeeEnabled()) {
-    console.log(`[SwapFee] Platform fee disabled by config`);
-    return { params: null, reason: "Platform fee disabled", outputMint, normalizedMint };
+  if (!arePlatformFeesEnabled()) {
+    const reason = FORCE_DISABLE_JUPITER_PLATFORM_FEES 
+      ? "Platform fee FORCED OFF (temporary)" 
+      : "Platform fee disabled by config";
+    console.log(`[SwapFee] platformFeesEnabled=false (${FORCE_DISABLE_JUPITER_PLATFORM_FEES ? "forced" : "config"})`);
+    return { params: null, reason, outputMint, normalizedMint };
   }
   
   if (platformFeeConfig.knownFeeAccounts[normalizedMint]) {
@@ -438,10 +456,12 @@ export function getPlatformFeeStatus(): {
   enabled: boolean;
   feeBps: number;
   referralConfigured: boolean;
+  forceDisabled: boolean;
 } {
   return {
-    enabled: isPlatformFeeEnabled(),
+    enabled: arePlatformFeesEnabled(),
     feeBps: platformFeeConfig.feeBps,
     referralConfigured: platformFeeConfig.referralAccount.length > 0,
+    forceDisabled: FORCE_DISABLE_JUPITER_PLATFORM_FEES,
   };
 }
