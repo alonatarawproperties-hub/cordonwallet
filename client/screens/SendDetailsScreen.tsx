@@ -19,9 +19,11 @@ import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollV
 import { ScamExplainerModal } from "@/components/ScamExplainerModal";
 import { AnimatedRiskCard } from "@/components/AnimatedRiskCard";
 import { WalletFirewallModal, RestrictionBanner, buildRestrictionBanners } from "@/components/WalletFirewallModal";
+import { ErrorModal, TransferBlockedModal } from "@/components/ErrorModal";
 import { useWallet } from "@/lib/wallet-context";
 import { TransferRestriction } from "@/lib/solana/token2022Guard";
 import { Connection } from "@solana/web3.js";
+import { getMintTransferRules, checkTransferability } from "@/lib/solana/token2022-transferability";
 
 const SOLANA_RPC_URL = process.env.SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com";
 
@@ -82,6 +84,18 @@ export default function SendDetailsScreen({ navigation, route }: Props) {
   const [tokenRestriction, setTokenRestriction] = useState<TransferRestriction | null>(null);
   const [restrictionBanners, setRestrictionBanners] = useState<RestrictionBanner[]>([]);
   const [isCheckingRestrictions, setIsCheckingRestrictions] = useState(false);
+  
+  const [errorModal, setErrorModal] = useState<{
+    visible: boolean;
+    title: string;
+    message: string;
+    icon?: "alert-circle" | "lock" | "x-octagon" | "alert-triangle";
+  }>({ visible: false, title: "", message: "" });
+  const [transferBlockedModal, setTransferBlockedModal] = useState<{
+    visible: boolean;
+    title: string;
+    message: string;
+  }>({ visible: false, title: "", message: "" });
 
   const evmAddress = activeWallet?.addresses?.evm || activeWallet?.address || "";
   const solanaAddress = activeWallet?.addresses?.solana || "";
@@ -406,32 +420,59 @@ export default function SendDetailsScreen({ navigation, route }: Props) {
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       
       const errorMessage = error instanceof Error ? error.message : "An unexpected error occurred";
+      const lowerMessage = errorMessage.toLowerCase();
+      
+      const isToken2022Error = 
+        lowerMessage.includes("non-transferable") ||
+        lowerMessage.includes("nontransferable") ||
+        lowerMessage.includes("permanent delegate") ||
+        lowerMessage.includes("owner does not match") ||
+        lowerMessage.includes("transfer hook") ||
+        lowerMessage.includes("token-2022") ||
+        lowerMessage.includes("0x11") || 
+        lowerMessage.includes("custom program error");
       
       if (error instanceof TransactionFailedError && error.code === "WALLET_LOCKED") {
-        Alert.alert(
-          "Wallet Locked",
-          "Please unlock your wallet and try again.",
-          [
-            { text: "OK", onPress: () => navigation.navigate("Unlock") },
-          ]
-        );
-      } else if (errorMessage.includes("no record of a prior credit") || errorMessage.includes("Simulation failed")) {
-        Alert.alert(
-          "Insufficient SOL for Fees",
-          "You need SOL in your wallet to pay for transaction fees. When sending tokens to a new address, a small amount of SOL (~0.002) is also needed to create the recipient's token account.",
-          [{ text: "OK" }]
-        );
-      } else if (errorMessage.includes("insufficient") || errorMessage.includes("Insufficient")) {
-        Alert.alert(
-          "Insufficient Balance",
-          "You don't have enough balance to complete this transaction including gas fees.",
-          [{ text: "OK" }]
-        );
+        setErrorModal({
+          visible: true,
+          title: "Wallet Locked",
+          message: "Please unlock your wallet and try again.",
+          icon: "lock",
+        });
+      } else if (isToken2022Error) {
+        setTransferBlockedModal({
+          visible: true,
+          title: "Token can't be transferred",
+          message: "This token has transfer restrictions. It may be non-transferable or only movable by a specific delegate. You can still use it in supported apps.",
+        });
+      } else if (lowerMessage.includes("no record of a prior credit") && !lowerMessage.includes("custom program error")) {
+        setErrorModal({
+          visible: true,
+          title: "Insufficient SOL for Fees",
+          message: "You need SOL in your wallet to pay for transaction fees. When sending tokens to a new address, a small amount of SOL (~0.002) is also needed to create the recipient's token account.",
+          icon: "alert-circle",
+        });
+      } else if (lowerMessage.includes("insufficient") && !isToken2022Error) {
+        setErrorModal({
+          visible: true,
+          title: "Insufficient Balance",
+          message: "You don't have enough balance to complete this transaction including gas fees.",
+          icon: "alert-circle",
+        });
+      } else if (lowerMessage.includes("simulation failed") && params.chainType === "solana") {
+        setErrorModal({
+          visible: true,
+          title: "Transaction Failed",
+          message: "The transaction couldn't be completed. This may be due to token restrictions, network issues, or insufficient balance.",
+          icon: "alert-triangle",
+        });
       } else {
-        Alert.alert(
-          "Transaction Failed",
-          errorMessage
-        );
+        setErrorModal({
+          visible: true,
+          title: "Transaction Failed",
+          message: errorMessage.length > 200 ? errorMessage.slice(0, 200) + "..." : errorMessage,
+          icon: "alert-circle",
+        });
       }
     } finally {
       setIsSending(false);
@@ -440,12 +481,53 @@ export default function SendDetailsScreen({ navigation, route }: Props) {
 
   const handleReview = async () => {
     if (!recipient.trim()) {
-      Alert.alert("Error", "Please enter a recipient address");
+      setErrorModal({
+        visible: true,
+        title: "Missing Address",
+        message: "Please enter a recipient address to continue.",
+        icon: "alert-circle",
+      });
       return;
     }
     if (!amount.trim() || parseFloat(amount) <= 0) {
-      Alert.alert("Error", "Please enter a valid amount");
+      setErrorModal({
+        visible: true,
+        title: "Invalid Amount",
+        message: "Please enter a valid amount to send.",
+        icon: "alert-circle",
+      });
       return;
+    }
+    
+    if (params.chainType === "solana" && !params.isNative && params.tokenAddress) {
+      setIsCheckingRestrictions(true);
+      try {
+        const connection = new Connection(SOLANA_RPC_URL, "confirmed");
+        const rules = await getMintTransferRules(connection, params.tokenAddress);
+        const transferCheck = checkTransferability(rules, solanaAddress);
+        
+        console.log(`[SendDetails] Preflight check for ${params.tokenSymbol}:`, {
+          program: rules.program,
+          isNonTransferable: rules.isNonTransferable,
+          permanentDelegate: rules.permanentDelegate?.slice(0, 8),
+          canTransfer: transferCheck.canTransfer,
+          reason: transferCheck.reason,
+        });
+        
+        if (!transferCheck.canTransfer) {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+          setTransferBlockedModal({
+            visible: true,
+            title: transferCheck.title || "Token can't be transferred",
+            message: transferCheck.message || "This token has transfer restrictions.",
+          });
+          setIsCheckingRestrictions(false);
+          return;
+        }
+      } catch (error) {
+        console.error("[SendDetails] Preflight check failed:", error);
+      }
+      setIsCheckingRestrictions(false);
     }
 
     if (risk.isScam && !scamOverrideAccepted) {
@@ -791,6 +873,21 @@ export default function SendDetailsScreen({ navigation, route }: Props) {
         restrictions={restrictionBanners}
         isBlocked={!risk.canProceed || (tokenRestriction !== null && !tokenRestriction.canTransfer)}
         isLoading={isSending}
+      />
+
+      <ErrorModal
+        visible={errorModal.visible}
+        title={errorModal.title}
+        message={errorModal.message}
+        icon={errorModal.icon}
+        onClose={() => setErrorModal({ visible: false, title: "", message: "" })}
+      />
+
+      <TransferBlockedModal
+        visible={transferBlockedModal.visible}
+        title={transferBlockedModal.title}
+        message={transferBlockedModal.message}
+        onClose={() => setTransferBlockedModal({ visible: false, title: "", message: "" })}
       />
 
     </ThemedView>

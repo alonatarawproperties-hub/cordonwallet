@@ -35,7 +35,7 @@ export function ErrorModal({
   actionLabel,
   closeLabel = "OK",
 }: ErrorModalProps) {
-  const theme = useTheme();
+  const { theme } = useTheme();
   const finalIconColor = iconColor || theme.danger;
 
   return (
