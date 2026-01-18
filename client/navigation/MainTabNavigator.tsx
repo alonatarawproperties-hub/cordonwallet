@@ -89,7 +89,7 @@ export default function MainTabNavigator() {
         name="Browser"
         component={BrowserScreen}
         options={{
-          headerTitle: "dApps",
+          headerTitle: "Browser",
           tabBarIcon: ({ color, size }) => (
             <Feather name="globe" size={size} color={color} />
           ),
