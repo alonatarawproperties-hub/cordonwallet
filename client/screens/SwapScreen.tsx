@@ -1571,23 +1571,22 @@ export default function SwapScreen({ route }: Props) {
           <Pressable 
             style={({ pressed }) => [
               styles.swapDirectionButton,
-              { transform: [{ scale: pressed ? 0.95 : 1 }] }
+              { transform: [{ scale: pressed ? 0.92 : 1 }], opacity: pressed ? 0.9 : 1 }
             ]} 
             onPress={swapTokens}
           >
-            <Animated.View style={swapAnimatedStyle}>
-              <LinearGradient
-                colors={[theme.accent, theme.accentSecondary]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={styles.swapDirectionIcon}
-              >
-                <View style={styles.swapArrows}>
-                  <Feather name="arrow-up" size={12} color="#fff" style={{ marginBottom: -4 }} />
-                  <Feather name="arrow-down" size={12} color="#fff" style={{ marginTop: -4 }} />
-                </View>
-              </LinearGradient>
-            </Animated.View>
+            <View style={[styles.swapDirectionOuter, { borderColor: theme.accent + "30" }]}>
+              <Animated.View style={swapAnimatedStyle}>
+                <LinearGradient
+                  colors={[theme.accent, theme.accentSecondary]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.swapDirectionIcon}
+                >
+                  <Feather name="repeat" size={18} color="#fff" />
+                </LinearGradient>
+              </Animated.View>
+            </View>
           </Pressable>
 
           <View style={styles.tokenSection}>
@@ -2116,25 +2115,29 @@ const styles = StyleSheet.create({
   },
   swapDirectionButton: {
     alignItems: "center",
-    marginVertical: Spacing.sm,
+    marginVertical: Spacing.md,
     zIndex: 1,
   },
-  swapDirectionIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+  swapDirectionOuter: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    borderWidth: 2,
     justifyContent: "center",
     alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 4,
-    elevation: 4,
+    backgroundColor: "rgba(102, 126, 234, 0.08)",
   },
-  swapArrows: {
-    flexDirection: "column",
-    alignItems: "center",
+  swapDirectionIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#667EEA",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 8,
+    elevation: 6,
   },
   quoteCard: {
     borderRadius: BorderRadius.xl,
