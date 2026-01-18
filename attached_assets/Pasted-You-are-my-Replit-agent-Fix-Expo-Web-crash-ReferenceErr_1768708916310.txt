@@ -1,0 +1,71 @@
+You are my Replit agent. Fix Expo Web crash: “ReferenceError: Can't find variable: Buffer”.
+
+Context:
+Web build crashes because Buffer polyfill in client/index.js runs too late; some crypto deps (@solana/web3.js, viem, @walletconnect/*) evaluate before entry code. We must inject Buffer (and process) at Metro’s polyfill phase for web.
+
+Do ALL steps below in one pass, no placeholders, and verify by running the web build/dev server after.
+
+1) Install deps
+- Add these packages (if missing):
+  - buffer
+  - process
+  - react-native-get-random-values
+
+2) Create a global shim file at project root named: global.js
+Content MUST be exactly:
+
+import "react-native-get-random-values";
+import { Buffer } from "buffer";
+import process from "process";
+
+if (typeof global !== "undefined" && !global.Buffer) global.Buffer = Buffer;
+if (typeof window !== "undefined" && !window.Buffer) window.Buffer = Buffer;
+
+if (typeof global !== "undefined" && !global.process) global.process = process;
+if (typeof window !== "undefined" && !window.process) window.process = process;
+
+3) Create or update metro.config.js at project root.
+Use expo/metro-config and inject global.js as the FIRST polyfill. Also resolve buffer/process for Metro.
+File content MUST be exactly:
+
+const { getDefaultConfig } = require("expo/metro-config");
+
+const config = getDefaultConfig(__dirname);
+
+config.resolver.extraNodeModules = {
+  ...config.resolver.extraNodeModules,
+  buffer: require.resolve("buffer/"),
+  process: require.resolve("process/browser"),
+};
+
+const prevGetPolyfills = config.serializer.getPolyfills;
+config.serializer.getPolyfills = (args) => {
+  const polyfills = prevGetPolyfills ? prevGetPolyfills(args) : [];
+  return [require.resolve("./global.js"), ...polyfills];
+};
+
+module.exports = config;
+
+4) Ensure Expo Web uses Metro bundler:
+- Edit app.json (or app.config.js) so it contains:
+  expo.web.bundler = "metro"
+
+Example (app.json snippet):
+"web": { "bundler": "metro" }
+
+5) Keep entry polyfill as a safe fallback (optional but do it):
+- In client/index.js (or your main entry), ensure Buffer is set only if missing:
+
+require("react-native-get-random-values");
+const { Buffer } = require("buffer");
+if (typeof window !== "undefined" && !window.Buffer) window.Buffer = Buffer;
+if (typeof global !== "undefined" && !global.Buffer) global.Buffer = Buffer;
+
+6) Clear caches + verify
+- Run: npx expo start -c
+- Open web and confirm no crash.
+- In the web console confirm:
+  typeof Buffer !== "undefined" && typeof process !== "undefined"
+
+Deliverable:
+- Commit all file edits and paste the final contents of global.js, metro.config.js, and the changed app.json section + client/index.js section here.

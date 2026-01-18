@@ -1,9 +1,8 @@
-// Polyfills must be first - using require to ensure sync execution
+// Polyfills - fallback in case metro polyfill didn't run
 require("react-native-get-random-values");
 const { Buffer } = require("buffer");
-if (typeof globalThis !== "undefined") globalThis.Buffer = globalThis.Buffer || Buffer;
-if (typeof window !== "undefined") window.Buffer = window.Buffer || Buffer;
-if (typeof global !== "undefined") global.Buffer = global.Buffer || Buffer;
+if (typeof window !== "undefined" && !window.Buffer) window.Buffer = Buffer;
+if (typeof global !== "undefined" && !global.Buffer) global.Buffer = Buffer;
 
 import { registerRootComponent } from "expo";
 import { LogBox } from "react-native";
