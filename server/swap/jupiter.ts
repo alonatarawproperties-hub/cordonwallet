@@ -16,9 +16,9 @@ export function platformFeesAllowed(): boolean {
 
 // Log once at module load
 if (FORCE_DISABLE_JUPITER_PLATFORM_FEES) {
-  console.log("[SwapFee] Jupiter platform fees are FORCED OFF (temporary kill-switch)");
+  console.log("[JupiterFee] Disabled - Jupiter platform/referral fees are OFF");
 } else {
-  console.log("[SwapFee] platformFeesAllowed:", platformFeesAllowed());
+  console.log("[JupiterFee] platformFeesAllowed:", platformFeesAllowed());
 }
 
 const JUPITER_REFERRAL_PROGRAM = "REFER4ZgmyYx9c6He5XfaTMiGfdLwRnkV4RPp9t9iF3";

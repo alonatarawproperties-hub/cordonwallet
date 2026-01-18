@@ -1,0 +1,112 @@
+GOAL: Implement Cordon Output Fee (1%) for ALL Solana swap outputs (SOL + SPL + Token-2022) with ONE user signature, while keeping Jupiter platform/referral fees fully disabled. Also fix MAX buffer for token inputs so swaps don’t fail when user maxes input. DO NOT refactor unrelated working logic.
+
+NON-NEGOTIABLE CONSTRAINTS
+- Non-custodial: keys stay client-side, we only append instructions to the tx.
+- ONE signature per swap (user signs once).
+- Do NOT use Jupiter referral/platform fee system (no feeAccount/platformFeeBps/platformFee). Keep it OFF.
+- Fee logic must support:
+  - SOL output
+  - SPL token output
+  - Token-2022 output
+- If fee transfer fails due to token restrictions (transfer-hook / non-transferable / permanent delegate), swap should still succeed (fee is best-effort and should not block).
+- No fee UI display for now.
+
+CONFIG
+- Fee rate: 1.00% (100 bps but do NOT show bps in UI; internal use only)
+- Treasury Solana address: use env CORDON_SOL_TREASURY or hardcode temporarily:
+  6pcN26cpKbWmGyRn8DgRjqRzpBW2CFp8PK5wZ9gTArpE
+
+PART A — Confirm Jupiter platform fees are disabled (server)
+1) In server/swap/jupiter.ts (and any related client/server swap builders):
+   - Ensure quote request does NOT include platformFeeBps.
+   - Ensure swap build request body does NOT include feeAccount/platformFeeBps/platformFee.
+   - Ensure sanitized quoteResponse has platformFee: null and nothing else.
+   - Add a dev log once: “[JupiterFee] Disabled”.
+
+PART B — Output Fee (1%) appended to SAME tx (client)
+Where to implement: The function that receives the Jupiter swap transaction base64 and prepares it for signing. Search for where /swap response returns swapTransaction / txBase64 and where we call sign/send.
+
+Steps:
+1) After receiving txBase64 from server (Jupiter /swap), deserialize to VersionedTransaction.
+2) Determine outputMint from the quoteResponse (outputMint field).
+3) Determine expected output amount:
+   - For ExactIn swaps, use quoteResponse.outAmount (atomic units).
+   - feeAmountAtomic = floor(outAmountAtomic * 0.01)
+   - If feeAmountAtomic <= 0 -> skip fee.
+4) Append ONE fee transfer instruction to the transaction:
+   CASE 1: outputMint is SOL mint (So11111111111111111111111111111111111111112)
+     - Fee should be SOL:
+       - Add SystemProgram.transfer from user -> treasury for feeLamports
+       - feeLamports = min( floor(outLamports*0.01), outLamports-1 ) (never drain all)
+   CASE 2: outputMint is token mint
+     - We must transfer output token from USER’s token account to TREASURY’s token account.
+     - First detect token program for the mint:
+         - Query mint owner via connection.getAccountInfo(new PublicKey(outputMint))
+         - If owner == Tokenkeg... => SPL Token
+         - If owner == TokenzQd... => Token-2022
+         - Else unknown => skip fee (do not block swap).
+     - Compute associated token addresses (ATAs) with correct tokenProgramId:
+         - userAta = getAssociatedTokenAddress(mint, userPubkey, false, tokenProgramId)
+         - treasuryAta = getAssociatedTokenAddress(mint, treasuryPubkey, false, tokenProgramId)
+     - Ensure TREASURY ATA exists:
+         - If not exists, add createAssociatedTokenAccountInstruction with tokenProgramId (SPL vs 2022)
+         - IMPORTANT: This must be included in SAME transaction before the transfer instruction.
+     - Add transfer instruction:
+         - Use createTransferCheckedInstruction if decimals known, else createTransferInstruction.
+         - Get decimals:
+             - server already resolves decimals sometimes; if not, fetch mint decimals via getMint(connection, mintPubkey, undefined, tokenProgramId).
+     - Add token transfer of feeAmountAtomic from userAta -> treasuryAta.
+
+5) IMPORTANT: DO NOT break v0 message / ALT usage.
+   - If the Jupiter transaction is VersionedTransaction (v0), you must rebuild message correctly:
+     - Decompile using TransactionMessage.decompile(message, { addressLookupTableAccounts })
+     - Append new instructions
+     - Recompile to v0 using same ALTs
+   - You already have code that decodes/simulates versioned tx; reuse patterns.
+   - If we cannot access ALTs easily, fallback behavior:
+       - Do NOT append; log warning and proceed without fee (swap still works).
+
+6) Error handling:
+   - If any step fails (ALT missing, mint owner fetch fails, transfer instruction fails, treasury ATA creation fails):
+       - Log dev warning: “[CordonFee] Fee append failed: <reason>”
+       - Continue with original Jupiter tx unmodified (swap should not fail because of fee logic).
+
+PART C — Fix MAX buffer (token inputs)
+- Add client/lib/solana/swapBuffer.ts helper:
+   estimateRequiredSolBufferLamports(priorityFeeCapLamports:number, outputIsSol:boolean):
+     base = 15000
+     safety = 500000
+     rent = outputIsSol ? 2500000 : 0
+     total = base + safety + rent + priorityFeeCapLamports
+- In SwapScreen.tsx:
+   - When inputMint != SOL and user taps MAX:
+       - Set input = full token balance
+       - Compute required buffer using current priority cap + outputIsSol
+       - If SOL balance < buffer:
+           - show themed modal: “Not enough SOL for fees. Keep at least X SOL reserved.”
+           - block swap submit until enough SOL
+- Keep SOL-input spendable logic as-is but align it to the same helper.
+
+PART D — Make it safe for SPL + Token-2022
+- Token-2022 tokens may be non-transferable or have restrictions.
+- Fee transfer may fail; must NOT block swap.
+- Add user-friendly post-result note only if fee append failed (optional, dev mode only).
+
+FILES YOU WILL LIKELY TOUCH
+- client/screens/SwapScreen.tsx (MAX buffer check)
+- client/lib/solana/swapBuffer.ts (new)
+- client/services/solanaSwapApi.ts OR client/services/jupiter.ts (where txBase64 is prepared for signing)
+- client/lib/solana/* (helper to rebuild versioned tx with appended instruction)
+- server/swap/jupiter.ts (confirm platform fees disabled)
+
+ACCEPTANCE TESTS
+1) SOL -> token (SPL): swap succeeds, treasury receives ~1% of output token
+2) SOL -> token (Token-2022): swap succeeds, treasury receives ~1% if token is transferable; if not, swap still succeeds and fee is skipped
+3) token -> SOL: swap succeeds, treasury receives ~1% SOL
+4) MAX token input with low SOL: app blocks swap and tells user to keep X SOL buffer
+5) No second signature prompts; only one signing flow
+
+DELIVERABLE
+- List files changed
+- Explain how fee is appended with one signature
+- Confirm Jupiter platform fees remain disabled
