@@ -113,8 +113,10 @@ export default function SendScreen({ navigation }: Props) {
   const { assets: solanaAssets, isLoading: solanaLoading } = useSolanaPortfolio(solanaAddress || undefined);
 
   useEffect(() => {
-    getCustomTokens().then(setCustomTokens);
-  }, []);
+    if (solanaAddress) {
+      getCustomTokens(solanaAddress).then(setCustomTokens);
+    }
+  }, [solanaAddress]);
 
   const unifiedAssets = useMemo((): UnifiedAsset[] => {
     const assets: UnifiedAsset[] = [];

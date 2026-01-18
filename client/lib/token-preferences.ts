@@ -2,7 +2,12 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const HIDDEN_TOKENS_KEY = "cordon_hidden_tokens";
 const CUSTOM_TOKENS_KEY = "cordon_custom_tokens";
+const CUSTOM_TOKENS_KEY_PREFIX = "cordon_custom_tokens_";
 const SOLANA_PORTFOLIO_CACHE_PREFIX = "@cordon/solana_portfolio_v1_";
+
+function getWalletCustomTokensKey(walletAddress: string): string {
+  return `${CUSTOM_TOKENS_KEY_PREFIX}${walletAddress.toLowerCase()}`;
+}
 
 let customTokenVersion = 0;
 export function getCustomTokenVersion(): number {
@@ -102,18 +107,16 @@ export async function isTokenHidden(chainId: number, symbol: string): Promise<bo
   return hidden.includes(getTokenKey(chainId, symbol));
 }
 
-export async function getCustomTokens(): Promise<CustomToken[]> {
+export async function getCustomTokens(walletAddress?: string): Promise<CustomToken[]> {
   try {
-    const data = await AsyncStorage.getItem(CUSTOM_TOKENS_KEY);
-    console.log("[TokenPrefs] Raw custom tokens data:", data);
+    const key = walletAddress ? getWalletCustomTokensKey(walletAddress) : CUSTOM_TOKENS_KEY;
+    const data = await AsyncStorage.getItem(key);
     if (!data) return [];
     const tokens = JSON.parse(data) as CustomToken[];
-    // Normalize Solana chainId: convert "solana" string to 0
     const normalizedTokens = tokens.map(t => ({
       ...t,
       chainId: (t.chainId as any) === "solana" ? 0 : t.chainId,
     }));
-    console.log("[TokenPrefs] Parsed tokens:", JSON.stringify(normalizedTokens));
     return normalizedTokens;
   } catch (e) {
     console.log("[TokenPrefs] Error loading custom tokens:", e);
@@ -121,16 +124,15 @@ export async function getCustomTokens(): Promise<CustomToken[]> {
   }
 }
 
-export async function addCustomToken(token: CustomToken): Promise<void> {
+export async function addCustomToken(token: CustomToken, walletAddress?: string): Promise<void> {
   const normalizedToken: CustomToken = {
     ...token,
     chainId: (token.chainId as any) === "solana" ? 0 : token.chainId,
     contractAddress: token.contractAddress.toLowerCase(),
   };
-  console.log("[TokenPrefs] addCustomToken called with normalized:", JSON.stringify(normalizedToken));
   
-  const tokens = await getCustomTokens();
-  console.log("[TokenPrefs] Existing tokens before add:", JSON.stringify(tokens));
+  const key = walletAddress ? getWalletCustomTokensKey(walletAddress) : CUSTOM_TOKENS_KEY;
+  const tokens = await getCustomTokens(walletAddress);
   
   const existingIndex = tokens.findIndex(
     t => t.chainId === normalizedToken.chainId && 
@@ -139,10 +141,7 @@ export async function addCustomToken(token: CustomToken): Promise<void> {
   
   if (existingIndex === -1) {
     tokens.push(normalizedToken);
-    const dataToSave = JSON.stringify(tokens);
-    console.log("[TokenPrefs] Saving tokens:", dataToSave);
-    await AsyncStorage.setItem(CUSTOM_TOKENS_KEY, dataToSave);
-    console.log("[TokenPrefs] Token saved successfully");
+    await AsyncStorage.setItem(key, JSON.stringify(tokens));
   } else {
     tokens[existingIndex] = {
       ...tokens[existingIndex],
@@ -150,8 +149,7 @@ export async function addCustomToken(token: CustomToken): Promise<void> {
       name: normalizedToken.name,
       logoUrl: normalizedToken.logoUrl,
     };
-    await AsyncStorage.setItem(CUSTOM_TOKENS_KEY, JSON.stringify(tokens));
-    console.log("[TokenPrefs] Updated existing token metadata");
+    await AsyncStorage.setItem(key, JSON.stringify(tokens));
   }
   
   customTokenVersion++;
@@ -160,13 +158,14 @@ export async function addCustomToken(token: CustomToken): Promise<void> {
   }
 }
 
-export async function removeCustomToken(chainId: number, contractAddress: string): Promise<void> {
+export async function removeCustomToken(chainId: number, contractAddress: string, walletAddress?: string): Promise<void> {
   const normalizedChainId = (chainId as any) === "solana" ? 0 : chainId;
-  const tokens = await getCustomTokens();
+  const key = walletAddress ? getWalletCustomTokensKey(walletAddress) : CUSTOM_TOKENS_KEY;
+  const tokens = await getCustomTokens(walletAddress);
   const filtered = tokens.filter(
     t => !(t.chainId === normalizedChainId && t.contractAddress.toLowerCase() === contractAddress.toLowerCase())
   );
-  await AsyncStorage.setItem(CUSTOM_TOKENS_KEY, JSON.stringify(filtered));
+  await AsyncStorage.setItem(key, JSON.stringify(filtered));
   
   customTokenVersion++;
   if (normalizedChainId === 0) {
@@ -174,10 +173,36 @@ export async function removeCustomToken(chainId: number, contractAddress: string
   }
 }
 
-export async function getTokenPreferences(): Promise<TokenPreferences> {
+export async function migrateGlobalCustomTokensToWallet(walletAddress: string): Promise<void> {
+  try {
+    const globalTokens = await getCustomTokens();
+    if (globalTokens.length === 0) return;
+    
+    const walletTokens = await getCustomTokens(walletAddress);
+    const walletKey = getWalletCustomTokensKey(walletAddress);
+    
+    for (const token of globalTokens) {
+      const exists = walletTokens.some(
+        t => t.chainId === token.chainId && 
+             t.contractAddress.toLowerCase() === token.contractAddress.toLowerCase()
+      );
+      if (!exists) {
+        walletTokens.push(token);
+      }
+    }
+    
+    await AsyncStorage.setItem(walletKey, JSON.stringify(walletTokens));
+    await AsyncStorage.removeItem(CUSTOM_TOKENS_KEY);
+    console.log("[TokenPrefs] Migrated global custom tokens to wallet:", walletAddress);
+  } catch (e) {
+    console.log("[TokenPrefs] Migration error:", e);
+  }
+}
+
+export async function getTokenPreferences(walletAddress?: string): Promise<TokenPreferences> {
   const [hiddenTokens, customTokens] = await Promise.all([
     getHiddenTokens(),
-    getCustomTokens(),
+    getCustomTokens(walletAddress),
   ]);
   return { hiddenTokens, customTokens };
 }

@@ -237,9 +237,11 @@ export default function PortfolioScreen() {
   
   useFocusEffect(
     useCallback(() => {
-      getCustomTokens().then(setCustomTokens);
+      if (solanaAddress) {
+        getCustomTokens(solanaAddress).then(setCustomTokens);
+      }
       getHiddenTokens().then(setHiddenTokens);
-    }, [])
+    }, [solanaAddress])
   );
   
   const customTokenMap = buildCustomTokenMap(customTokens);

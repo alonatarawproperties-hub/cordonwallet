@@ -21,6 +21,7 @@ import { Button } from "@/components/Button";
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing } from "@/constants/theme";
 import { addCustomToken } from "@/lib/token-preferences";
+import { useWallet } from "@/lib/wallet-context";
 import { supportedChains, ChainConfig } from "@/lib/blockchain/chains";
 import { getApiUrl } from "@/lib/query-client";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
@@ -47,6 +48,8 @@ export default function ImportTokenScreen() {
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
   const navigation = useNavigation<NavigationProp>();
+  const { activeWallet } = useWallet();
+  const solanaAddress = activeWallet?.addresses?.solana;
 
   const [selectedNetwork, setSelectedNetwork] = useState<number | string>(137);
   const [contractAddress, setContractAddress] = useState("");
@@ -152,7 +155,7 @@ export default function ImportTokenScreen() {
         symbol: symbol.trim().toUpperCase(),
         decimals: decimalsNum,
         logoUrl,
-      });
+      }, solanaAddress);
       Alert.alert("Token Imported", `${symbol.trim().toUpperCase()} has been added successfully.`, [
         { text: "OK", onPress: () => navigation.goBack() },
       ]);

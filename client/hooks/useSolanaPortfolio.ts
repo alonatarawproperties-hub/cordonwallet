@@ -141,8 +141,7 @@ export function useSolanaPortfolio(address: string | undefined) {
 
     let customTokenMap: Map<string, CustomToken> = new Map();
     try {
-      const customTokens = await getCustomTokens();
-      // Accept both chainId 0 (number) and "solana" (string) for Solana tokens
+      const customTokens = await getCustomTokens(address);
       const solanaCustomTokens = customTokens.filter((ct: CustomToken) => 
         ct.chainId === 0 || (ct.chainId as any) === "solana"
       );

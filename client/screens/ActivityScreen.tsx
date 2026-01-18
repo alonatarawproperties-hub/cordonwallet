@@ -298,7 +298,7 @@ export default function ActivityScreen() {
     console.log("[Activity] Loading transactions for EVM:", evmAddress?.slice(0, 8), "Solana:", solanaAddress?.slice(0, 8));
 
     try {
-      const tokens = await getCustomTokens();
+      const tokens = await getCustomTokens(solanaAddress);
       setCustomTokens(tokens);
       
       const explorerPromise = (!isSolanaOnly && evmAddress) 

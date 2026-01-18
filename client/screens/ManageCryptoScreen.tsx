@@ -95,15 +95,16 @@ export default function ManageCryptoScreen() {
   }, [navigation, theme]);
 
   const loadPreferences = useCallback(async () => {
+    if (!solanaAddress) return;
     setIsLoadingPrefs(true);
     const [hidden, custom] = await Promise.all([
       getHiddenTokens(),
-      getCustomTokens(),
+      getCustomTokens(solanaAddress),
     ]);
     setHiddenTokens(hidden);
     setCustomTokens(custom);
     setIsLoadingPrefs(false);
-  }, []);
+  }, [solanaAddress]);
 
   useFocusEffect(
     useCallback(() => {
@@ -144,7 +145,7 @@ export default function ManageCryptoScreen() {
           text: "Remove",
           style: "destructive",
           onPress: async () => {
-            await removeCustomToken(chainId, address);
+            await removeCustomToken(chainId, address, solanaAddress);
             setCustomTokens(prev => prev.filter(
               ct => !(ct.chainId === chainId && ct.contractAddress.toLowerCase() === address.toLowerCase())
             ));
