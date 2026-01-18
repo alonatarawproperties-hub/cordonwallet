@@ -12,7 +12,7 @@ import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
 import { Button } from "@/components/Button";
 import { useWallet } from "@/lib/wallet-context";
-import { createWallet } from "@/lib/wallet-engine";
+import { createWallet, hasDevicePin } from "@/lib/wallet-engine";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 
 type Props = NativeStackScreenProps<RootStackParamList, "SetupPin">;
@@ -35,6 +35,26 @@ export default function SetupPinScreen({ navigation, route }: Props) {
   useEffect(() => {
     setTimeout(() => inputRef.current?.focus(), 100);
   }, [step]);
+
+  useEffect(() => {
+    const checkPinExists = async () => {
+      const pinExists = await hasDevicePin();
+      if (__DEV__) {
+        console.log("[SetupPin] Guard check - hasDevicePin:", pinExists);
+      }
+      if (pinExists) {
+        if (__DEV__) {
+          console.log("[SetupPin] PIN already exists, redirecting away from SetupPin");
+        }
+        Alert.alert(
+          "PIN Already Set",
+          "Your device already has a PIN configured. Redirecting...",
+          [{ text: "OK", onPress: () => navigation.goBack() }]
+        );
+      }
+    };
+    checkPinExists();
+  }, [navigation]);
 
   const handlePinChange = (value: string) => {
     const numericValue = value.replace(/[^0-9]/g, "").slice(0, PIN_LENGTH);
