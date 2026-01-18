@@ -19,7 +19,7 @@ import { fetchWithBackoff } from "./lib/fetchWithBackoff";
 const ETHERSCAN_V2_API = "https://api.etherscan.io/v2/api";
 const COINGECKO_API = "https://api.coingecko.com/api/v3";
 const DEXSCREENER_API = "https://api.dexscreener.com";
-// Jupiter Lite API - official, no hidden platform fee
+// Jupiter Lite API - must match server/swap/config.ts for quote/swap consistency
 const JUPITER_API = "https://lite-api.jup.ag/swap/v1";
 const JUPITER_TOKENS_API = "https://tokens.jup.ag";
 
