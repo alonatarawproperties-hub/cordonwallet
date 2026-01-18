@@ -1583,7 +1583,10 @@ export default function SwapScreen({ route }: Props) {
                   end={{ x: 1, y: 1 }}
                   style={styles.swapDirectionIcon}
                 >
-                  <Feather name="repeat" size={18} color="#fff" />
+                  <View style={styles.swapArrowsVertical}>
+                    <Feather name="arrow-down" size={14} color="#fff" style={{ marginBottom: -3 }} />
+                    <Feather name="arrow-up" size={14} color="#fff" style={{ marginTop: -3 }} />
+                  </View>
                 </LinearGradient>
               </Animated.View>
             </View>
@@ -2138,6 +2141,12 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.35,
     shadowRadius: 8,
     elevation: 6,
+  },
+  swapArrowsVertical: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 2,
   },
   quoteCard: {
     borderRadius: BorderRadius.xl,
