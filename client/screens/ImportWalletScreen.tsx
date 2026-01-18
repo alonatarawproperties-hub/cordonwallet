@@ -13,7 +13,8 @@ import { ThemedView } from "@/components/ThemedView";
 import { Button } from "@/components/Button";
 import { Input } from "@/components/Input";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
-import { validateMnemonic, deriveAddress } from "@/lib/wallet-engine";
+import { validateMnemonic, deriveAddress, hasDevicePin, isUnlocked, addWalletToExistingVault } from "@/lib/wallet-engine";
+import { useWallet } from "@/lib/wallet-context";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 import type { WalletType } from "@/lib/types";
 
@@ -58,6 +59,7 @@ export default function ImportWalletScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
   const { theme } = useTheme();
+  const { addWallet } = useWallet();
   const [walletName, setWalletName] = useState("Imported Wallet");
   const [walletType, setWalletType] = useState<WalletType>("multi-chain");
   const [seedPhrase, setSeedPhrase] = useState("");
@@ -117,14 +119,59 @@ export default function ImportWalletScreen({ navigation }: Props) {
     setIsValidating(true);
     
     try {
-      navigation.navigate("SetupPin", { 
-        mnemonic: normalizedPhrase, 
-        walletName: walletName.trim(),
-        isImport: true,
-        walletType,
-      });
-    } catch (error) {
-      Alert.alert("Error", "Failed to validate seed phrase. Please try again.");
+      const pinExists = await hasDevicePin();
+      
+      if (__DEV__) {
+        console.log("[ImportWallet] hasDevicePin:", pinExists, "isUnlocked:", isUnlocked());
+      }
+      
+      if (!pinExists) {
+        if (__DEV__) {
+          console.log("[ImportWallet] Route: SetupPin (first time PIN creation)");
+        }
+        navigation.navigate("SetupPin", { 
+          mnemonic: normalizedPhrase, 
+          walletName: walletName.trim(),
+          isImport: true,
+          walletType,
+        });
+      } else if (isUnlocked()) {
+        if (__DEV__) {
+          console.log("[ImportWallet] Route: Direct import (vault already unlocked)");
+        }
+        const wallet = await addWalletToExistingVault(normalizedPhrase, walletName.trim(), walletType);
+        await addWallet({
+          id: wallet.id,
+          name: wallet.name,
+          address: wallet.address,
+          addresses: wallet.addresses,
+          walletType: wallet.walletType,
+          createdAt: wallet.createdAt,
+        });
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        navigation.reset({
+          index: 0,
+          routes: [{ name: "Main" }],
+        });
+      } else {
+        if (__DEV__) {
+          console.log("[ImportWallet] Route: Unlock required (PIN exists but locked)");
+        }
+        Alert.alert(
+          "Unlock Required",
+          "Please unlock your wallet first, then try importing again.",
+          [
+            { text: "Cancel", style: "cancel" },
+            { 
+              text: "Unlock", 
+              onPress: () => navigation.navigate("Unlock")
+            }
+          ]
+        );
+      }
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Failed to import wallet. Please try again.";
+      Alert.alert("Error", message);
     } finally {
       setIsValidating(false);
     }
