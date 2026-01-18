@@ -19,9 +19,8 @@ import { fetchWithBackoff } from "./lib/fetchWithBackoff";
 const ETHERSCAN_V2_API = "https://api.etherscan.io/v2/api";
 const COINGECKO_API = "https://api.coingecko.com/api/v3";
 const DEXSCREENER_API = "https://api.dexscreener.com";
-// QuickNode public Jupiter API - free tier, no API key required
-// Has 0.2% platform fee on swaps, but works reliably
-const JUPITER_API = "https://public.jupiterapi.com";
+// Jupiter Lite API - official, no hidden platform fee
+const JUPITER_API = "https://lite-api.jup.ag/swap/v1";
 const JUPITER_TOKENS_API = "https://tokens.jup.ag";
 
 const DEXSCREENER_CHAIN_IDS: Record<number | string, string> = {
