@@ -107,6 +107,7 @@ export type RootStackParamList = {
     priceChange24h?: number;
     chainType?: "evm" | "solana";
     logoUrl?: string;
+    decimals: number;
   };
   TransactionDetail: TransactionDetailParams;
   WalletManager: undefined;

@@ -109,6 +109,7 @@ export default function AssetDetailScreen({ route }: Props) {
     valueUsd,
     priceChange24h,
     logoUrl,
+    decimals,
   } = route.params;
   
   const tokenLogoUrl = logoUrl || getTokenLogoUrl(tokenSymbol);
@@ -630,7 +631,7 @@ export default function AssetDetailScreen({ route }: Props) {
               name: tokenName,
               chainType: route.params.chainType || (chainId === 0 ? "solana" : "evm"),
               chainId: chainId,
-              decimals: isNative ? (chainId === 0 ? 9 : 18) : 18,
+              decimals: decimals,
               balance: String(balance),
               priceUsd: priceUsd,
               isNative: isNative,
@@ -676,7 +677,7 @@ export default function AssetDetailScreen({ route }: Props) {
                   mint: mintAddress,
                   symbol: tokenSymbol,
                   name: tokenName,
-                  decimals: 9, // Default for most Solana tokens
+                  decimals: decimals,
                   logoURI: tokenLogoUrl || undefined,
                 },
               });

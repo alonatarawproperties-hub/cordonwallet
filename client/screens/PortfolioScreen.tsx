@@ -364,6 +364,7 @@ export default function PortfolioScreen() {
       priceChange24h: asset.priceChange24h,
       chainType: asset.chainType,
       logoUrl: "logoUrl" in asset ? asset.logoUrl : undefined,
+      decimals: asset.decimals,
     });
   };
 
