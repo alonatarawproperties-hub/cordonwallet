@@ -26,6 +26,10 @@ TUNNEL_URL_FILE="/tmp/expo-tunnel-url.txt"
 echo "Starting Metro bundler with tunnel..."
 echo ""
 
+# Kill any stale Metro processes on port 8081
+fuser -k 8081/tcp 2>/dev/null || true
+sleep 1
+
 # Start a background process to monitor for the tunnel URL
 (
   sleep 10  # Wait for tunnel to establish
