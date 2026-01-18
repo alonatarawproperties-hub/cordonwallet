@@ -1,4 +1,4 @@
-import { getQuote, getPlatformFeeParams } from "./jupiter";
+import { getQuote, getPlatformFeeParams, platformFeesAllowed } from "./jupiter";
 import { swapConfig } from "./config";
 import { quoteCache, quoteDeduper, pumpDetectionCache, pumpDetectionDeduper } from "./cache";
 
@@ -181,16 +181,24 @@ export async function getRouteQuote(params: {
     });
     
     if (jupiterResult.ok) {
-      // Check platform fee status for this output mint
-      const feeResult = await getPlatformFeeParams(outputMint);
-      const feeStatus: FeeStatus = feeResult.params
-        ? { mode: "platformFee", feeBps: feeResult.params.feeBps }
-        : { mode: "disabled", reason: feeResult.reason, outputMint: feeResult.normalizedMint };
+      // Platform fees are currently disabled - always return disabled status
+      let feeStatus: FeeStatus;
+      if (platformFeesAllowed()) {
+        const feeResult = await getPlatformFeeParams(outputMint);
+        feeStatus = feeResult.params
+          ? { mode: "platformFee", feeBps: feeResult.params.feeBps }
+          : { mode: "disabled", reason: feeResult.reason, outputMint: feeResult.normalizedMint };
+      } else {
+        feeStatus = { mode: "disabled", reason: "Platform fees disabled (kill-switch)" };
+      }
+      
+      // Ensure quote has no platformFee (sanitize)
+      const sanitizedQuote = { ...jupiterResult.quote, platformFee: null };
       
       const routeResult: RouteQuoteResult = {
         ok: true,
         route: "jupiter",
-        quoteResponse: jupiterResult.quote,
+        quoteResponse: sanitizedQuote,
         normalized: jupiterResult.normalized,
         fee: feeStatus,
       };

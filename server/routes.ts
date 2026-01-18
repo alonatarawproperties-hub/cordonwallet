@@ -79,6 +79,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Jupiter API Proxy - Quote endpoint (public API, no auth required)
+  // NOTE: platformFeeBps is NEVER sent to Jupiter - platform fees are disabled
   app.get("/api/jupiter/quote", quoteRateLimiter, async (req: Request, res: Response) => {
     try {
       const { inputMint, outputMint, amount, slippageBps, swapMode, onlyDirectRoutes } = req.query;
@@ -87,6 +88,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Missing required parameters: inputMint, outputMint, amount" });
       }
 
+      // NEVER include platformFeeBps - platform fees are disabled
       const params = new URLSearchParams({
         inputMint: inputMint as string,
         outputMint: outputMint as string,
@@ -99,9 +101,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         params.set("onlyDirectRoutes", "true");
       }
 
-      // QuickNode API uses /quote instead of /v6/quote
       const url = `${JUPITER_API}/quote?${params.toString()}`;
-      console.log("[Jupiter Proxy] Quote request:", url);
+      console.log("[Jupiter Proxy] Quote request (NO platformFeeBps):", url);
       
       const response = await fetch(url, {
         headers: { 
@@ -120,6 +121,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       try {
         const data = JSON.parse(responseText);
+        // Strip platformFee from response if present
+        if (data.platformFee) {
+          data.platformFee = null;
+          console.log("[Jupiter Proxy] Stripped platformFee from quote response");
+        }
+        console.log("[SwapFee] quote.platformFee:", data.platformFee ?? null);
         res.json(data);
       } catch {
         console.error("[Jupiter Proxy] Failed to parse response:", responseText);
@@ -132,6 +139,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Jupiter API Proxy - Swap endpoint
+  // NOTE: feeAccount/platformFeeBps are NEVER sent - platform fees are disabled
   app.post("/api/jupiter/swap", swapBuildRateLimiter, async (req: Request, res: Response) => {
     try {
       const body = req.body;
@@ -142,19 +150,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       console.log("[Jupiter Proxy] Swap request for:", body.userPublicKey);
       
-      // Strip ALL fee-related fields and force disable platform fee in Jupiter API
-      const { feeAccount, platformFeeBps, ...cleanBody } = body;
+      // Strip ALL fee-related fields from request body
+      const { 
+        feeAccount, 
+        platformFeeBps, 
+        referralAccount,
+        disablePlatformFee, // Remove this - not a valid Jupiter API field
+        ...cleanBody 
+      } = body;
       
-      // Also strip fee fields from quoteResponse if present
+      // Sanitize quoteResponse: set platformFee to null, preserve routePlan
       if (cleanBody.quoteResponse) {
-        const { platformFee, ...cleanQuote } = cleanBody.quoteResponse;
-        cleanBody.quoteResponse = cleanQuote;
+        const hasPlatformFeeOnQuote = !!cleanBody.quoteResponse.platformFee;
+        cleanBody.quoteResponse = {
+          ...cleanBody.quoteResponse,
+          platformFee: null,
+        };
+        
+        // Log sanitization status
+        console.log("[SwapFee] swap-build sanitized:", JSON.stringify({
+          platformFeesAllowed: false,
+          hasPlatformFeeOnQuote,
+          sanitizedPlatformFee: null,
+          hasFeeAccount: false,
+          endpoint: JUPITER_API,
+        }));
       }
-      
-      // CRITICAL: Tell Jupiter to NOT inject any platform fees
-      cleanBody.disablePlatformFee = true;
-      
-      console.log("[Jupiter Proxy] Platform fees disabled for swap request");
       
       const response = await fetch(`${JUPITER_API}/swap`, {
         method: "POST",

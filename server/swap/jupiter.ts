@@ -6,16 +6,19 @@ import type { QuoteResult, BuildResult } from "./types";
 // KILL-SWITCH: Force disable Jupiter platform fees until 0x1788 error is resolved
 const FORCE_DISABLE_JUPITER_PLATFORM_FEES = true;
 
-// Log once at module load
-if (FORCE_DISABLE_JUPITER_PLATFORM_FEES) {
-  console.log("[SwapFee] Jupiter platform fees are FORCED OFF (temporary)");
-}
-
-function arePlatformFeesEnabled(): boolean {
+// Helper: Central check for platform fee permission
+export function platformFeesAllowed(): boolean {
   if (FORCE_DISABLE_JUPITER_PLATFORM_FEES) {
     return false;
   }
   return isPlatformFeeEnabled();
+}
+
+// Log once at module load
+if (FORCE_DISABLE_JUPITER_PLATFORM_FEES) {
+  console.log("[SwapFee] Jupiter platform fees are FORCED OFF (temporary kill-switch)");
+} else {
+  console.log("[SwapFee] platformFeesAllowed:", platformFeesAllowed());
 }
 
 const JUPITER_REFERRAL_PROGRAM = "REFER4ZgmyYx9c6He5XfaTMiGfdLwRnkV4RPp9t9iF3";
@@ -30,6 +33,11 @@ function normalizeToWsol(mint: string): string {
 }
 
 function deriveFeeAccountAddress(referralAccount: string, mint: string): string | null {
+  // Guard: Never derive if platform fees are disabled
+  if (!platformFeesAllowed()) {
+    return null;
+  }
+  
   try {
     const referralPubkey = new PublicKey(referralAccount);
     const mintPubkey = new PublicKey(mint);
@@ -72,15 +80,15 @@ export interface PlatformFeeResult {
 export async function getPlatformFeeParams(outputMint: string): Promise<PlatformFeeResult> {
   const normalizedMint = normalizeToWsol(outputMint);
   
-  console.log(`[SwapFee] getPlatformFeeParams: outputMint=${outputMint.slice(0, 8)}..., normalizedMint=${normalizedMint.slice(0, 8)}...`);
-  
-  if (!arePlatformFeesEnabled()) {
+  // Early exit if platform fees are disabled
+  if (!platformFeesAllowed()) {
     const reason = FORCE_DISABLE_JUPITER_PLATFORM_FEES 
-      ? "Platform fee FORCED OFF (temporary)" 
+      ? "Platform fee FORCED OFF (kill-switch)" 
       : "Platform fee disabled by config";
-    console.log(`[SwapFee] platformFeesEnabled=false (${FORCE_DISABLE_JUPITER_PLATFORM_FEES ? "forced" : "config"})`);
     return { params: null, reason, outputMint, normalizedMint };
   }
+  
+  console.log(`[SwapFee] getPlatformFeeParams: outputMint=${outputMint.slice(0, 8)}..., normalizedMint=${normalizedMint.slice(0, 8)}...`);
   
   if (platformFeeConfig.knownFeeAccounts[normalizedMint]) {
     const feeAccount = platformFeeConfig.knownFeeAccounts[normalizedMint];
@@ -131,6 +139,11 @@ async function resolvePlatformFeeAccount(
   inputMint: string,
   swapMode: string
 ): Promise<FeeAccountResult> {
+  // Guard: Never resolve if platform fees are disabled
+  if (!platformFeesAllowed()) {
+    return { feeAccount: null, feeBps: 0, reason: "Platform fees disabled" };
+  }
+  
   const feeMint = swapMode === "ExactOut" ? inputMint : outputMint;
   const result = await getPlatformFeeParams(feeMint);
   
@@ -162,8 +175,10 @@ export async function getQuote(params: {
     swapMode,
   });
   
-  if (includePlatformFee && isPlatformFeeEnabled()) {
+  // ONLY add platformFeeBps if fees are explicitly allowed
+  if (includePlatformFee && platformFeesAllowed()) {
     queryParams.set("platformFeeBps", platformFeeConfig.feeBps.toString());
+    console.log("[SwapFee] Adding platformFeeBps to quote:", platformFeeConfig.feeBps);
   }
   
   const url = `${swapConfig.jupiterBaseUrl}${swapConfig.jupiterQuotePath}?${queryParams.toString()}`;
@@ -236,6 +251,14 @@ export async function getQuote(params: {
       };
     }
     
+    // Strip platformFee from response if platform fees are disabled
+    if (!platformFeesAllowed()) {
+      quote.platformFee = null;
+    }
+    
+    // Log fee status
+    console.log("[SwapFee] platformFeesAllowed:", platformFeesAllowed(), "quote.platformFee:", quote.platformFee ?? null);
+    
     return {
       ok: true,
       route: "jupiter",
@@ -267,6 +290,14 @@ export async function getQuote(params: {
   }
 }
 
+// Sanitize quote for swap: remove ALL platform fee fields
+export function sanitizeQuoteForSwap(quoteResponse: any): any {
+  if (!quoteResponse) return quoteResponse;
+  
+  const { platformFee, ...sanitized } = quoteResponse;
+  return { ...sanitized, platformFee: null };
+}
+
 export async function buildSwapTransaction(params: {
   userPublicKey: string;
   quote: any;
@@ -275,71 +306,64 @@ export async function buildSwapTransaction(params: {
   wrapAndUnwrapSol: boolean;
   disablePlatformFee?: boolean;
 }): Promise<BuildResult> {
-  const { userPublicKey, quote, speedMode, maxPriorityFeeLamports, wrapAndUnwrapSol, disablePlatformFee = false } = params;
+  const { userPublicKey, quote, speedMode, maxPriorityFeeLamports, wrapAndUnwrapSol } = params;
   
   const priorityFeeCap = getPriorityFeeCap(speedMode, maxPriorityFeeLamports);
   
-  const quoteOutputMint = quote?.outputMint;
-  const quoteInputMint = quote?.inputMint;
-  const swapMode = quote?.swapMode || "ExactIn";
-  
-  // Determine fee mint based on swap mode
-  const feeMint = swapMode === "ExactOut" ? quoteInputMint : quoteOutputMint;
-  const normalizedFeeMint = normalizeToWsol(feeMint || "");
-  
-  let feeAccount: string | null = null;
-  let feeBps = 0;
-  let feeReason = "disabled";
-  let feeAccountExists: boolean | null = null;
-  
-  if (!disablePlatformFee && quoteOutputMint && quoteInputMint) {
-    const feeResult = await getPlatformFeeParams(feeMint);
-    feeAccount = feeResult.params?.feeAccount || null;
-    feeBps = feeResult.params?.feeBps || 0;
-    feeReason = feeResult.reason;
-    feeAccountExists = feeResult.params !== null;
-  }
-  
-  // ===== DIAGNOSTIC LOG: 5 fields for debugging 0x1788 =====
-  console.log("[SwapFee] BUILD DIAGNOSTIC:", {
-    "1_requestedOutputMint": quoteOutputMint,
-    "2_quoteResponseOutputMint": quote?.outputMint,
-    "3_feeMintUsed": feeMint,
-    "3b_normalizedFeeMint": normalizedFeeMint,
-    "4_feeAccountUsed": feeAccount,
-    "5_validateResult": feeAccountExists === null ? "skipped" : feeAccountExists ? "EXISTS" : "NOT_FOUND",
-    "reason": feeReason,
-  });
-  // ==========================================================
+  // ALWAYS sanitize quote - never allow platform fee fields
+  const sanitizedQuote = sanitizeQuoteForSwap(quote);
   
   const url = `${swapConfig.jupiterBaseUrl}${swapConfig.jupiterSwapPath}`;
-  console.log("[Jupiter] Build swap:", {
-    user: userPublicKey.slice(0, 8) + "...",
-    speedMode,
-    priorityFeeCap,
-    platformFee: feeBps > 0 ? `${feeBps}bps` : "OFF",
-    feeReason,
-  });
   
+  // Build swap body WITHOUT any fee fields
   const body: Record<string, any> = {
-    quoteResponse: quote,
+    quoteResponse: sanitizedQuote,
     userPublicKey,
     wrapAndUnwrapSol,
     dynamicComputeUnitLimit: true,
     prioritizationFeeLamports: priorityFeeCap,
   };
   
-  if (feeAccount && feeBps > 0) {
-    body.feeAccount = feeAccount;
-  }
+  // Log sanitization status
+  console.log("[SwapFee] swap-build sanitized:", JSON.stringify({
+    platformFeesAllowed: platformFeesAllowed(),
+    hasPlatformFeeOnQuote: !!(quote as any)?.platformFee,
+    sanitizedPlatformFee: (sanitizedQuote as any)?.platformFee ?? null,
+    hasFeeAccount: "feeAccount" in body,
+    endpoint: swapConfig.jupiterBaseUrl,
+  }));
+  
+  console.log("[Jupiter] Build swap:", {
+    user: userPublicKey.slice(0, 8) + "...",
+    speedMode,
+    priorityFeeCap,
+    platformFee: "DISABLED",
+  });
   
   const result = await executeSwapBuild(url, body);
   
+  // Retry logic for 0x1788 error - fetch fresh quote without platform fees
   if (!result.ok && result.details && isFeeAccountError(result.details)) {
-    console.log("[SwapFee] 0x1788 error detected - fee account issue. Retrying without platform fee.");
+    console.warn("[SwapFee] 0x1788 detected – retrying with fresh no-fee quote");
     
+    // Fetch a fresh quote without any platform fees
+    const freshQuoteResult = await getQuote({
+      inputMint: quote.inputMint,
+      outputMint: quote.outputMint,
+      amount: quote.inAmount,
+      slippageBps: quote.slippageBps || 50,
+      swapMode: quote.swapMode || "ExactIn",
+      includePlatformFee: false,
+    });
+    
+    if (!freshQuoteResult.ok) {
+      console.error("[SwapFee] Fresh quote fetch failed:", freshQuoteResult.message);
+      return result; // Return original error
+    }
+    
+    // Retry with sanitized fresh quote
     const retryBody = {
-      quoteResponse: quote,
+      quoteResponse: sanitizeQuoteForSwap(freshQuoteResult.quote),
       userPublicKey,
       wrapAndUnwrapSol,
       dynamicComputeUnitLimit: true,
@@ -348,20 +372,13 @@ export async function buildSwapTransaction(params: {
     
     const retryResult = await executeSwapBuild(url, retryBody);
     if (retryResult.ok) {
-      console.log("[SwapFee] Retry without fee succeeded.");
+      console.log("[SwapFee] Retry with fresh quote succeeded.");
       return {
         ...retryResult,
-        feeDisabledReason: "Fee account error (0x1788), executed without platform fee",
+        feeDisabledReason: "Fee account error (0x1788), executed with fresh no-fee quote",
       };
     }
     return retryResult;
-  }
-  
-  if (result.ok && feeAccount && feeBps > 0) {
-    return {
-      ...result,
-      appliedPlatformFee: { feeAccount, feeBps },
-    };
   }
   
   return result;
@@ -459,7 +476,7 @@ export function getPlatformFeeStatus(): {
   forceDisabled: boolean;
 } {
   return {
-    enabled: arePlatformFeesEnabled(),
+    enabled: platformFeesAllowed(),
     feeBps: platformFeeConfig.feeBps,
     referralConfigured: platformFeeConfig.referralAccount.length > 0,
     forceDisabled: FORCE_DISABLE_JUPITER_PLATFORM_FEES,
