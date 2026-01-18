@@ -261,20 +261,38 @@ export async function buildSwapTransaction(params: {
   
   const priorityFeeCap = getPriorityFeeCap(speedMode, maxPriorityFeeLamports);
   
-  const outputMint = quote?.outputMint;
-  const inputMint = quote?.inputMint;
+  const quoteOutputMint = quote?.outputMint;
+  const quoteInputMint = quote?.inputMint;
   const swapMode = quote?.swapMode || "ExactIn";
+  
+  // Determine fee mint based on swap mode
+  const feeMint = swapMode === "ExactOut" ? quoteInputMint : quoteOutputMint;
+  const normalizedFeeMint = normalizeToWsol(feeMint || "");
   
   let feeAccount: string | null = null;
   let feeBps = 0;
   let feeReason = "disabled";
+  let feeAccountExists: boolean | null = null;
   
-  if (!disablePlatformFee && outputMint && inputMint) {
-    const feeInfo = await resolvePlatformFeeAccount(outputMint, inputMint, swapMode);
-    feeAccount = feeInfo.feeAccount;
-    feeBps = feeInfo.feeBps;
-    feeReason = feeInfo.reason;
+  if (!disablePlatformFee && quoteOutputMint && quoteInputMint) {
+    const feeResult = await getPlatformFeeParams(feeMint);
+    feeAccount = feeResult.params?.feeAccount || null;
+    feeBps = feeResult.params?.feeBps || 0;
+    feeReason = feeResult.reason;
+    feeAccountExists = feeResult.params !== null;
   }
+  
+  // ===== DIAGNOSTIC LOG: 5 fields for debugging 0x1788 =====
+  console.log("[SwapFee] BUILD DIAGNOSTIC:", {
+    "1_requestedOutputMint": quoteOutputMint,
+    "2_quoteResponseOutputMint": quote?.outputMint,
+    "3_feeMintUsed": feeMint,
+    "3b_normalizedFeeMint": normalizedFeeMint,
+    "4_feeAccountUsed": feeAccount,
+    "5_validateResult": feeAccountExists === null ? "skipped" : feeAccountExists ? "EXISTS" : "NOT_FOUND",
+    "reason": feeReason,
+  });
+  // ==========================================================
   
   const url = `${swapConfig.jupiterBaseUrl}${swapConfig.jupiterSwapPath}`;
   console.log("[Jupiter] Build swap:", {
