@@ -6,12 +6,19 @@ const MAX_TRANSACTIONS = 100;
 
 export type ActivityType = "send" | "receive" | "swap";
 
+export interface SwapInfo {
+  fromAmount: string;
+  fromSymbol: string;
+  toAmount: string;
+  toSymbol: string;
+}
+
 export interface TxRecord {
   id: string;
   chainId: number;
   walletAddress: string;
   hash: string;
-  type: "native" | "erc20" | "spl";
+  type: "native" | "erc20" | "spl" | "swap" | "transfer";
   activityType: ActivityType;
   tokenAddress?: string;
   tokenSymbol: string;
@@ -24,6 +31,7 @@ export interface TxRecord {
   status: "pending" | "confirmed" | "failed";
   createdAt: number;
   explorerUrl: string;
+  swapInfo?: SwapInfo;
 }
 
 export async function saveTransaction(

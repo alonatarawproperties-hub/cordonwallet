@@ -255,25 +255,64 @@ export default function AssetDetailScreen({ route }: Props) {
               // Convert Solana API response to TxRecord format and filter by token
               allTxs = solanaHistory
                 .filter((tx: any) => {
+                  // For native SOL viewing
                   if (isNative && tx.tokenSymbol === "SOL") return true;
+                  // For swaps involving SOL, check swapInfo
+                  if (isNative && tx.type === "swap" && tx.swapInfo) {
+                    return tx.swapInfo.fromSymbol === "SOL" || tx.swapInfo.toSymbol === "SOL";
+                  }
+                  // For SPL token viewing - match by mint address
                   if (!isNative && address && tx.tokenMint === address) return true;
+                  // For SPL token - check swapInfo for token involvement
+                  if (!isNative && tx.type === "swap" && tx.swapInfo) {
+                    return tx.swapInfo.fromSymbol === tokenSymbol || tx.swapInfo.toSymbol === tokenSymbol;
+                  }
                   if (!isNative && tx.tokenSymbol === tokenSymbol) return true;
                   return false;
                 })
-                .map((tx: any) => ({
-                  id: tx.signature,
-                  hash: tx.signature,
-                  chainId: 0,
-                  activityType: tx.type === "send" ? "send" : tx.type === "receive" ? "receive" : "send",
-                  tokenSymbol: tx.tokenSymbol || tokenSymbol,
-                  tokenAddress: tx.tokenMint || address,
-                  amount: tx.amount || "0",
-                  from: tx.from || "",
-                  to: tx.to || "",
-                  status: tx.err ? "failed" : "confirmed",
-                  createdAt: tx.blockTime ? tx.blockTime * 1000 : Date.now(),
-                  explorerUrl: `https://solscan.io/tx/${tx.signature}`,
-                } as TxRecord));
+                .map((tx: any) => {
+                  // Determine activity type correctly for swaps
+                  let activityType: "send" | "receive" | "swap" = "send";
+                  let displayAmount = tx.amount || "0";
+                  let displaySymbol = tx.tokenSymbol || tokenSymbol;
+                  
+                  if (tx.type === "swap" && tx.swapInfo) {
+                    activityType = "swap";
+                    // Determine if user received or sent the token being viewed
+                    const viewingSymbol = isNative ? "SOL" : tokenSymbol;
+                    if (tx.swapInfo.toSymbol === viewingSymbol) {
+                      // User received this token in the swap
+                      displayAmount = tx.swapInfo.toAmount;
+                      displaySymbol = tx.swapInfo.toSymbol;
+                    } else if (tx.swapInfo.fromSymbol === viewingSymbol) {
+                      // User sent this token in the swap
+                      displayAmount = tx.swapInfo.fromAmount;
+                      displaySymbol = tx.swapInfo.fromSymbol;
+                    }
+                  } else if (tx.type === "send") {
+                    activityType = "send";
+                  } else if (tx.type === "receive") {
+                    activityType = "receive";
+                  }
+                  
+                  return {
+                    id: tx.signature,
+                    hash: tx.signature,
+                    chainId: 0,
+                    activityType,
+                    tokenSymbol: displaySymbol,
+                    tokenAddress: tx.tokenMint || address,
+                    amount: displayAmount,
+                    from: tx.from || "",
+                    to: tx.to || "",
+                    status: tx.err ? "failed" : "confirmed",
+                    createdAt: tx.blockTime ? tx.blockTime * 1000 : Date.now(),
+                    explorerUrl: `https://solscan.io/tx/${tx.signature}`,
+                    walletAddress: activeWallet?.addresses?.solana || "",
+                    type: tx.type || "transfer",
+                    swapInfo: tx.swapInfo,
+                  } as TxRecord;
+                });
             }
           } catch (apiError) {
             console.error("Failed to fetch Solana history from API:", apiError);
@@ -430,54 +469,68 @@ export default function AssetDetailScreen({ route }: Props) {
           </ThemedText>
         </View>
       ) : (
-        transactions.map((tx) => (
-          <Pressable
-            key={tx.id}
-            style={[styles.txRow, { backgroundColor: theme.backgroundDefault }]}
-            onPress={() => handleTransactionPress(tx)}
-          >
-            <View
-              style={[
-                styles.txIcon,
-                { backgroundColor: tx.activityType === "receive" ? theme.success + "20" : theme.accent + "20" },
-              ]}
+        transactions.map((tx) => {
+          // Determine display properties based on activity type and swap info
+          const isSwap = tx.activityType === "swap";
+          const viewingSymbol = isNative ? "SOL" : tokenSymbol;
+          
+          // For swaps, determine if user received or sent the token being viewed
+          let isReceiving = tx.activityType === "receive";
+          if (isSwap && tx.swapInfo) {
+            isReceiving = tx.swapInfo.toSymbol === viewingSymbol;
+          }
+          
+          const iconName = isSwap ? "repeat" : (isReceiving ? "arrow-down-left" : "arrow-up-right");
+          const iconColor = isReceiving ? theme.success : theme.accent;
+          const bgColor = isReceiving ? theme.success + "20" : theme.accent + "20";
+          
+          const txLabel = isSwap 
+            ? (isReceiving ? "Swapped for" : "Swapped away")
+            : (isReceiving ? "Received" : "Sent");
+          
+          const amountPrefix = isReceiving ? "+" : "-";
+          const amountColor = isReceiving ? theme.success : theme.text;
+          
+          return (
+            <Pressable
+              key={tx.id}
+              style={[styles.txRow, { backgroundColor: theme.backgroundDefault }]}
+              onPress={() => handleTransactionPress(tx)}
             >
-              <Feather
-                name={tx.activityType === "receive" ? "arrow-down-left" : "arrow-up-right"}
-                size={18}
-                color={tx.activityType === "receive" ? theme.success : theme.accent}
-              />
-            </View>
-            <View style={styles.txInfo}>
-              <ThemedText type="body" style={{ fontWeight: "600" }}>
-                {tx.activityType === "receive" ? "Received" : "Sent"}
-              </ThemedText>
-              <ThemedText type="caption" style={{ color: theme.textSecondary }}>
-                {formatDate(tx.createdAt)}
-              </ThemedText>
-            </View>
-            <View style={styles.txAmount}>
-              <ThemedText
-                type="body"
-                style={{
-                  fontWeight: "600",
-                  color: tx.activityType === "receive" ? theme.success : theme.text,
-                  textAlign: "right",
-                }}
-              >
-                {tx.activityType === "receive" ? "+" : "-"}{tx.amount} {tx.tokenSymbol}
-              </ThemedText>
-              <View style={[styles.statusBadge, { backgroundColor: tx.status === "confirmed" ? theme.success + "20" : theme.warning + "20" }]}>
-                <ThemedText
-                  type="caption"
-                  style={{ color: tx.status === "confirmed" ? theme.success : theme.warning, fontSize: 10 }}
-                >
-                  {tx.status === "confirmed" ? "Confirmed" : "Pending"}
+              <View style={[styles.txIcon, { backgroundColor: bgColor }]}>
+                <Feather name={iconName} size={18} color={iconColor} />
+              </View>
+              <View style={styles.txInfo}>
+                <ThemedText type="body" style={{ fontWeight: "600" }}>
+                  {txLabel}
+                </ThemedText>
+                <ThemedText type="caption" style={{ color: theme.textSecondary }}>
+                  {formatDate(tx.createdAt)}
                 </ThemedText>
               </View>
-            </View>
-          </Pressable>
-        ))
+              <View style={styles.txAmount}>
+                <ThemedText
+                  type="body"
+                  style={{
+                    fontWeight: "600",
+                    color: amountColor,
+                    textAlign: "right",
+                  }}
+                >
+                  {amountPrefix}{tx.amount} {tx.tokenSymbol}
+                </ThemedText>
+                <View style={[styles.statusBadge, { backgroundColor: tx.status === "confirmed" ? theme.success + "20" : theme.warning + "20" }]}>
+                  <ThemedText
+                    type="caption"
+                    style={{ color: tx.status === "confirmed" ? theme.success : theme.warning, fontSize: 10 }}
+                  >
+                    {tx.status === "confirmed" ? "Confirmed" : "Pending"}
+                  </ThemedText>
+                </View>
+              </View>
+            </Pressable>
+          );
+        })
       )}
     </View>
   );
