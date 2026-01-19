@@ -1,11 +1,12 @@
-import { useState, useRef, useEffect } from "react";
-import { View, StyleSheet, ScrollView, Pressable, Alert, Switch } from "react-native";
+import { useState, useRef, useEffect, useCallback } from "react";
+import { View, StyleSheet, ScrollView, Pressable, Alert, Switch, Platform } from "react-native";
 import { Image } from "expo-image";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Feather } from "@expo/vector-icons";
+import * as Haptics from "expo-haptics";
 
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius } from "@/constants/theme";
@@ -16,6 +17,7 @@ import { useDemo } from "@/lib/demo/context";
 import { useDevSettings } from "@/context/DevSettingsContext";
 import { NETWORKS } from "@/lib/types";
 import { getChainById } from "@/lib/blockchain/chains";
+import { hasBiometricPinEnabled, isBiometricAvailable, savePinForBiometrics, disableBiometrics, verifyPin } from "@/lib/wallet-engine";
 import * as WebBrowser from "expo-web-browser";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 
@@ -31,6 +33,9 @@ export default function SettingsScreen() {
   const { settings, updateSetting, loadSettings } = useDevSettings();
   const [showDebug, setShowDebug] = useState(false);
   const [showNetworks, setShowNetworks] = useState(false);
+  const [biometricEnabled, setBiometricEnabled] = useState(false);
+  const [biometricAvailable, setBiometricAvailable] = useState(false);
+  const [isTogglingBiometric, setIsTogglingBiometric] = useState(false);
   const tapCountRef = useRef(0);
   const lastTapRef = useRef(0);
 
@@ -44,6 +49,83 @@ export default function SettingsScreen() {
   useEffect(() => {
     loadSettings();
   }, [loadSettings]);
+
+  const checkBiometricStatus = useCallback(async () => {
+    const available = await isBiometricAvailable();
+    setBiometricAvailable(available);
+    if (available) {
+      const enabled = await hasBiometricPinEnabled();
+      setBiometricEnabled(enabled);
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      checkBiometricStatus();
+    }, [checkBiometricStatus])
+  );
+
+  const handleBiometricToggle = async () => {
+    if (Platform.OS === "web") {
+      Alert.alert("Not Available", "Biometric unlock is only available on mobile devices.");
+      return;
+    }
+
+    if (!biometricAvailable) {
+      Alert.alert("Not Available", "Your device does not support biometric authentication.");
+      return;
+    }
+
+    setIsTogglingBiometric(true);
+
+    try {
+      if (biometricEnabled) {
+        const success = await disableBiometrics();
+        if (success) {
+          setBiometricEnabled(false);
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          Alert.alert("Disabled", "Biometric unlock has been disabled.");
+        }
+      } else {
+        Alert.prompt(
+          "Enable Biometric Unlock",
+          "Enter your PIN to enable Face ID / Fingerprint unlock",
+          async (pin: string) => {
+            if (!pin || pin.length !== 6) {
+              Alert.alert("Invalid PIN", "Please enter your 6-digit PIN.");
+              setIsTogglingBiometric(false);
+              return;
+            }
+
+            const isValid = await verifyPin(pin);
+            if (!isValid) {
+              Alert.alert("Incorrect PIN", "The PIN you entered is incorrect.");
+              setIsTogglingBiometric(false);
+              return;
+            }
+
+            const success = await savePinForBiometrics(pin);
+            if (success) {
+              setBiometricEnabled(true);
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              Alert.alert("Enabled", "Biometric unlock is now enabled. You can use Face ID or Fingerprint to unlock Cordon.");
+            } else {
+              Alert.alert("Failed", "Could not enable biometric unlock. Please try again.");
+            }
+            setIsTogglingBiometric(false);
+          },
+          "secure-text",
+          "",
+          "number-pad"
+        );
+        return;
+      }
+    } catch (error) {
+      Alert.alert("Error", "An error occurred. Please try again.");
+    }
+
+    setIsTogglingBiometric(false);
+  };
 
   const handleVersionTap = () => {
     const now = Date.now();
@@ -83,9 +165,15 @@ export default function SettingsScreen() {
     );
   };
 
+  const getBiometricSubtitle = () => {
+    if (Platform.OS === "web") return "Not available on web";
+    if (!biometricAvailable) return "Not available";
+    return biometricEnabled ? "Enabled" : "Disabled";
+  };
+
   const securityItems = [
     { title: "Wallet Firewall", subtitle: "Protect your transactions", icon: "shield", onPress: () => navigation.navigate("PolicySettings") },
-    { title: "Biometric Unlock", subtitle: "Face ID / Fingerprint", icon: "smartphone", onPress: () => {} },
+    { title: "Biometric Unlock", subtitle: getBiometricSubtitle(), icon: "smartphone", onPress: handleBiometricToggle, isBiometric: true },
     { title: "Change PIN", subtitle: "Update your security PIN", icon: "lock", onPress: () => {} },
   ];
 
@@ -118,23 +206,37 @@ export default function SettingsScreen() {
         </ThemedText>
         <View style={styles.sectionContent}>
           {securityItems.map((item, index) => (
-            <ListRow
+            <Pressable
               key={item.title}
-              title={item.title}
-              subtitle={item.subtitle}
-              leftIcon={
-                <View style={[styles.iconContainer, { backgroundColor: theme.accent + "20" }]}>
-                  <Feather name={item.icon as any} size={18} color={theme.accent} />
-                </View>
-              }
-              showChevron
+              style={[
+                styles.networkRowItem,
+                { backgroundColor: theme.backgroundDefault },
+                index === 0 ? styles.firstItem : {},
+                index === securityItems.length - 1 ? styles.lastItem : {},
+                index > 0 ? { marginTop: 1 } : {},
+              ]}
               onPress={item.onPress}
-              style={{
-                ...(index === 0 ? styles.firstItem : {}),
-                ...(index === securityItems.length - 1 ? styles.lastItem : {}),
-                ...(index > 0 ? { marginTop: 1 } : {}),
-              }}
-            />
+              disabled={item.isBiometric && isTogglingBiometric}
+            >
+              <View style={[styles.iconContainer, { backgroundColor: theme.accent + "20" }]}>
+                <Feather name={item.icon as any} size={18} color={theme.accent} />
+              </View>
+              <View style={{ flex: 1, marginLeft: Spacing.md }}>
+                <ThemedText type="body" style={{ fontWeight: "500" }}>{item.title}</ThemedText>
+                <ThemedText type="caption" style={{ color: theme.textSecondary }}>{item.subtitle}</ThemedText>
+              </View>
+              {item.isBiometric && biometricAvailable ? (
+                <Switch
+                  value={biometricEnabled}
+                  onValueChange={handleBiometricToggle}
+                  trackColor={{ false: theme.border, true: theme.accent }}
+                  thumbColor="#fff"
+                  disabled={isTogglingBiometric}
+                />
+              ) : (
+                <Feather name="chevron-right" size={18} color={theme.textSecondary} />
+              )}
+            </Pressable>
           ))}
         </View>
       </View>

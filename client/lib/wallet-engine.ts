@@ -347,6 +347,37 @@ export async function hasBiometricPinEnabled(): Promise<boolean> {
   }
 }
 
+export async function isBiometricAvailable(): Promise<boolean> {
+  if (Platform.OS === "web") {
+    return false;
+  }
+  
+  try {
+    return await SecureStore.canUseBiometricAuthentication();
+  } catch {
+    return false;
+  }
+}
+
+export async function disableBiometrics(): Promise<boolean> {
+  if (Platform.OS === "web") {
+    return false;
+  }
+  
+  try {
+    await SecureStore.deleteItemAsync(STORAGE_KEYS.BIOMETRIC_PIN);
+    if (__DEV__) {
+      console.log("[WalletEngine] Biometric unlock disabled");
+    }
+    return true;
+  } catch (error) {
+    if (__DEV__) {
+      console.log("[WalletEngine] Failed to disable biometrics:", error);
+    }
+    return false;
+  }
+}
+
 async function loadVaultMeta(): Promise<{ wallets: WalletRecord[]; activeWalletId: string | null }> {
   const meta = await AsyncStorage.getItem(STORAGE_KEYS.VAULT_META);
   if (meta) {
