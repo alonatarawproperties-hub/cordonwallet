@@ -16,7 +16,7 @@ const config = ({ config }: ConfigContext): ExpoConfig => ({
       ITSAppUsesNonExemptEncryption: false,
       CFBundleURLTypes: [
         {
-          CFBundleURLSchemes: ["cordon"],
+          CFBundleURLSchemes: ["cordon", "com.googleusercontent.apps.829325518924-edjl71pfsolhuc2jhm0d33v2s95bfs4f"],
         },
       ],
     },
