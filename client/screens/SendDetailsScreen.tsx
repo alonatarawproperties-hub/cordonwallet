@@ -817,7 +817,7 @@ export default function SendDetailsScreen({ navigation, route }: Props) {
               </ThemedText>
             ) : gasEstimate ? (
               <ThemedText type="body" style={{ fontWeight: "600" }}>
-                ~{gasEstimate.estimatedFeeFormatted}
+                {gasEstimate.estimatedFeeFormatted}
               </ThemedText>
             ) : (
               <ThemedText type="small" style={{ color: theme.textSecondary }}>
