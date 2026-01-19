@@ -103,44 +103,46 @@ The project is organized into `/client` (React Native frontend), `/server` (Expr
 - Displayed in Settings screen with Copy and Explorer buttons
 - If treasury not configured, success fees are silently skipped
 
-### Contract Security Scanner (CORDON SCAN v2)
-- Located in `client/lib/securityScan.ts` and displayed in AssetDetailScreen About tab
-- Performs comprehensive on-chain security analysis for Solana tokens
-- **Verified On-Chain Checks** (kind: "verified"):
+### Token Safety Scanner V2 (CORDON SCAN)
+- **Architecture**: Modular service-based design with dedicated services for each data source
+- **Files**:
+  - Types: `client/types/tokenSafety.ts`
+  - Main service: `client/services/tokenSafetyV2.ts`
+  - Solana mint data: `client/services/solanaMintInfo.ts`
+  - DEX market data: `client/services/dexMarketData.ts`
+  - Cache: `client/services/cache.ts`
+  - Risk scoring: `client/utils/riskScore.ts`
+  - Hook: `client/hooks/useTokenSafetyScan.ts`
+  - UI: `client/components/TokenSafetyStrip.tsx`, `client/components/RiskGateModal.tsx`
+- **V2-A Verified On-Chain Checks**:
   - Token Program: SPL vs Token-2022 detection
-  - Mintable: Checks mintAuthority existence
-  - Freezable: Checks freezeAuthority existence
-  - Token Extensions (Token-2022): Detects risky extensions (TransferHook, PermanentDelegate, DefaultAccountState, TransferFee, etc.)
-  - Metadata Immutability: Reads Metaplex metadata PDA byte 66 for isMutable flag
-- **Risk Signals** (kind: "signal"):
-  - Holder Concentration: Uses getTokenLargestAccounts to compute top 1/5/10 holder percentages
-  - Route Liquidity: Probes Jupiter lite-api for tradability and price impact
-- **Status Labels**: "Safe", "Caution", "Warning", "Not supported", "Unable to verify" (never "Unknown")
-- **Caching**: Results cached in AsyncStorage with key `cordon_security_scan_{mint}`, 60-minute TTL
-- **Rescan**: Manual rescan button ignores cache TTL
-- **Footer**: "Verified = on-chain facts. Signals = heuristics, not guarantees."
-- Files: `client/lib/securityScan.ts`, `client/screens/AssetDetailScreen.tsx`
+  - Mintable: Checks mintAuthority existence with proof link
+  - Freezable: Checks freezeAuthority existence with proof link
+  - Metadata Immutability: Reads Metaplex metadata PDA for isMutable + updateAuthority
+  - Holder Concentration: Uses getTokenLargestAccounts (top 10) with percentage calculation
+  - Liquidity: DexScreener API for pool liquidity, volume, FDV, market cap
+- **V2-C Heuristics (best-effort, labeled)**:
+  - Authority Activity: Checks recent transactions for mint/update authority wallet
+  - Suspicious Volume: Flags when 24h volume > 8x liquidity (wash trading signal)
+- **Verdict System**:
+  - Low Risk: No danger findings, <2 verified warnings
+  - Medium Risk: 1+ verified warnings or unverified dangers
+  - High Risk: Any verified danger findings
+- **Status Labels**: "Safe", "Caution", "Risk", "Info", "Not verified" (never "Unknown")
+- **Caching**: In-memory cache with 5-minute TTL, forceRefresh bypasses
+- **Timeouts**: All RPC calls wrapped with withTimeout() to prevent UI freezing
+- **Proof Links**: All findings include Solscan explorer links for verification
 
-### Swap Token Safety Scan
-- **Location**: Integrated into SwapScreen.tsx for output token safety assessment
-- **Files**: `client/hooks/useTokenSafetyScan.ts`, `client/components/TokenSafetyStrip.tsx`, `client/components/RiskGateModal.tsx`
+### Swap Token Safety Gate
+- **Location**: Integrated into SwapScreen.tsx for pre-swap risk assessment
 - **Risk Levels**: LOW, MEDIUM, HIGH, NEEDS_DEEPER_SCAN
-- **Checks Performed**:
-  - Token Program: SPL vs Token-2022 detection
-  - Mintable: Checks if mintAuthority exists (warning if yes)
-  - Freezable: Checks if freezeAuthority exists (warning if yes)
-  - Token-2022 Extensions: Detects risky extensions (TransferHook, PermanentDelegate, etc.)
-  - Pump Token Detection: Flags pump route tokens with "High volatility" note
-- **Risk Scoring**:
-  - LOW: No red flags
-  - MEDIUM: mintable OR freezable, OR pump token, OR risky extensions
-  - HIGH: mintable AND freezable, OR pump + (mintable/freezable)
-  - NEEDS_DEEPER_SCAN: RPC error or extension decode failure
 - **UI Components**:
-  - TokenSafetyStrip: Compact strip showing risk badge + scan time, tappable for details modal
-  - RiskGateModal: Pre-swap confirmation for MEDIUM/HIGH/NEEDS_DEEPER_SCAN tokens
-    - HIGH risk: 2-step confirmation ("I understand" → "Continue anyway")
-    - MEDIUM/NEEDS_DEEPER_SCAN: 1-step confirmation
-    - LOW: No modal, proceeds directly
-- **Caching**: AsyncStorage with key `cordon_swap_safety_{mint}`, 10-minute TTL
-- **Rescan**: Manual rescan bypasses cache
+  - TokenSafetyStrip: Compact strip under output token showing risk badge + scan time
+    - Tappable to view 75% height details modal with all findings
+    - Rescan button on right side
+  - RiskGateModal: Pre-swap confirmation for risky tokens
+    - HIGH risk: 2-step confirmation ("I understand the risks" → "Continue anyway")
+    - MEDIUM/NEEDS_DEEPER_SCAN: 1-step confirmation with Proceed/Cancel
+    - LOW risk: No modal, proceeds directly to swap
+- **Caching**: Uses V2 service cache (5-minute TTL)
+- **Integration**: Hook returns legacy interface for backward compatibility
