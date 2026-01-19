@@ -39,13 +39,22 @@ interface TokenInfo {
   twitter?: string;
 }
 
-type TokenSecurity = {
-  tokenProgram: "SPL" | "Token-2022" | "Unknown";
-  mintable: boolean;
-  freezable: boolean;
+type SecurityCheckStatus = "success" | "warning" | "risk" | "unknown";
+
+type SecurityCheck = {
+  key: string;
+  label: string;
+  status: SecurityCheckStatus;
+  detail?: string;
 };
 
-const securityCache = new Map<string, TokenSecurity>();
+type TokenSecurityReport = {
+  tokenProgram: "SPL" | "Token-2022" | "Unknown";
+  scanned: boolean;
+  checks: SecurityCheck[];
+};
+
+const securityCache = new Map<string, TokenSecurityReport>();
 const SOLANA_RPC_URL = process.env.SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com";
 
 function formatPrice(price: number): string {
@@ -154,9 +163,10 @@ export default function AssetDetailScreen({ route }: Props) {
   const [tokenInfo, setTokenInfo] = useState<TokenInfo | null>(null);
   const [isLoadingInfo, setIsLoadingInfo] = useState(false);
   const [pnlData, setPnlData] = useState<{ timestamp: number; value: number }[]>([]);
-  const [tokenSecurity, setTokenSecurity] = useState<TokenSecurity | null>(null);
+  const [securityReport, setSecurityReport] = useState<TokenSecurityReport | null>(null);
   const [isLoadingSecurity, setIsLoadingSecurity] = useState(false);
   const [securityError, setSecurityError] = useState<string | null>(null);
+  const [securityExpanded, setSecurityExpanded] = useState(true);
 
   useEffect(() => {
     if (activeWallet && transactions.length === 0) {
@@ -179,20 +189,28 @@ export default function AssetDetailScreen({ route }: Props) {
   const loadTokenSecurity = useCallback(async () => {
     const isSolana = chainName === "Solana" || chainId === 0;
     if (!isSolana) {
-      setTokenSecurity(null);
+      setSecurityReport(null);
       return;
     }
     if (tokenSymbol === "SOL" && isNative) {
-      setTokenSecurity({ tokenProgram: "SPL", mintable: false, freezable: false });
+      setSecurityReport({
+        tokenProgram: "SPL",
+        scanned: true,
+        checks: [
+          { key: "native", label: "Native blockchain asset", status: "success", detail: "SOL is the native currency" },
+          { key: "mint", label: "Cannot be minted", status: "success" },
+          { key: "freeze", label: "Cannot be frozen", status: "success" },
+        ],
+      });
       return;
     }
     if (!address) {
-      setTokenSecurity(null);
+      setSecurityReport(null);
       return;
     }
     const cached = securityCache.get(address);
     if (cached) {
-      setTokenSecurity(cached);
+      setSecurityReport(cached);
       return;
     }
     setIsLoadingSecurity(true);
@@ -202,27 +220,47 @@ export default function AssetDetailScreen({ route }: Props) {
       const mintPk = new PublicKey(address);
       const info = await connection.getAccountInfo(mintPk);
       if (!info) {
-        const unknown: TokenSecurity = { tokenProgram: "Unknown", mintable: false, freezable: false };
-        securityCache.set(address, unknown);
-        setTokenSecurity(unknown);
+        const unknownReport: TokenSecurityReport = {
+          tokenProgram: "Unknown",
+          scanned: false,
+          checks: [{ key: "error", label: "Unable to read mint account", status: "unknown" }],
+        };
+        securityCache.set(address, unknownReport);
+        setSecurityReport(unknownReport);
         return;
       }
       const ownerStr = info.owner.toBase58();
       const is2022 = ownerStr === TOKEN_2022_PROGRAM_ID.toBase58();
       const isSpl = ownerStr === TOKEN_PROGRAM_ID.toBase58();
       const programId = is2022 ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
+      const tokenProgram: "SPL" | "Token-2022" | "Unknown" = is2022 ? "Token-2022" : isSpl ? "SPL" : "Unknown";
       const mint = unpackMint(mintPk, info, programId);
-      const sec: TokenSecurity = {
-        tokenProgram: is2022 ? "Token-2022" : isSpl ? "SPL" : "Unknown",
-        mintable: mint.mintAuthority !== null,
-        freezable: mint.freezeAuthority !== null,
-      };
-      securityCache.set(address, sec);
-      setTokenSecurity(sec);
+      const checks: SecurityCheck[] = [];
+      if (mint.mintAuthority === null) {
+        checks.push({ key: "mint", label: "Token cannot be minted", status: "success", detail: "No mint authority" });
+      } else {
+        checks.push({ key: "mint", label: "Token can be minted", status: "warning", detail: "Mint authority exists" });
+      }
+      if (mint.freezeAuthority === null) {
+        checks.push({ key: "freeze", label: "No freeze authority", status: "success", detail: "Accounts cannot be frozen" });
+      } else {
+        checks.push({ key: "freeze", label: "Freeze authority exists", status: "warning", detail: "Issuer can freeze accounts" });
+      }
+      if (is2022) {
+        checks.push({ key: "program", label: "Token-2022 program", status: "success", detail: "Extended token functionality" });
+        checks.push({ key: "extensions", label: "Extension checks", status: "unknown", detail: "Detailed extension parsing not available" });
+      } else if (isSpl) {
+        checks.push({ key: "program", label: "Standard SPL Token", status: "success", detail: "Original token program" });
+        checks.push({ key: "balance", label: "No admin balance controls", status: "success", detail: "SPL baseline" });
+      }
+      checks.push({ key: "metadata", label: "Metadata immutability", status: "unknown", detail: "Metaplex check not implemented" });
+      const report: TokenSecurityReport = { tokenProgram, scanned: true, checks };
+      securityCache.set(address, report);
+      setSecurityReport(report);
     } catch (err) {
       console.error("[TokenSecurity] Failed to load:", err);
       setSecurityError("Unable to load security details.");
-      setTokenSecurity(null);
+      setSecurityReport(null);
     } finally {
       setIsLoadingSecurity(false);
     }
@@ -235,7 +273,7 @@ export default function AssetDetailScreen({ route }: Props) {
   }, [activeTab, loadTokenSecurity]);
 
   useEffect(() => {
-    setTokenSecurity(null);
+    setSecurityReport(null);
     setSecurityError(null);
   }, [address]);
 
@@ -728,74 +766,107 @@ export default function AssetDetailScreen({ route }: Props) {
 
           {(chainName === "Solana" || chainId === 0) && (
             <View style={styles.aboutSection}>
-              <ThemedText type="h4" style={{ marginBottom: Spacing.md }}>
-                Contract & Security
-              </ThemedText>
-              <View style={[styles.statsCard, { backgroundColor: theme.backgroundDefault }]}>
-                {isLoadingSecurity ? (
-                  <View style={[styles.statRow, { justifyContent: "center" }]}>
-                    <ActivityIndicator size="small" color={theme.accent} />
-                    <ThemedText type="body" style={{ color: theme.textSecondary, marginLeft: Spacing.sm }}>
-                      Fetching on-chain security...
+              <Pressable
+                style={styles.securityHeader}
+                onPress={() => setSecurityExpanded(!securityExpanded)}
+              >
+                <View style={styles.securityHeaderLeft}>
+                  <ThemedText type="h4">Contract Security</ThemedText>
+                  <View style={[
+                    styles.securityPill,
+                    { backgroundColor: securityReport?.scanned ? theme.success + "20" : theme.textSecondary + "20" }
+                  ]}>
+                    <ThemedText
+                      type="small"
+                      style={{ color: securityReport?.scanned ? theme.success : theme.textSecondary, fontWeight: "600" }}
+                    >
+                      {isLoadingSecurity ? "Scanning..." : securityReport?.scanned ? "Scanned" : "Not scanned"}
                     </ThemedText>
                   </View>
-                ) : securityError ? (
-                  <View style={styles.statRow}>
-                    <ThemedText type="body" style={{ color: theme.textSecondary }}>
-                      {securityError}
-                    </ThemedText>
-                  </View>
-                ) : tokenSymbol === "SOL" && isNative ? (
-                  <View style={styles.statRow}>
-                    <ThemedText type="body" style={{ color: theme.textSecondary }}>
-                      Asset type
-                    </ThemedText>
-                    <View style={[styles.securityPill, { backgroundColor: theme.accent + "20" }]}>
-                      <ThemedText type="small" style={{ color: theme.accent, fontWeight: "600" }}>
-                        Native SOL
+                </View>
+                <Feather
+                  name={securityExpanded ? "chevron-up" : "chevron-down"}
+                  size={20}
+                  color={theme.textSecondary}
+                />
+              </Pressable>
+
+              {securityExpanded && (
+                <View style={[styles.statsCard, { backgroundColor: theme.backgroundDefault, marginTop: Spacing.sm }]}>
+                  {isLoadingSecurity ? (
+                    <View style={[styles.statRow, { justifyContent: "center" }]}>
+                      <ActivityIndicator size="small" color={theme.accent} />
+                      <ThemedText type="body" style={{ color: theme.textSecondary, marginLeft: Spacing.sm }}>
+                        Fetching on-chain security...
                       </ThemedText>
                     </View>
-                  </View>
-                ) : tokenSecurity ? (
-                  <>
+                  ) : securityError ? (
                     <View style={styles.statRow}>
-                      <ThemedText type="body" style={{ color: theme.textSecondary }}>
-                        Token program
+                      <ThemedText type="body" style={{ color: theme.danger }}>
+                        {securityError}
                       </ThemedText>
-                      <View style={[styles.securityPill, { backgroundColor: theme.accent + "20" }]}>
-                        <ThemedText type="small" style={{ color: theme.accent, fontWeight: "600" }}>
-                          {tokenSecurity.tokenProgram}
+                      <Pressable
+                        style={[styles.securityPill, { backgroundColor: theme.accent + "20" }]}
+                        onPress={loadTokenSecurity}
+                      >
+                        <ThemedText type="small" style={{ color: theme.accent }}>Retry</ThemedText>
+                      </Pressable>
+                    </View>
+                  ) : securityReport ? (
+                    <>
+                      {securityReport.checks.map((check, index) => {
+                        const statusColors: Record<SecurityCheckStatus, string> = {
+                          success: theme.success,
+                          warning: "#F59E0B",
+                          risk: theme.danger,
+                          unknown: theme.textSecondary,
+                        };
+                        const statusIcons: Record<SecurityCheckStatus, string> = {
+                          success: "check-circle",
+                          warning: "alert-circle",
+                          risk: "x-circle",
+                          unknown: "help-circle",
+                        };
+                        const color = statusColors[check.status];
+                        const iconName = statusIcons[check.status] as "check-circle" | "alert-circle" | "x-circle" | "help-circle";
+                        return (
+                          <View
+                            key={check.key}
+                            style={[
+                              styles.securityCheckRow,
+                              index > 0 && { borderTopWidth: 1, borderTopColor: theme.border },
+                            ]}
+                          >
+                            <View style={styles.securityCheckLeft}>
+                              <Feather name={iconName} size={16} color={color} />
+                              <View style={styles.securityCheckText}>
+                                <ThemedText type="body" style={{ color: theme.text }}>
+                                  {check.label}
+                                </ThemedText>
+                                {check.detail ? (
+                                  <ThemedText type="caption" style={{ color: theme.textSecondary }}>
+                                    {check.detail}
+                                  </ThemedText>
+                                ) : null}
+                              </View>
+                            </View>
+                            <View style={[styles.securityPill, { backgroundColor: color + "20" }]}>
+                              <ThemedText type="small" style={{ color, fontWeight: "600", textTransform: "capitalize" }}>
+                                {check.status}
+                              </ThemedText>
+                            </View>
+                          </View>
+                        );
+                      })}
+                      <View style={[styles.statRow, { borderTopWidth: 1, borderTopColor: theme.border }]}>
+                        <ThemedText type="caption" style={{ color: theme.textSecondary, fontStyle: "italic" }}>
+                          Based on on-chain checks
                         </ThemedText>
                       </View>
-                    </View>
-                    <View style={[styles.statRow, { borderTopWidth: 1, borderTopColor: theme.border }]}>
-                      <ThemedText type="body" style={{ color: theme.textSecondary }}>
-                        Mintable
-                      </ThemedText>
-                      <View style={[styles.securityPill, { backgroundColor: tokenSecurity.mintable ? theme.danger + "20" : theme.success + "20" }]}>
-                        <ThemedText type="small" style={{ color: tokenSecurity.mintable ? theme.danger : theme.success, fontWeight: "600" }}>
-                          {tokenSecurity.mintable ? "YES" : "NO"}
-                        </ThemedText>
-                      </View>
-                    </View>
-                    <View style={[styles.statRow, { borderTopWidth: 1, borderTopColor: theme.border }]}>
-                      <ThemedText type="body" style={{ color: theme.textSecondary }}>
-                        Freezable
-                      </ThemedText>
-                      <View style={[styles.securityPill, { backgroundColor: tokenSecurity.freezable ? theme.danger + "20" : theme.success + "20" }]}>
-                        <ThemedText type="small" style={{ color: tokenSecurity.freezable ? theme.danger : theme.success, fontWeight: "600" }}>
-                          {tokenSecurity.freezable ? "YES" : "NO"}
-                        </ThemedText>
-                      </View>
-                    </View>
-                    <View style={[styles.statRow, { borderTopWidth: 1, borderTopColor: theme.border }]}>
-                      <ThemedText type="caption" style={{ color: theme.textSecondary, fontStyle: "italic" }}>
-                        Mintable/Freezable means issuer retains extra control.
-                      </ThemedText>
-                    </View>
-                  </>
-                ) : null}
-              </View>
+                    </>
+                  ) : null}
+                </View>
+              )}
             </View>
           )}
         </>
@@ -1250,6 +1321,32 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.sm,
     paddingVertical: 4,
     borderRadius: BorderRadius.xs,
+  },
+  securityHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  securityHeaderLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+  },
+  securityCheckRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: Spacing.md,
+  },
+  securityCheckLeft: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: Spacing.sm,
+    flex: 1,
+  },
+  securityCheckText: {
+    flex: 1,
+    gap: 2,
   },
   aboutSection: {
     marginBottom: Spacing.xl,
