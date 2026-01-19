@@ -59,11 +59,7 @@ function getGoogleClientId(): string {
 
 function getRedirectUri(): string {
   if (Platform.OS === "ios") {
-    const iosClientId = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID || "";
-    if (iosClientId) {
-      const reversedClientId = iosClientId.split(".").reverse().join(".");
-      return `${reversedClientId}:/oauth2redirect`;
-    }
+    return "com.googleusercontent.apps.829325518924-edjl71pfsolhuc2jhm0d33v2s95bfs4f:/oauth2redirect/google";
   }
   return AuthSession.makeRedirectUri({
     scheme: "cordon",
