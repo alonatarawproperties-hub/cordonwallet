@@ -17,7 +17,7 @@ import { PnlChart } from "@/components/PnlChart";
 import { PriceChart } from "@/components/PriceChart";
 import { useWallet } from "@/lib/wallet-context";
 import { fetchTransactionHistory } from "@/lib/blockchain/explorer-api";
-import { TxRecord, getTransactionsByWallet } from "@/lib/transaction-history";
+import { TxRecord, getTransactionsByWallet, filterTreasuryTransactions } from "@/lib/transaction-history";
 import { getApiUrl } from "@/lib/query-client";
 import { getTokenLogoUrl } from "@/lib/token-logos";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
@@ -388,7 +388,7 @@ export default function AssetDetailScreen({ route }: Props) {
         allTxs = history.filter(tx => tx.tokenSymbol === tokenSymbol);
       }
       
-      setTransactions(allTxs);
+      setTransactions(filterTreasuryTransactions(allTxs));
     } catch (error) {
       console.error("Failed to load transaction history:", error);
     } finally {

@@ -16,7 +16,7 @@ import { ThemedView } from "@/components/ThemedView";
 import { Badge } from "@/components/Badge";
 import { EmptyState } from "@/components/EmptyState";
 import { useWallet } from "@/lib/wallet-context";
-import { TxRecord, ActivityType, getTransactionsByWallet, clearSolanaTransactions } from "@/lib/transaction-history";
+import { TxRecord, ActivityType, getTransactionsByWallet, clearSolanaTransactions, filterTreasuryTransactions } from "@/lib/transaction-history";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 import {
   fetchAllChainsHistory,
@@ -367,7 +367,7 @@ export default function ActivityScreen() {
       allTxs.sort((a, b) => b.createdAt - a.createdAt);
 
       console.log("[Activity] Total transactions:", allTxs.length);
-      const finalTxs = allTxs.slice(0, 100);
+      const finalTxs = filterTreasuryTransactions(allTxs).slice(0, 100);
       setTransactions(finalTxs);
       
       const uniqueMints = new Set<string>();
@@ -389,7 +389,7 @@ export default function ActivityScreen() {
         evmAddr ? getTransactionsByWallet(evmAddr).catch(() => []) : [],
         solAddr ? getTransactionsByWallet(solAddr).catch(() => []) : [],
       ]);
-      setTransactions([...evmTxs, ...solanaTxs]);
+      setTransactions(filterTreasuryTransactions([...evmTxs, ...solanaTxs]));
     } finally {
       setLoading(false);
     }

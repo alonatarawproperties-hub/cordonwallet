@@ -1,8 +1,22 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { getPublicClient } from "@/lib/blockchain/client";
+import { getCordonSolTreasury } from "@/constants/treasury";
 
 const STORAGE_KEY = "@cordon/transaction_history";
 const MAX_TRANSACTIONS = 100;
+
+// Filter out transactions sent to the Cordon treasury (success fees)
+export function filterTreasuryTransactions(transactions: TxRecord[]): TxRecord[] {
+  const treasuryAddress = getCordonSolTreasury();
+  if (!treasuryAddress) return transactions;
+  
+  const treasuryLower = treasuryAddress.toLowerCase();
+  return transactions.filter(tx => {
+    // Only filter out sends to treasury
+    if (tx.activityType !== "send") return true;
+    return tx.to.toLowerCase() !== treasuryLower;
+  });
+}
 
 export type ActivityType = "send" | "receive" | "swap";
 
