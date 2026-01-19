@@ -223,7 +223,10 @@ export default function PortfolioScreen() {
   const { activeWallet } = useWallet();
   const [customTokens, setCustomTokens] = useState<CustomToken[]>([]);
   const [hiddenTokens, setHiddenTokens] = useState<string[]>([]);
+  const [assetsExpanded, setAssetsExpanded] = useState(false);
   const stableAssetsRef = useRef<UnifiedAsset[]>([]);
+  
+  const DEFAULT_VISIBLE_ASSETS = 6;
   const [securityAssessments, setSecurityAssessments] = useState<Map<string, TokenSecurityAssessment>>(new Map());
   const [selectedSecurityAsset, setSelectedSecurityAsset] = useState<{ assessment: TokenSecurityAssessment; name: string; symbol: string } | null>(null);
   const [securityModalVisible, setSecurityModalVisible] = useState(false);
@@ -592,20 +595,22 @@ export default function PortfolioScreen() {
             </ThemedText>
           </View>
         ) : assets.length > 0 ? (
-          assets.map((asset, index) => {
-            const mint = asset.chainType === "solana" && "mint" in asset ? (asset as any).mint as string : undefined;
-            const assessment = mint ? securityAssessments.get(mint) : undefined;
-            return (
-              <AssetRow
-                key={`${asset.chainType}-${asset.chainId}-${asset.isNative ? "native" : ("address" in asset ? asset.address : ("mint" in asset ? asset.mint : ""))}-${index}`}
-                asset={asset}
-                theme={theme}
-                onPress={() => handleAssetPress(asset)}
-                securityRisk={assessment?.overallRisk}
-                onSecurityPress={() => handleSecurityPress(asset)}
-              />
-            );
-          })
+          <>
+            {(assetsExpanded ? assets : assets.slice(0, DEFAULT_VISIBLE_ASSETS)).map((asset, index) => {
+              const mint = asset.chainType === "solana" && "mint" in asset ? (asset as any).mint as string : undefined;
+              const assessment = mint ? securityAssessments.get(mint) : undefined;
+              return (
+                <AssetRow
+                  key={`${asset.chainType}-${asset.chainId}-${asset.isNative ? "native" : ("address" in asset ? asset.address : ("mint" in asset ? asset.mint : ""))}-${index}`}
+                  asset={asset}
+                  theme={theme}
+                  onPress={() => handleAssetPress(asset)}
+                  securityRisk={assessment?.overallRisk}
+                  onSecurityPress={() => handleSecurityPress(asset)}
+                />
+              );
+            })}
+          </>
         ) : null}
 
         <Pressable
@@ -616,6 +621,28 @@ export default function PortfolioScreen() {
             Manage crypto
           </ThemedText>
         </Pressable>
+
+        {assets.length > DEFAULT_VISIBLE_ASSETS ? (
+          <Pressable
+            style={({ pressed }) => [
+              styles.viewToggleButton,
+              { backgroundColor: theme.backgroundSecondary, opacity: pressed ? 0.8 : 1 }
+            ]}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setAssetsExpanded(!assetsExpanded);
+            }}
+          >
+            <ThemedText type="small" style={{ color: theme.text, fontWeight: "500" }}>
+              {assetsExpanded ? "View less" : "View all"}
+            </ThemedText>
+            <Feather
+              name={assetsExpanded ? "chevron-up" : "chevron-down"}
+              size={16}
+              color={theme.text}
+            />
+          </Pressable>
+        ) : null}
       </View>
 
       <TokenSecurityModal
@@ -811,5 +838,16 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingVertical: Spacing.md,
     marginTop: Spacing.xs,
+  },
+  viewToggleButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.lg,
+    borderRadius: BorderRadius.full,
+    gap: Spacing.xs,
+    alignSelf: "center",
+    marginTop: Spacing.sm,
   },
 });
