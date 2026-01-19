@@ -1,0 +1,31 @@
+# Ignore attached assets (generated images, not needed for build)
+attached_assets/
+
+# Ignore git directory
+.git/
+
+# Ignore development files
+*.log
+.DS_Store
+.env.local
+.env.development
+
+# Ignore test files
+__tests__/
+*.test.ts
+*.test.tsx
+*.spec.ts
+*.spec.tsx
+
+# Ignore documentation
+*.md
+!README.md
+
+# Ignore IDE settings
+.vscode/
+.idea/
+
+# Ignore temporary files
+tmp/
+temp/
+.cache/
