@@ -19,6 +19,7 @@ import { fetchWithBackoff } from "./lib/fetchWithBackoff";
 const ETHERSCAN_V2_API = "https://api.etherscan.io/v2/api";
 const COINGECKO_API = "https://api.coingecko.com/api/v3";
 const DEXSCREENER_API = "https://api.dexscreener.com";
+const GECKOTERMINAL_API = "https://api.geckoterminal.com/api/v2";
 // Jupiter Lite API - must match server/swap/config.ts for quote/swap consistency
 const JUPITER_API = "https://lite-api.jup.ag/swap/v1";
 const JUPITER_TOKENS_API = "https://tokens.jup.ag";
@@ -111,7 +112,7 @@ interface PriceCache {
 }
 
 interface HistoricalPriceCache {
-  [key: string]: { price: number | [number, number][]; timestamp: number };
+  [key: string]: { price: number | [number, number][]; timestamp: number; source?: string; isReal?: boolean };
 }
 
 let priceCache: PriceCache = { data: {}, timestamp: 0 };
@@ -435,6 +436,92 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // GeckoTerminal OHLCV - provides real historical chart data for DEX tokens
+  async function fetchGeckoTerminalOHLCV(network: string, tokenAddress: string, days: string = "7"): Promise<{ prices: [number, number][], isReal: boolean } | null> {
+    try {
+      // First, find the pool address for this token
+      const poolsUrl = `${GECKOTERMINAL_API}/networks/${network}/tokens/${tokenAddress}/pools?page=1`;
+      console.log(`[GeckoTerminal] Fetching pools for ${tokenAddress}`);
+      
+      const poolsResponse = await fetch(poolsUrl, { 
+        headers: { "Accept": "application/json" } 
+      });
+      
+      if (!poolsResponse.ok) {
+        console.log(`[GeckoTerminal] Pools request failed: ${poolsResponse.status}`);
+        return null;
+      }
+      
+      const poolsData = await poolsResponse.json();
+      const pools = poolsData?.data || [];
+      
+      if (pools.length === 0) {
+        console.log(`[GeckoTerminal] No pools found for ${tokenAddress}`);
+        return null;
+      }
+      
+      // Get the pool with highest liquidity (first one is usually the best)
+      const bestPool = pools[0];
+      const poolAddress = bestPool?.attributes?.address;
+      
+      if (!poolAddress) {
+        console.log(`[GeckoTerminal] No pool address found`);
+        return null;
+      }
+      
+      console.log(`[GeckoTerminal] Found pool: ${poolAddress}`);
+      
+      // Determine timeframe based on days requested
+      let timeframe = "day";
+      let aggregate = 1;
+      const daysNum = parseInt(days) || 7;
+      
+      if (daysNum <= 1) {
+        timeframe = "minute";
+        aggregate = 15; // 15-min candles for 1D
+      } else if (daysNum <= 7) {
+        timeframe = "hour";
+        aggregate = 1; // 1-hour candles for 1W
+      } else {
+        timeframe = "day";
+        aggregate = 1; // Daily candles for longer periods
+      }
+      
+      const ohlcvUrl = `${GECKOTERMINAL_API}/networks/${network}/pools/${poolAddress}/ohlcv/${timeframe}?aggregate=${aggregate}&limit=500`;
+      console.log(`[GeckoTerminal] Fetching OHLCV: ${ohlcvUrl}`);
+      
+      const ohlcvResponse = await fetch(ohlcvUrl, { 
+        headers: { "Accept": "application/json" } 
+      });
+      
+      if (!ohlcvResponse.ok) {
+        console.log(`[GeckoTerminal] OHLCV request failed: ${ohlcvResponse.status}`);
+        return null;
+      }
+      
+      const ohlcvData = await ohlcvResponse.json();
+      const candles = ohlcvData?.data?.attributes?.ohlcv_list || [];
+      
+      if (candles.length === 0) {
+        console.log(`[GeckoTerminal] No OHLCV data returned`);
+        return null;
+      }
+      
+      // GeckoTerminal returns: [timestamp, open, high, low, close, volume]
+      const prices: [number, number][] = candles.map((candle: number[]) => {
+        const timestamp = candle[0] * 1000; // Convert to ms
+        const closePrice = candle[4]; // Close price
+        return [timestamp, closePrice];
+      }).reverse(); // GeckoTerminal returns newest first, we want oldest first
+      
+      console.log(`[GeckoTerminal] Fetched ${prices.length} real OHLCV points`);
+      return { prices, isReal: true };
+    } catch (error) {
+      console.error("[GeckoTerminal] Error:", error);
+      return null;
+    }
+  }
+
   async function fetchDexScreenerChart(chainId: string, address: string, days: string = "7", symbol?: string): Promise<[number, number][] | null> {
     try {
       const dexChainId = DEXSCREENER_CHAIN_IDS[chainId] || chainId;
@@ -647,19 +734,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       if (!geckoId && address) {
         const chain = chainId || "solana";
-        const cacheKey = `dex_chart_${chain}_${address}_${days}`;
-        const cached = historicalPriceCache[cacheKey];
         const now = Date.now();
         const cacheDuration = parseInt(days) <= 1 ? 300000 : 900000;
         
+        // Check cache first
+        const cacheKey = `gecko_chart_${chain}_${address}_${days}`;
+        const cached = historicalPriceCache[cacheKey];
         if (cached && now - cached.timestamp < cacheDuration) {
-          return res.json({ prices: cached.price, cached: true, source: "dexscreener" });
+          return res.json({ prices: cached.price, cached: true, source: cached.source || "geckoterminal", isReal: cached.isReal });
         }
         
+        // Try GeckoTerminal first for real OHLCV data (Solana tokens)
+        if (chain === "solana" || chain === "0") {
+          console.log(`[Market Chart] Trying GeckoTerminal for ${symbol} (${address})`);
+          const geckoResult = await fetchGeckoTerminalOHLCV("solana", address, days);
+          if (geckoResult && geckoResult.prices.length > 0) {
+            historicalPriceCache[cacheKey] = { price: geckoResult.prices, timestamp: now, source: "geckoterminal", isReal: true };
+            return res.json({ prices: geckoResult.prices, cached: false, source: "geckoterminal", isReal: true });
+          }
+        }
+        
+        // Fallback to DexScreener (may be synthetic)
+        console.log(`[Market Chart] GeckoTerminal failed, trying DexScreener for ${symbol}`);
         const dexPrices = await fetchDexScreenerChart(chain, address, days, symbol);
         if (dexPrices && dexPrices.length > 0) {
-          historicalPriceCache[cacheKey] = { price: dexPrices, timestamp: now };
-          return res.json({ prices: dexPrices, cached: false, source: "dexscreener" });
+          historicalPriceCache[cacheKey] = { price: dexPrices, timestamp: now, source: "dexscreener", isReal: false };
+          return res.json({ prices: dexPrices, cached: false, source: "dexscreener", isReal: false });
         }
         
         return res.status(404).json({ error: "Chart not available for this token" });
