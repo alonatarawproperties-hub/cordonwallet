@@ -743,30 +743,11 @@ export function registerCordonAuthRoutes(app: Express) {
       return res.status(500).send("OAuth not configured");
     }
     
-    // Use environment variables to construct the redirect URI reliably
-    // REPLIT_DEV_DOMAIN is set in development, REPLIT_INTERNAL_APP_DOMAIN in production
-    const replitDevDomain = process.env.REPLIT_DEV_DOMAIN;
-    const replitAppDomain = process.env.REPLIT_INTERNAL_APP_DOMAIN;
-    const expressPort = process.env.PORT || "5000";
-    
-    let baseUrl: string;
-    if (replitDevDomain) {
-      // Development on Replit: always use port 5000
-      baseUrl = `https://${replitDevDomain}:${expressPort}`;
-      console.log("[Cordon Mobile Auth] Using dev domain with port:", baseUrl);
-    } else if (replitAppDomain) {
-      // Production on Replit: no port needed
-      baseUrl = `https://${replitAppDomain}`;
-      console.log("[Cordon Mobile Auth] Using production domain:", baseUrl);
-    } else {
-      // Fallback to request headers
-      const protocol = req.get("x-forwarded-proto") || req.protocol || "https";
-      const forwardedHost = req.get("x-forwarded-host") || req.get("host") || "";
-      baseUrl = `${protocol}://${forwardedHost}`;
-      console.log("[Cordon Mobile Auth] Using fallback host:", baseUrl);
-    }
-    
+    // Always use production domain for mobile OAuth redirect URI
+    // This must match what's registered in Google Cloud Console
+    const baseUrl = "https://cordonwallet2026.replit.app";
     const redirectUri = `${baseUrl}/auth/cordon/mobile/callback`;
+    console.log("[Cordon Mobile Auth] Using production redirect URI:", redirectUri);
     console.log("[Cordon Mobile Auth] Redirect URI:", redirectUri);
     const codeChallenge = crypto.createHash("sha256").update(session.codeVerifier || "").digest("base64url");
     
@@ -828,21 +809,8 @@ export function registerCordonAuthRoutes(app: Express) {
     const clientId = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
     const clientSecret = process.env.GOOGLE_CLIENT_SECRET_CORDON || process.env.GOOGLE_CLIENT_SECRET;
     
-    const replitDevDomain = process.env.REPLIT_DEV_DOMAIN;
-    const replitAppDomain = process.env.REPLIT_APP_DOMAIN;
-    const expressPort = process.env.EXPRESS_PORT || "5000";
-    
-    let baseUrl: string;
-    if (replitDevDomain) {
-      baseUrl = `https://${replitDevDomain}:${expressPort}`;
-    } else if (replitAppDomain) {
-      baseUrl = `https://${replitAppDomain}`;
-    } else {
-      const protocol = req.get("x-forwarded-proto") || req.protocol || "https";
-      const forwardedHost = req.get("x-forwarded-host") || req.get("host") || "";
-      baseUrl = `${protocol}://${forwardedHost}`;
-    }
-    
+    // Always use production domain - must match what was used in /start
+    const baseUrl = "https://cordonwallet2026.replit.app";
     const redirectUri = `${baseUrl}/auth/cordon/mobile/callback`;
     
     if (!clientSecret) {
