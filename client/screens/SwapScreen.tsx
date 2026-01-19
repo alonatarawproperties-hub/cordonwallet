@@ -711,7 +711,11 @@ export default function SwapScreen({ route }: Props) {
       let transaction: VersionedTransaction;
       let feeAppended = false;
       
-      if (pendingSwap.quote && outputToken) {
+      // Skip fee appending for pump routes - decompile/recompile corrupts signer metadata
+      // and causes PrivilegeEscalation errors. Fee is charged separately via success fee.
+      const isPumpRoute = pendingSwap.route === "pump";
+      
+      if (pendingSwap.quote && outputToken && !isPumpRoute) {
         try {
           const connection = new Connection(RPC_PRIMARY, "confirmed");
           const feeResult = await appendOutputFeeInstruction(
@@ -738,6 +742,9 @@ export default function SwapScreen({ route }: Props) {
       } else {
         const txBuffer = Buffer.from(pendingSwap.swapResponse.swapTransaction, "base64");
         transaction = VersionedTransaction.deserialize(txBuffer);
+        if (__DEV__ && isPumpRoute) {
+          console.log("[CordonFee] Skipped for pump route - fee charged via success fee");
+        }
       }
 
       transaction.sign([keypair]);

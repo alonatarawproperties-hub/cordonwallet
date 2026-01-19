@@ -78,9 +78,10 @@ export interface BuildResponse {
 
 export interface BuildError {
   ok: false;
-  code: "BUILD_FAILED" | "UPSTREAM" | "BAD_REQUEST" | "PUMP_UNAVAILABLE";
+  code: "BUILD_FAILED" | "UPSTREAM" | "BAD_REQUEST" | "PUMP_UNAVAILABLE" | "TOKEN_GRADUATED";
   message: string;
   details?: any;
+  isGraduated?: boolean;
 }
 
 export interface SendResponse {
