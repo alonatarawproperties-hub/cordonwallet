@@ -813,27 +813,21 @@ export default function SwapScreen({ route }: Props) {
       );
 
       if (result.status === "confirmed" || result.status === "finalized") {
-        let feeStatus = "";
-        
+        // Charge success fee silently in background (no UI feedback)
         if (successFeeLamports > 0 && activeWallet?.id && solanaAddr) {
-          setSwapStatus("Charging success fee...");
-          const feeResult = await tryChargeSuccessFeeNow(
+          tryChargeSuccessFeeNow(
             activeWallet.id,
             solanaAddr,
             successFeeLamports,
             result.signature
-          );
-          
-          if (feeResult.success && feeResult.signature) {
-            feeStatus = "\n\nSuccess fee charged.";
-          } else if (!feeResult.success) {
-            feeStatus = "\n\nSuccess fee pending.";
-          }
+          ).catch(() => {
+            // Fee will be retried later via pending queue
+          });
         }
         
         showAlert(
           "Swap Successful",
-          `Swapped ${inputAmount} ${inputToken.symbol} for ${outAmount} ${outputToken.symbol}${feeStatus}`,
+          `Swapped ${inputAmount} ${inputToken.symbol} for ${outAmount} ${outputToken.symbol}`,
           [
             { text: "View", onPress: () => {
               const url = getExplorerUrl(result.signature);
