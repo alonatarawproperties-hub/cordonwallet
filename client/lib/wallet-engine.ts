@@ -739,6 +739,43 @@ export async function verifyPin(pin: string): Promise<boolean> {
   return inputHash === storedHash;
 }
 
+export async function changePin(currentPin: string, newPin: string): Promise<boolean> {
+  const isCurrentValid = await verifyPin(currentPin);
+  if (!isCurrentValid) {
+    throw new Error("Current PIN is incorrect");
+  }
+
+  if (newPin.length !== 6 || !/^\d{6}$/.test(newPin)) {
+    throw new Error("New PIN must be 6 digits");
+  }
+
+  try {
+    const newPinHash = bytesToHex(sha256(new TextEncoder().encode(newPin)));
+    await setSecureItem(STORAGE_KEYS.PIN_HASH, newPinHash);
+
+    const vaultJson = await getSecureItem(STORAGE_KEYS.VAULT);
+    if (vaultJson && cachedSecrets) {
+      const newEncryptedVault = await encryptSecrets(cachedSecrets, newPin);
+      await setSecureItem(STORAGE_KEYS.VAULT, JSON.stringify(newEncryptedVault));
+    }
+
+    const hasBiometric = await hasBiometricPinEnabled();
+    if (hasBiometric) {
+      await savePinForBiometrics(newPin);
+    }
+
+    if (__DEV__) {
+      console.log("[WalletEngine] PIN changed successfully");
+    }
+    return true;
+  } catch (error) {
+    if (__DEV__) {
+      console.log("[WalletEngine] Failed to change PIN:", error);
+    }
+    return false;
+  }
+}
+
 export async function hasVault(): Promise<boolean> {
   const vaultJson = await getSecureItem(STORAGE_KEYS.VAULT);
   return vaultJson !== null;

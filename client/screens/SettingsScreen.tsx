@@ -17,7 +17,7 @@ import { useDemo } from "@/lib/demo/context";
 import { useDevSettings } from "@/context/DevSettingsContext";
 import { NETWORKS } from "@/lib/types";
 import { getChainById } from "@/lib/blockchain/chains";
-import { hasBiometricPinEnabled, isBiometricAvailable, savePinForBiometrics, disableBiometrics, verifyPin } from "@/lib/wallet-engine";
+import { hasBiometricPinEnabled, isBiometricAvailable, savePinForBiometrics, disableBiometrics, verifyPin, changePin } from "@/lib/wallet-engine";
 import * as WebBrowser from "expo-web-browser";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 
@@ -130,6 +130,67 @@ export default function SettingsScreen() {
     setIsTogglingBiometric(false);
   };
 
+  const handleChangePin = () => {
+    let currentPin = "";
+    let newPin = "";
+
+    Alert.prompt(
+      "Change PIN",
+      "Enter your current 6-digit PIN",
+      (pin: string) => {
+        if (!pin || pin.length !== 6) {
+          Alert.alert("Invalid PIN", "Please enter your 6-digit PIN.");
+          return;
+        }
+        currentPin = pin;
+
+        Alert.prompt(
+          "New PIN",
+          "Enter your new 6-digit PIN",
+          (newPinInput: string) => {
+            if (!newPinInput || newPinInput.length !== 6) {
+              Alert.alert("Invalid PIN", "Please enter a 6-digit PIN.");
+              return;
+            }
+            newPin = newPinInput;
+
+            Alert.prompt(
+              "Confirm New PIN",
+              "Re-enter your new 6-digit PIN",
+              async (confirmPin: string) => {
+                if (confirmPin !== newPin) {
+                  Alert.alert("PIN Mismatch", "The PINs you entered do not match.");
+                  return;
+                }
+
+                try {
+                  const success = await changePin(currentPin, newPin);
+                  if (success) {
+                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                    Alert.alert("Success", "Your PIN has been changed successfully.");
+                  } else {
+                    Alert.alert("Failed", "Could not change PIN. Please try again.");
+                  }
+                } catch (error: any) {
+                  Alert.alert("Error", error.message || "Could not change PIN. Please try again.");
+                }
+              },
+              "secure-text",
+              "",
+              "number-pad"
+            );
+          },
+          "secure-text",
+          "",
+          "number-pad"
+        );
+      },
+      "secure-text",
+      "",
+      "number-pad"
+    );
+  };
+
   const handleVersionTap = () => {
     const now = Date.now();
     if (now - lastTapRef.current < 500) {
@@ -177,7 +238,7 @@ export default function SettingsScreen() {
   const securityItems = [
     { title: "Wallet Firewall", subtitle: "Protect your transactions", icon: "shield", onPress: () => navigation.navigate("PolicySettings") },
     { title: "Biometric Unlock", subtitle: getBiometricSubtitle(), icon: "smartphone", onPress: handleBiometricToggle, isBiometric: true },
-    { title: "Change PIN", subtitle: "Update your security PIN", icon: "lock", onPress: () => {} },
+    { title: "Change PIN", subtitle: "Update your security PIN", icon: "lock", onPress: handleChangePin },
   ];
 
   const walletItems = [
