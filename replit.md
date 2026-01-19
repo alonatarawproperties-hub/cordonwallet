@@ -102,3 +102,21 @@ The project is organized into `/client` (React Native frontend), `/server` (Expr
 - Central accessor: `client/constants/treasury.ts` with OTA-safe fallbacks
 - Displayed in Settings screen with Copy and Explorer buttons
 - If treasury not configured, success fees are silently skipped
+
+### Contract Security Scanner (CORDON SCAN v2)
+- Located in `client/lib/securityScan.ts` and displayed in AssetDetailScreen About tab
+- Performs comprehensive on-chain security analysis for Solana tokens
+- **Verified On-Chain Checks** (kind: "verified"):
+  - Token Program: SPL vs Token-2022 detection
+  - Mintable: Checks mintAuthority existence
+  - Freezable: Checks freezeAuthority existence
+  - Token Extensions (Token-2022): Detects risky extensions (TransferHook, PermanentDelegate, DefaultAccountState, TransferFee, etc.)
+  - Metadata Immutability: Reads Metaplex metadata PDA byte 66 for isMutable flag
+- **Risk Signals** (kind: "signal"):
+  - Holder Concentration: Uses getTokenLargestAccounts to compute top 1/5/10 holder percentages
+  - Route Liquidity: Probes Jupiter lite-api for tradability and price impact
+- **Status Labels**: "Safe", "Caution", "Warning", "Not supported", "Unable to verify" (never "Unknown")
+- **Caching**: Results cached in AsyncStorage with key `cordon_security_scan_{mint}`, 60-minute TTL
+- **Rescan**: Manual rescan button ignores cache TTL
+- **Footer**: "Verified = on-chain facts. Signals = heuristics, not guarantees."
+- Files: `client/lib/securityScan.ts`, `client/screens/AssetDetailScreen.tsx`
