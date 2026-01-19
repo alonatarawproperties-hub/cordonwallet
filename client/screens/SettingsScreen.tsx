@@ -110,7 +110,10 @@ export default function SettingsScreen() {
               Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
               Alert.alert("Enabled", "Biometric unlock is now enabled. You can use Face ID or Fingerprint to unlock Cordon.");
             } else {
-              Alert.alert("Failed", "Could not enable biometric unlock. Please try again.");
+              Alert.alert(
+                "Expo Go Limitation", 
+                "Biometric unlock requires a TestFlight or production build. This feature will work once the app is published."
+              );
             }
             setIsTogglingBiometric(false);
           },
