@@ -22,16 +22,54 @@ import { TxRecord, getTransactionsByWallet, filterTreasuryTransactions } from "@
 import { getApiUrl } from "@/lib/query-client";
 import { getTokenLogoUrl } from "@/lib/token-logos";
 import {
-  SecurityReport,
-  SecurityRow,
-  SecurityStatus,
-  scanTokenSecurity,
-  loadCachedSecurityReport,
-  saveCachedSecurityReport,
-  getStatusColor,
-  getStatusIcon,
-  formatScanTime,
-} from "@/lib/securityScan";
+  TokenSafetyReportV2,
+  SafetyFinding,
+  SafetyLevel,
+} from "@/types/tokenSafety";
+import { getTokenSafetyV2 } from "@/services/tokenSafetyV2";
+
+function getV2StatusColor(level: SafetyLevel): string {
+  switch (level) {
+    case "safe": return "#22C55E";
+    case "warning": return "#F59E0B";
+    case "danger": return "#EF4444";
+    case "info": return "#8B92A8";
+    default: return "#8B92A8";
+  }
+}
+
+function getV2StatusIcon(level: SafetyLevel): React.ComponentProps<typeof Feather>["name"] {
+  switch (level) {
+    case "safe": return "check-circle";
+    case "warning": return "alert-triangle";
+    case "danger": return "alert-octagon";
+    case "info": return "info";
+    default: return "help-circle";
+  }
+}
+
+function getV2BadgeText(finding: SafetyFinding): string {
+  if (finding.verified === "not_verified") return "Not verified";
+  if (finding.verified === "unavailable") return "Unavailable";
+  switch (finding.level) {
+    case "safe": return "Safe";
+    case "warning": return "Caution";
+    case "danger": return "Risk";
+    case "info": return "Info";
+    default: return "Info";
+  }
+}
+
+function formatV2ScanTime(timestamp: number): string {
+  const now = Date.now();
+  const diffMs = now - timestamp;
+  const diffMin = Math.floor(diffMs / 60000);
+  if (diffMin < 1) return "just now";
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}h ago`;
+  return `${Math.floor(diffHr / 24)}d ago`;
+}
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 
 type Props = NativeStackScreenProps<RootStackParamList, "AssetDetail">;
@@ -157,7 +195,7 @@ export default function AssetDetailScreen({ route }: Props) {
   const [tokenInfo, setTokenInfo] = useState<TokenInfo | null>(null);
   const [isLoadingInfo, setIsLoadingInfo] = useState(false);
   const [pnlData, setPnlData] = useState<{ timestamp: number; value: number }[]>([]);
-  const [securityReport, setSecurityReport] = useState<SecurityReport | null>(null);
+  const [securityReport, setSecurityReport] = useState<TokenSafetyReportV2 | null>(null);
   const [isScanningSecurity, setIsScanningSecurity] = useState(false);
   const [securityExpanded, setSecurityExpanded] = useState(true);
 
@@ -194,26 +232,21 @@ export default function AssetDetailScreen({ route }: Props) {
     }
     let cancelled = false;
     (async () => {
-      const cached = await loadCachedSecurityReport(mintAddress);
-      if (cached.report && !cancelled) setSecurityReport(cached.report);
-      if (!cached.report || cached.isStale) {
-        setIsScanningSecurity(true);
-        try {
-          const connection = new Connection(SOLANA_RPC_URL, "confirmed");
-          const result = await scanTokenSecurity({ connection, mint: mintAddress, decimals });
-          if (!cancelled) {
-            setSecurityReport(result);
-            saveCachedSecurityReport(mintAddress, result);
-          }
-        } catch (err) {
-          console.error("[SecurityScan] Scan failed:", err);
-        } finally {
-          if (!cancelled) setIsScanningSecurity(false);
+      setIsScanningSecurity(true);
+      try {
+        const connection = new Connection(SOLANA_RPC_URL, "confirmed");
+        const result = await getTokenSafetyV2({ connection, mint: mintAddress });
+        if (!cancelled) {
+          setSecurityReport(result);
         }
+      } catch (err) {
+        console.error("[SecurityScan] Scan failed:", err);
+      } finally {
+        if (!cancelled) setIsScanningSecurity(false);
       }
     })();
     return () => { cancelled = true; };
-  }, [activeTab, address, chainName, chainId, tokenSymbol, isNative, decimals]);
+  }, [activeTab, address, chainName, chainId, tokenSymbol, isNative]);
 
   const onRescanSecurity = useCallback(async () => {
     const SOL_MINT = "So11111111111111111111111111111111111111112";
@@ -222,15 +255,14 @@ export default function AssetDetailScreen({ route }: Props) {
     setIsScanningSecurity(true);
     try {
       const connection = new Connection(SOLANA_RPC_URL, "confirmed");
-      const result = await scanTokenSecurity({ connection, mint: mintAddress, decimals });
+      const result = await getTokenSafetyV2({ connection, mint: mintAddress, forceRefresh: true });
       setSecurityReport(result);
-      saveCachedSecurityReport(mintAddress, result);
     } catch (err) {
       console.error("[SecurityScan] Rescan failed:", err);
     } finally {
       setIsScanningSecurity(false);
     }
-  }, [address, tokenSymbol, isNative, decimals]);
+  }, [address, tokenSymbol, isNative]);
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -758,9 +790,16 @@ export default function AssetDetailScreen({ route }: Props) {
               </View>
 
               {securityReport && !isScanningSecurity ? (
-                <ThemedText type="caption" style={{ color: theme.textSecondary, marginTop: 4, marginBottom: Spacing.sm }}>
-                  Scanned by Cordon • {formatScanTime(securityReport.scannedAt)}
-                </ThemedText>
+                <>
+                  <ThemedText type="caption" style={{ color: theme.textSecondary, marginTop: 4, marginBottom: Spacing.sm }}>
+                    {securityReport.sourceLabel} • {formatV2ScanTime(securityReport.scannedAt)}
+                  </ThemedText>
+                  <View style={[styles.securityPill, { backgroundColor: getV2StatusColor(securityReport.verdict.level) + "20", marginBottom: Spacing.sm }]}>
+                    <ThemedText type="small" style={{ color: getV2StatusColor(securityReport.verdict.level), fontWeight: "600" }}>
+                      {securityReport.verdict.label}
+                    </ThemedText>
+                  </View>
+                </>
               ) : null}
 
               {securityExpanded && (
@@ -774,13 +813,14 @@ export default function AssetDetailScreen({ route }: Props) {
                     </View>
                   ) : securityReport ? (
                     <>
-                      {securityReport.rows.map((row, index) => {
-                        const color = getStatusColor(row.status);
-                        const iconName = getStatusIcon(row.status);
-                        const isProgram = row.id === "program";
+                      {securityReport.findings.map((finding, index) => {
+                        const color = getV2StatusColor(finding.level);
+                        const iconName = getV2StatusIcon(finding.level);
+                        const isProgram = finding.key === "tokenProgram";
+                        const badgeText = getV2BadgeText(finding);
                         return (
                           <View
-                            key={row.id}
+                            key={finding.key}
                             style={[
                               styles.securityCheckRow,
                               index > 0 && { borderTopWidth: 1, borderTopColor: theme.border },
@@ -791,36 +831,31 @@ export default function AssetDetailScreen({ route }: Props) {
                               <View style={styles.securityCheckText}>
                                 <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                                   <ThemedText type="body" style={{ color: theme.text }}>
-                                    {row.title}
+                                    {finding.title}
                                   </ThemedText>
-                                  {row.kind === "signal" ? (
+                                  {finding.isHeuristic ? (
                                     <View style={[styles.kindBadge, { backgroundColor: theme.accent + "15" }]}>
                                       <ThemedText type="caption" style={{ color: theme.accent, fontSize: 9 }}>
-                                        Signal
+                                        Heuristic
                                       </ThemedText>
                                     </View>
                                   ) : null}
                                 </View>
                                 <ThemedText type="caption" style={{ color: theme.textSecondary }}>
-                                  {row.subtitle}
+                                  {finding.summary}
                                 </ThemedText>
-                                {row.details && row.details.length > 0 ? (
-                                  <ThemedText type="caption" style={{ color: theme.textSecondary, fontStyle: "italic", marginTop: 2 }}>
-                                    {row.details[0]}
-                                  </ThemedText>
-                                ) : null}
                               </View>
                             </View>
                             {isProgram ? (
                               <View style={[styles.securityPill, { backgroundColor: theme.accent + "20" }]}>
                                 <ThemedText type="small" style={{ color: theme.accent, fontWeight: "600" }}>
-                                  {row.badgeText}
+                                  {finding.summary.includes("Token-2022") ? "Token-2022" : "SPL"}
                                 </ThemedText>
                               </View>
                             ) : (
                               <View style={[styles.securityPill, { backgroundColor: color + "20" }]}>
                                 <ThemedText type="small" style={{ color, fontWeight: "600" }}>
-                                  {row.badgeText}
+                                  {badgeText}
                                 </ThemedText>
                               </View>
                             )}
@@ -829,7 +864,7 @@ export default function AssetDetailScreen({ route }: Props) {
                       })}
                       <View style={[styles.securityFooter, { borderTopWidth: 1, borderTopColor: theme.border }]}>
                         <ThemedText type="caption" style={{ color: theme.textSecondary, fontStyle: "italic" }}>
-                          Verified = on-chain facts. Signals = heuristics, not guarantees.
+                          Verified = on-chain facts. Heuristics = patterns, not guarantees.
                         </ThemedText>
                       </View>
                     </>
