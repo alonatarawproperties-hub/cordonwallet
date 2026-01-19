@@ -81,6 +81,29 @@ function formatDate(timestamp: number): string {
   });
 }
 
+function formatTxAmount(amount: string | number): string {
+  const num = typeof amount === "string" ? parseFloat(amount.replace(/,/g, "")) : amount;
+  if (isNaN(num)) return "0";
+  
+  // For very large numbers, use K/M notation
+  if (Math.abs(num) >= 1_000_000) {
+    return (num / 1_000_000).toLocaleString("en-US", { maximumFractionDigits: 2 }) + "M";
+  }
+  if (Math.abs(num) >= 100_000) {
+    return (num / 1_000).toLocaleString("en-US", { maximumFractionDigits: 1 }) + "K";
+  }
+  
+  // For regular numbers, use commas with 2-4 decimals
+  if (Math.abs(num) >= 1000) {
+    return num.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  if (Math.abs(num) >= 1) {
+    return num.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+  }
+  // For small amounts, show more precision
+  return num.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 6 });
+}
+
 function getChainColor(chainName: string): string {
   const colorMap: Record<string, string> = {
     Ethereum: "#627EEA",
@@ -540,7 +563,7 @@ export default function AssetDetailScreen({ route }: Props) {
                     textAlign: "right",
                   }}
                 >
-                  {amountPrefix}{tx.amount} {tx.tokenSymbol}
+                  {amountPrefix}{formatTxAmount(tx.amount)} {tx.tokenSymbol}
                 </ThemedText>
                 <View style={[styles.statusBadge, { backgroundColor: tx.status === "confirmed" ? theme.success + "20" : theme.warning + "20" }]}>
                   <ThemedText
