@@ -15,8 +15,6 @@ import { useDemo } from "@/lib/demo/context";
 import { useDevSettings } from "@/context/DevSettingsContext";
 import { NETWORKS } from "@/lib/types";
 import { getChainById } from "@/lib/blockchain/chains";
-import { getCordonSolTreasury, getTreasuryName, shortenAddress, isTreasuryConfigured } from "@/constants/treasury";
-import * as Clipboard from "expo-clipboard";
 import * as WebBrowser from "expo-web-browser";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 
@@ -31,12 +29,8 @@ export default function SettingsScreen() {
   const { isDemoMode, toggleDemoMode } = useDemo();
   const { settings, updateSetting, loadSettings } = useDevSettings();
   const [showDebug, setShowDebug] = useState(false);
-  const [treasuryCopied, setTreasuryCopied] = useState(false);
   const tapCountRef = useRef(0);
   const lastTapRef = useRef(0);
-  
-  const treasuryAddress = getCordonSolTreasury();
-  const treasuryName = getTreasuryName();
 
   useEffect(() => {
     loadSettings();
@@ -190,47 +184,6 @@ export default function SettingsScreen() {
         </View>
       </View>
 
-      {isTreasuryConfigured() ? (
-        <View style={styles.section}>
-          <ThemedText type="small" style={[styles.sectionTitle, { color: theme.textSecondary }]}>
-            Cordon
-          </ThemedText>
-          <View style={[styles.treasuryPanel, { backgroundColor: theme.backgroundDefault }]}>
-            <View style={styles.treasuryRow}>
-              <View style={[styles.iconContainer, { backgroundColor: theme.accent + "20" }]}>
-                <Feather name="database" size={18} color={theme.accent} />
-              </View>
-              <View style={{ flex: 1, marginLeft: Spacing.md }}>
-                <ThemedText type="body" style={{ fontWeight: "500" }}>{treasuryName}</ThemedText>
-                <ThemedText type="caption" style={{ color: theme.textSecondary, fontFamily: "monospace", fontSize: 11 }}>
-                  {shortenAddress(treasuryAddress, 4)}
-                </ThemedText>
-              </View>
-              <Pressable
-                onPress={async () => {
-                  await Clipboard.setStringAsync(treasuryAddress);
-                  setTreasuryCopied(true);
-                  setTimeout(() => setTreasuryCopied(false), 2000);
-                }}
-                style={[styles.treasuryButton, { backgroundColor: theme.accent + "15" }]}
-              >
-                <Feather name={treasuryCopied ? "check" : "copy"} size={16} color={theme.accent} />
-              </Pressable>
-              <Pressable
-                onPress={() => {
-                  WebBrowser.openBrowserAsync(`https://solscan.io/account/${treasuryAddress}`);
-                }}
-                style={[styles.treasuryButton, { backgroundColor: theme.accent + "15", marginLeft: Spacing.xs }]}
-              >
-                <Feather name="external-link" size={16} color={theme.accent} />
-              </Pressable>
-            </View>
-            <ThemedText type="caption" style={{ color: theme.textSecondary, marginTop: Spacing.sm }}>
-              Success fees from swaps are sent here.
-            </ThemedText>
-          </View>
-        </View>
-      ) : null}
 
       {showDebug ? (
         <View style={styles.section}>
@@ -392,20 +345,5 @@ const styles = StyleSheet.create({
     padding: Spacing.md,
     borderRadius: BorderRadius.sm,
     marginTop: Spacing.md,
-  },
-  treasuryPanel: {
-    borderRadius: BorderRadius.md,
-    padding: Spacing.md,
-  },
-  treasuryRow: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  treasuryButton: {
-    width: 36,
-    height: 36,
-    borderRadius: BorderRadius.sm,
-    alignItems: "center",
-    justifyContent: "center",
   },
 });
