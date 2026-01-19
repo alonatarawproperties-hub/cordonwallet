@@ -166,7 +166,9 @@ export default function AssetDetailScreen({ route }: Props) {
   const calculatePnlData = () => {
     if (!priceUsd) return;
     
-    const balanceNum = parseFloat(String(balance)) || 0;
+    // Parse balance, removing commas if present
+    const balanceStr = String(balance).replace(/,/g, '');
+    const balanceNum = parseFloat(balanceStr) || 0;
     if (balanceNum <= 0 && transactions.length === 0) return;
     
     const sortedTxs = [...transactions].sort((a, b) => a.createdAt - b.createdAt);
@@ -184,15 +186,36 @@ export default function AssetDetailScreen({ route }: Props) {
     let cumulativeCost = 0;
     let hasReceives = false;
     
+    // Determine the symbol we're viewing for swap direction detection
+    const viewingSymbol = isNative ? "SOL" : tokenSymbol;
+    
     for (const tx of sortedTxs) {
-      const amount = parseFloat(tx.amount) || 0;
+      const amountStr = String(tx.amount).replace(/,/g, '');
+      const amount = parseFloat(amountStr) || 0;
       const txPrice = tx.priceUsd || priceYesterday;
       
-      if (tx.activityType === "receive") {
+      // Determine effective direction for the token being viewed
+      let isReceive = tx.activityType === "receive";
+      let isSend = tx.activityType === "send";
+      
+      // For swap transactions, check swapInfo to determine direction
+      if (tx.activityType === "swap" && tx.swapInfo) {
+        if (tx.swapInfo.toSymbol === viewingSymbol) {
+          // User received this token in the swap
+          isReceive = true;
+          isSend = false;
+        } else if (tx.swapInfo.fromSymbol === viewingSymbol) {
+          // User sent this token in the swap
+          isReceive = false;
+          isSend = true;
+        }
+      }
+      
+      if (isReceive) {
         cumulativeTokens += amount;
         cumulativeCost += amount * txPrice;
         hasReceives = true;
-      } else if (tx.activityType === "send") {
+      } else if (isSend) {
         const avgCost = cumulativeTokens > 0 ? cumulativeCost / cumulativeTokens : 0;
         cumulativeTokens = Math.max(0, cumulativeTokens - amount);
         cumulativeCost = Math.max(0, cumulativeCost - amount * avgCost);
@@ -371,7 +394,7 @@ export default function AssetDetailScreen({ route }: Props) {
     }
   };
 
-  const balanceNumForChange = parseFloat(String(balance)) || 0;
+  const balanceNumForChange = parseFloat(String(balance).replace(/,/g, '')) || 0;
   const change24hValue = priceUsd && priceChange24h
     ? (balanceNumForChange * priceUsd * priceChange24h) / 100
     : 0;
