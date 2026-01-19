@@ -12,6 +12,7 @@ import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
 import { ListRow } from "@/components/ListRow";
+import { PinInputModal } from "@/components/PinInputModal";
 import { useWallet } from "@/lib/wallet-context";
 import { useDemo } from "@/lib/demo/context";
 import { useDevSettings } from "@/context/DevSettingsContext";
@@ -36,6 +37,11 @@ export default function SettingsScreen() {
   const [biometricEnabled, setBiometricEnabled] = useState(false);
   const [biometricAvailable, setBiometricAvailable] = useState(false);
   const [isTogglingBiometric, setIsTogglingBiometric] = useState(false);
+  const [pinModalVisible, setPinModalVisible] = useState(false);
+  const [pinModalStep, setPinModalStep] = useState<"current" | "new" | "confirm">("current");
+  const [pinModalError, setPinModalError] = useState<string | null>(null);
+  const [currentPinValue, setCurrentPinValue] = useState("");
+  const [newPinValue, setNewPinValue] = useState("");
   const tapCountRef = useRef(0);
   const lastTapRef = useRef(0);
 
@@ -131,67 +137,67 @@ export default function SettingsScreen() {
   };
 
   const handleChangePin = () => {
-    Alert.prompt(
-      "Change PIN",
-      "Enter your current 6-digit PIN",
-      async (currentPinInput: string) => {
-        if (!currentPinInput || currentPinInput.length !== 6) {
-          Alert.alert("Invalid PIN", "Please enter your 6-digit PIN.");
-          return;
+    setPinModalStep("current");
+    setPinModalError(null);
+    setCurrentPinValue("");
+    setNewPinValue("");
+    setPinModalVisible(true);
+  };
+
+  const handlePinModalSubmit = async (pin: string) => {
+    if (pinModalStep === "current") {
+      const isValid = await verifyPin(pin);
+      if (!isValid) {
+        setPinModalError("Incorrect PIN. Please try again.");
+        return;
+      }
+      setCurrentPinValue(pin);
+      setPinModalError(null);
+      setPinModalStep("new");
+    } else if (pinModalStep === "new") {
+      setNewPinValue(pin);
+      setPinModalError(null);
+      setPinModalStep("confirm");
+    } else if (pinModalStep === "confirm") {
+      if (pin !== newPinValue) {
+        setPinModalError("PINs do not match. Please try again.");
+        return;
+      }
+      
+      try {
+        const success = await changePin(currentPinValue, newPinValue);
+        if (success) {
+          setPinModalVisible(false);
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          Alert.alert("Success", "Your PIN has been changed successfully.");
+        } else {
+          setPinModalError("Could not change PIN. Please try again.");
         }
+      } catch (error: any) {
+        setPinModalError(error.message || "Could not change PIN.");
+      }
+    }
+  };
 
-        const isCurrentValid = await verifyPin(currentPinInput);
-        if (!isCurrentValid) {
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-          Alert.alert("Incorrect PIN", "The current PIN you entered is incorrect.");
-          return;
-        }
+  const handlePinModalCancel = () => {
+    setPinModalVisible(false);
+    setPinModalError(null);
+  };
 
-        Alert.prompt(
-          "New PIN",
-          "Enter your new 6-digit PIN",
-          (newPinInput: string) => {
-            if (!newPinInput || newPinInput.length !== 6) {
-              Alert.alert("Invalid PIN", "Please enter a 6-digit PIN.");
-              return;
-            }
+  const getPinModalTitle = () => {
+    switch (pinModalStep) {
+      case "current": return "Change PIN";
+      case "new": return "New PIN";
+      case "confirm": return "Confirm PIN";
+    }
+  };
 
-            Alert.prompt(
-              "Confirm New PIN",
-              "Re-enter your new 6-digit PIN",
-              async (confirmPin: string) => {
-                if (confirmPin !== newPinInput) {
-                  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-                  Alert.alert("PIN Mismatch", "The PINs you entered do not match.");
-                  return;
-                }
-
-                try {
-                  const success = await changePin(currentPinInput, newPinInput);
-                  if (success) {
-                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                    Alert.alert("Success", "Your PIN has been changed successfully.");
-                  } else {
-                    Alert.alert("Failed", "Could not change PIN. Please try again.");
-                  }
-                } catch (error: any) {
-                  Alert.alert("Error", error.message || "Could not change PIN. Please try again.");
-                }
-              },
-              "secure-text",
-              "",
-              "number-pad"
-            );
-          },
-          "secure-text",
-          "",
-          "number-pad"
-        );
-      },
-      "secure-text",
-      "",
-      "number-pad"
-    );
+  const getPinModalMessage = () => {
+    switch (pinModalStep) {
+      case "current": return "Enter your current 6-digit PIN";
+      case "new": return "Enter your new 6-digit PIN";
+      case "confirm": return "Re-enter your new PIN to confirm";
+    }
   };
 
   const handleVersionTap = () => {
@@ -495,6 +501,15 @@ export default function SettingsScreen() {
           Remove Wallet
         </ThemedText>
       </Pressable>
+
+      <PinInputModal
+        visible={pinModalVisible}
+        title={getPinModalTitle()}
+        message={getPinModalMessage()}
+        onSubmit={handlePinModalSubmit}
+        onCancel={handlePinModalCancel}
+        error={pinModalError}
+      />
     </ScrollView>
   );
 }
