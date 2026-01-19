@@ -1,0 +1,92 @@
+You are working on Cordon (React Native / Expo). Implement an on-demand “Contract Security” scanner in the Asset Detail > About tab, similar to Trust Wallet, with “Scanned by Cordon” and a last scanned timestamp. Do NOT add any background cron; only scan when the About tab is opened (first time) and when user taps “Rescan” (or pull-to-refresh inside About). Keep changes minimal and scoped.
+
+Context:
+- Asset detail screen is one file: client/screens/AssetDetailScreen.tsx
+- Tabs are inline: holdings/history/about
+- Current renderAboutTab shows About text + Stats + Links.
+- There is TokenInfo interface near top with description/marketCap/circulating/total/links.
+Goal:
+Add a new “Contract Security” section ABOVE “Stats” in About tab that shows:
+1) Header row: “Contract Security” + pill “Scanned” (green) when scan ran, or “Not scanned” (gray) before.
+2) Subtext: “Scanned by Cordon • {time}” (e.g., “just now”, “5m ago”, “2h ago”) after scan.
+3) List of checks as rows (TrustWallet-like):
+   - Mintable: Success if mint authority is null, Warning if exists, Unknown if cannot determine
+   - Freezable: Success if freeze authority is null, Warning if exists, Unknown if cannot determine
+   - Token program: “SPL” or “Token-2022” as a badge, Unknown if cannot determine
+   - Metadata immutability: Success if metadata update authority is null, Warning if exists, Unknown if metadata not found or unsupported
+   - Extension checks (Token-2022): show “Success” if we can parse extensions and none are risky; “Warning” if TransferFeeConfig exists; “Unknown” if Token-2022 but parsing not implemented
+4) A small italic footer in the card: “Based on on-chain checks” and for Unknown items explain: “Unknown = we couldn’t verify this yet (missing metadata or unsupported token program).”
+5) Add a “Rescan” button on the right side of the section header (small).
+
+Implementation details:
+A) Create a new type:
+type SecurityStatus = "success" | "warning" | "unknown";
+interface ContractSecurityCheck { key: string; title: string; subtitle?: string; status: SecurityStatus; badgeText?: string; }
+interface ContractSecurityResult { checks: ContractSecurityCheck[]; scannedAt: number; }
+
+B) Add state in AssetDetailScreen:
+- const [security, setSecurity] = useState<ContractSecurityResult | null>(null);
+- const [isScanningSecurity, setIsScanningSecurity] = useState(false);
+
+C) Trigger scan:
+- When About tab becomes active, if security is null then run scanContractSecurity().
+- Also run scan when user taps “Rescan”.
+- IMPORTANT: Do not spam scans on every re-render; guard with state.
+
+D) Where to scan from:
+- Add a lightweight RPC call layer using the existing Solana connection already used in the screen (search in file for connection / RPC usage and reuse it).
+- Fetch:
+  1) Mint account info: getAccountInfo(mint) and detect token program owner:
+     - SPL Token program: TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA
+     - Token-2022: TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb
+  2) Parse mint data:
+     - Use @solana/spl-token functions if already installed. Prefer getMint(connection, mintPubkey, "confirmed", programId?) with correct programId.
+     - Determine mintAuthority (exists or null) and freezeAuthority (exists or null).
+  3) Metadata:
+     - If Metaplex token metadata library exists in repo, use it.
+     - If not, implement PDA derivation for metadata account:
+       metadataPda = findProgramAddressSync(
+         [Buffer.from("metadata"), TOKEN_METADATA_PROGRAM_ID.toBuffer(), mint.toBuffer()],
+         TOKEN_METADATA_PROGRAM_ID
+       )
+       TOKEN_METADATA_PROGRAM_ID = metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s
+     - Fetch metadata account info. If missing => metadata immutability = Unknown with subtitle “Metadata account not found”.
+     - If found and you can decode updateAuthority: if updateAuthority is null/zero/none => Success else Warning “Metadata can be updated”.
+     - If decoding is too heavy, keep it as Unknown with subtitle “Metaplex check not implemented yet” BUT still show row.
+E) Token-2022 extension checks:
+- For now, do not fully parse extensions unless you already have utilities.
+- If program is Token-2022:
+  - If you can detect TransferFeeConfig extension via existing code/util, mark Warning “Transfer fee extension present”.
+  - Otherwise mark Unknown “Detailed extension parsing not implemented”.
+- If program is SPL:
+  - Set “Extension checks” row to not shown OR show Success “Not applicable”.
+
+F) UI:
+- Build a new card style similar to existing statsCard (rounded, padding).
+- Each check row:
+  - Left: icon (✅ / ⚠️ / ? as text) + title and subtitle
+  - Right: status pill:
+    - success: green “Success”
+    - warning: orange “Warning”
+    - unknown: gray “Unknown”
+  - For token program row, show badge “SPL” or “Token-2022” on right instead of status pill, but still treat status as success if detected.
+- Add “Rescan” button (Pressable) on header right; when scanning show ActivityIndicator small.
+
+G) Human readable unknown:
+- Replace raw “Unknown” with a subtitle:
+  - “Unknown = not verified yet” or “Unknown = metadata not found” etc.
+- Never show dev-y raw errors to user. Log errors to console only.
+
+H) Add helper for time label:
+function formatScanAge(scannedAtMs:number): string { return "just now" / "5m ago" / "2h ago" }
+
+I) Keep everything inside AssetDetailScreen.tsx for now (since file is monolithic). Do not create new files unless absolutely necessary.
+
+Acceptance tests:
+1) Open any asset > About tab: Contract Security section appears and scans once; shows “Scanned by Cordon • just now”.
+2) Tap Rescan: spinner shows; results update and scannedAt refreshes.
+3) SPL token with no authorities shows Success for Mintable and Freezable.
+4) Token-2022 token shows Token-2022 badge and Extension checks row as Unknown (unless you can detect TransferFeeConfig).
+5) No crashes if RPC fails; show Unknown statuses gracefully.
+
+Now implement this end-to-end and ensure it compiles.
