@@ -30,6 +30,16 @@ function solscanUrl(type: "account" | "token", address: string): string {
   return `https://solscan.io/${type}/${address}`;
 }
 
+function formatUsd(value: number): string {
+  if (value >= 1_000_000) {
+    return `${(value / 1_000_000).toFixed(1)}M`;
+  } else if (value >= 1000) {
+    return `${(value / 1000).toFixed(1)}k`;
+  } else {
+    return value.toFixed(0);
+  }
+}
+
 export interface GetTokenSafetyV2Params {
   connection: Connection;
   mint: string;
@@ -249,25 +259,53 @@ export async function getTokenSafetyV2(
     stats.marketCapUsd = dexData.marketCapUsd;
 
     const liq = dexData.liquidityUsd;
-    const liqLevel = liq >= 50000 ? "safe" : liq >= 10000 ? "warning" : "danger";
+    const mcap = dexData.marketCapUsd ?? dexData.fdvUsd ?? 0;
+    const liqRatio = mcap > 0 ? (liq / mcap) * 100 : 0;
+
+    let liqLevel: "safe" | "warning" | "danger" | "info";
+    let liqSummary: string;
+    let liqDetail: string;
+
+    if (liq === 0) {
+      liqLevel = "danger";
+      liqSummary = "No liquidity found";
+      liqDetail = "No DEX liquidity pool found. Trading is not possible.";
+    } else if (mcap > 0) {
+      if (liqRatio >= 5) {
+        liqLevel = "safe";
+        liqSummary = `${liqRatio.toFixed(1)}% depth ($${formatUsd(liq)})`;
+        liqDetail = `Good liquidity depth (${liqRatio.toFixed(1)}% of market cap). Trades should have minimal slippage.`;
+      } else if (liqRatio >= 2) {
+        liqLevel = "warning";
+        liqSummary = `${liqRatio.toFixed(1)}% depth ($${formatUsd(liq)})`;
+        liqDetail = `Moderate liquidity depth (${liqRatio.toFixed(1)}% of market cap). Larger trades may have higher slippage.`;
+      } else {
+        liqLevel = "danger";
+        liqSummary = `${liqRatio.toFixed(1)}% depth ($${formatUsd(liq)})`;
+        liqDetail = `Low liquidity depth (${liqRatio.toFixed(1)}% of market cap). High slippage risk on trades.`;
+      }
+    } else {
+      if (liq >= 50000) {
+        liqLevel = "safe";
+        liqSummary = `$${formatUsd(liq)} liquidity`;
+        liqDetail = "Good absolute liquidity for trading.";
+      } else if (liq >= 10000) {
+        liqLevel = "warning";
+        liqSummary = `$${formatUsd(liq)} liquidity`;
+        liqDetail = "Low liquidity may cause higher slippage on trades.";
+      } else {
+        liqLevel = "warning";
+        liqSummary = `$${formatUsd(liq)} liquidity`;
+        liqDetail = "Low liquidity. Market cap unknown, so ratio could not be calculated.";
+      }
+    }
+
     findings.push({
       key: "liquidity",
       title: "Liquidity",
       level: liqLevel,
-      summary:
-        liq >= 50000
-          ? `$${(liq / 1000).toFixed(0)}k liquidity`
-          : liq >= 10000
-          ? `$${(liq / 1000).toFixed(1)}k liquidity (low)`
-          : liq > 0
-          ? `$${liq.toFixed(0)} liquidity (very low)`
-          : "No liquidity found",
-      detail:
-        liq >= 50000
-          ? "Good liquidity for trading with minimal slippage."
-          : liq >= 10000
-          ? "Low liquidity may cause higher slippage on trades."
-          : "Very low or no liquidity. Trading may be difficult or result in large losses.",
+      summary: liqSummary,
+      detail: liqDetail,
       verified: "verified",
       proof: dexData.url
         ? [{ label: "DEX Pool", value: dexData.dexId ?? "Pool", explorerUrl: dexData.url }]
