@@ -50,6 +50,7 @@ const STORAGE_KEYS = {
   PIN_HASH: "cordon_pin_hash",
   VAULT_META: "@cordon/vault_meta",
   BIOMETRIC_PIN: "cordon_biometric_pin",
+  BIOMETRIC_ENABLED: "cordon_biometric_enabled",
   CACHED_VAULT_KEY: "cordon_cached_vault_key",
 };
 
@@ -299,6 +300,8 @@ export async function savePinForBiometrics(pin: string): Promise<boolean> {
       keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
     });
     
+    await setSecureItem(STORAGE_KEYS.BIOMETRIC_ENABLED, "true");
+    
     if (__DEV__) {
       console.log("[WalletEngine] PIN saved for biometric unlock");
     }
@@ -336,12 +339,8 @@ export async function hasBiometricPinEnabled(): Promise<boolean> {
   }
   
   try {
-    const canUseBiometric = await SecureStore.canUseBiometricAuthentication();
-    if (!canUseBiometric) {
-      return false;
-    }
-    const pin = await SecureStore.getItemAsync(STORAGE_KEYS.BIOMETRIC_PIN);
-    return pin !== null;
+    const enabled = await getSecureItem(STORAGE_KEYS.BIOMETRIC_ENABLED);
+    return enabled === "true";
   } catch {
     return false;
   }
@@ -366,6 +365,7 @@ export async function disableBiometrics(): Promise<boolean> {
   
   try {
     await SecureStore.deleteItemAsync(STORAGE_KEYS.BIOMETRIC_PIN);
+    await deleteSecureItem(STORAGE_KEYS.BIOMETRIC_ENABLED);
     if (__DEV__) {
       console.log("[WalletEngine] Biometric unlock disabled");
     }
@@ -722,6 +722,7 @@ export async function deleteVault(): Promise<void> {
   await deleteSecureItem(STORAGE_KEYS.VAULT);
   await deleteSecureItem(STORAGE_KEYS.PIN_HASH);
   await deleteSecureItem(STORAGE_KEYS.BIOMETRIC_PIN);
+  await deleteSecureItem(STORAGE_KEYS.BIOMETRIC_ENABLED);
   await deleteSecureItem(STORAGE_KEYS.CACHED_VAULT_KEY);
   await AsyncStorage.removeItem(STORAGE_KEYS.VAULT_META);
   cachedSecrets = null;
