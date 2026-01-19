@@ -1,0 +1,206 @@
+REPLIT AGENT — IMPLEMENT “CORDON SCAN v2” (on-chain truth + risk signals) IN ASSET DETAIL “ABOUT” TAB
+
+Goal
+- Upgrade Asset Detail → About tab to show a TrustWallet-level “Contract Security” scanner.
+- Must be human-readable, accurate, and honest:
+  - “Verified (on-chain)” checks (never guess)
+  - “Signals” (heuristics) clearly labeled with confidence + why
+- No “Unknown” wording. Use:
+  - “Not supported yet” (feature not implemented)
+  - “Unable to verify” (RPC fail/timeout)
+  - “Not available” (token has no metadata, etc.)
+- Support BOTH SPL Token (Tokenkeg…) and Token-2022 (TokenzQd…).
+- Add: “Scanned by Cordon • {time}” + “Rescan” button.
+- Cache scan results per mint with TTL.
+
+Scope (v2, ship now without external scanners)
+A) VERIFIED ON-CHAIN FACTS
+1) Token program: SPL vs Token-2022 (by mint account owner)
+2) Mintable: mintAuthority exists?
+3) Freezable: freezeAuthority exists?
+4) Supply + decimals (from mint)
+5) Metadata:
+   - Has Metaplex metadata PDA?
+   - Is metadata mutable? (isMutable / updateAuthority present)
+   - Show: “Metadata immutable” => Safe / Warning / Not available
+6) Token-2022 extensions (if token program is 2022):
+   - Detect extension list (even if we can’t decode all fields)
+   - For key extensions, decode and explain:
+     - TransferFeeConfig (fee present?) => Warning
+     - TransferHook (exists) => High Risk signal (“Transfers can be gated by another program”)
+     - PermanentDelegate (exists) => Warning
+     - DefaultAccountState (Frozen) => High Risk
+     - CloseAuthority (exists) => Warning
+   - If we can’t decode detailed fields yet, show: “Extensions detected” + list, and label “Details not supported yet” (NOT Unknown)
+
+B) RISK SIGNALS (HEURISTICS)
+7) Holder concentration (RPC-only):
+   - Use getTokenLargestAccounts(mint)
+   - Compute:
+     - top1%
+     - top5%
+     - top10%
+   - Output:
+     - Safe if top1 <= 10% AND top10 <= 50%
+     - Warning if top1 > 15% OR top10 > 70%
+     - Caution otherwise
+   - Always show numbers (“Top 1: 18.2% • Top 10: 81.4%”)
+   - Label as “Signal (heuristic)” and include “may include LP/treasury accounts”
+
+8) Tradability / liquidity signal (via Jupiter quote, but no Jupiter platform fee):
+   - Use lite-api quote endpoint (already used in app):
+     - Request a small “probe” quote:
+       - If input is SOL: 0.05 SOL exact-in
+       - If input is token: choose amount = min(userBalance*0.02, 10 USD-equivalent if token is USDC/USDT, else a small fixed atomic based on decimals)
+     - If quote fails / no routePlan / outAmount == 0 => “Low liquidity or not tradable” (Warning)
+     - If priceImpactPct >= 5% => Warning
+     - If priceImpactPct between 1%–5% => Caution
+     - Else Safe
+   - Label as “Signal (based on Jupiter route + price impact)”
+   - IMPORTANT: do NOT add Jupiter platformFeeBps (keep FORCE_DISABLE_JUPITER_PLATFORM_FEES = true)
+
+UI Requirements (AssetDetailScreen.tsx)
+- In About tab, insert a new section ABOVE “Stats”:
+  Title: “Contract Security” with pill “Scanned”
+  Subtitle line: “Scanned by Cordon • {relative time like ‘just now’ / ‘5m ago’}”
+  Right side button: “Rescan”
+- Show a card list like TrustWallet:
+  Each row:
+   - Left icon (✅ / ⚠️ / ⓘ) and title
+   - Subtitle (human explanation)
+   - Right badge: Safe / Warning / Caution / Not supported / Unable to verify
+- Add a small footnote:
+  “Verified = on-chain facts. Signals = heuristics, not guarantees.”
+
+Caching/Performance
+- Cache scan results per mint in AsyncStorage:
+  key: `cordon_security_scan_${mint}`
+  value: JSON { ts, report }
+- TTL: 60 minutes
+- On screen open:
+  1) Load cached report instantly (if fresh)
+  2) If missing/stale, run scan and update UI
+- Rescan button:
+  - Forces refresh (ignores TTL)
+- Must not block the UI; show ActivityIndicator within the Contract Security section only.
+
+Implementation Steps (DO THESE EXACTLY)
+1) Create new file: `client/lib/securityScan.ts`
+   Export:
+   - types:
+     - SecurityStatus = "safe" | "caution" | "warning" | "not_supported" | "unable"
+     - SecurityRow { id, title, subtitle, status, badgeText, kind: "verified" | "signal", details?: string[] }
+     - SecurityReport { mint, program: "spl"|"token2022", scannedAt: number, rows: SecurityRow[] }
+   - function:
+     - `getTokenProgramForMint(connection, mintPubkey): Promise<"spl"|"token2022">`
+       - fetch account info for mint, compare owner to SPL_TOKEN_PROGRAM_ID or TOKEN_2022_PROGRAM_ID
+     - `scanTokenSecurity(params): Promise<SecurityReport>`
+       Inputs:
+       - connection
+       - mint (string)
+       - jupiterQuoteFn (reuse existing quote fetch helper OR implement minimal fetch in this file)
+       - optional userBalance + inputMint/outputMint context (so we can run probe quote appropriately)
+
+   Use Solana libs already in project:
+   - `@solana/web3.js`
+   - `@solana/spl-token`
+   - Also import `TOKEN_PROGRAM_ID`, `TOKEN_2022_PROGRAM_ID`, and use `getMint(connection, mintPk, "confirmed", programId)` with correct program id.
+
+2) Token-2022 extensions
+   - If project already has spl-token 2022 helpers, use them.
+   - If not available, implement a pragmatic v2 now:
+     - Detect extension types from mint account data if possible using spl-token’s extension helpers.
+     - If you cannot decode extension list with current deps, do NOT show “Unknown”.
+       Show a VERIFIED row:
+        - “Token Extensions”
+        - status: not_supported
+        - subtitle: “Token-2022 detected. Extension decoding not supported yet in this build.”
+     - BUT still implement TransferHook / TransferFee / PermanentDelegate / DefaultAccountState detection if the libraries allow it. If not, keep it honest as above.
+
+3) Metaplex metadata immutability
+   - Try to use existing metaplex/mpl lib if already installed.
+   - If not installed, add dependency (minimal):
+     - `@metaplex-foundation/mpl-token-metadata`
+   - Implement:
+     - derive metadata PDA for mint
+     - fetch account, decode metadata
+     - read `isMutable` (or equivalent) and `updateAuthority`
+   - Rows:
+     - “Metadata Immutable”
+       - Safe if isMutable == false
+       - Warning if isMutable == true
+       - Not available if no metadata account
+
+4) Holder concentration
+   - Use `connection.getTokenLargestAccounts(mintPk)`
+   - Compute percentages using supply from mint (ui supply)
+   - Add SIGNAL row:
+     - title: “Holder Concentration”
+     - subtitle: “Top 1: X% • Top 10: Y%”
+     - status rules above
+     - details line: “Signal — may include LP/treasury accounts.”
+
+5) Jupiter tradability/liquidity signal
+   - Implement a small helper in securityScan.ts:
+     - `probeLiquidityViaJupiter({ inputMint, outputMint, amountAtomic, slippageBps })`
+   - Use existing lite-api base: `https://lite-api.jup.ag/swap/v1/quote`
+   - Evaluate:
+     - no route/outAmount => warning
+     - priceImpactPct thresholds => caution/warning
+   - Add SIGNAL row:
+     - title: “Route Liquidity”
+     - subtitle: “Price impact: {x}%”
+     - badge: Safe/Caution/Warning
+     - details: “Signal — based on Jupiter route and price impact.”
+
+6) Wire into `client/screens/AssetDetailScreen.tsx`
+   - Add state:
+     - `securityReport`, `isScanningSecurity`, `securityError`, `lastScannedAt`
+   - On About tab render:
+     - render Contract Security section
+     - map `securityReport.rows` to UI list rows
+   - Add “Rescan” button calling `runSecurityScan(true)`
+   - Implement `runSecurityScan(force = false)`:
+     - load AsyncStorage cached
+     - if fresh and not force => set state
+     - else scan and store
+   - Ensure it works for any asset: SPL or Token-2022.
+   - Make sure we can pass needed context:
+     - mint address already available as `address`
+     - chain info already present
+     - for Jupiter probe: use SOL mint when needed (So11111111111111111111111111111111111111112)
+       - Probe direction:
+         - If token is not SOL: probe SOL->token and token->SOL (pick ONE to keep fast; use SOL->token by default)
+         - If token is SOL: skip route liquidity row (not applicable) or mark “Not applicable”
+
+7) UI styling
+   - Follow existing theme + spacing constants.
+   - Badge colors:
+     - Safe: green-ish
+     - Warning: orange/red-ish
+     - Caution: yellow-ish
+     - Not supported / Unable: gray
+   - Don’t create new design system; reuse current styles in the file.
+
+8) Testing
+   - Ensure About tab renders with:
+     - Pump.fun tokens (often Token-2022)
+     - USDC (SPL)
+     - A random token with no metadata
+   - No crashes if RPC fails—show “Unable to verify”.
+
+Deliverables
+- `client/lib/securityScan.ts` created and used
+- `AssetDetailScreen.tsx` updated:
+  - Contract Security section (TrustWallet-like)
+  - “Scanned by Cordon • time” + Rescan
+  - No “Unknown” labels
+- Works for SPL + Token-2022
+
+IMPORTANT RULES
+- Never label a token “safe overall”. Only label individual checks.
+- “Verified” rows must be factual.
+- “Signals” must say signal and include evidence.
+- Keep Jupiter platform fee disabled.
+
+Now implement.
