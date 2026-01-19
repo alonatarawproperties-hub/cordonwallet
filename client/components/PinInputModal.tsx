@@ -42,11 +42,9 @@ export function PinInputModal({ visible, title, message, onSubmit, onCancel, err
   const handlePinChange = (value: string) => {
     const numericValue = value.replace(/[^0-9]/g, "").slice(0, 6);
     setPin(numericValue);
-  };
-
-  const handleSubmit = () => {
-    if (pin.length === 6) {
-      onSubmit(pin);
+    
+    if (numericValue.length === 6) {
+      setTimeout(() => onSubmit(numericValue), 150);
     }
   };
 
@@ -108,26 +106,12 @@ export function PinInputModal({ visible, title, message, onSubmit, onCancel, err
               </ThemedText>
             ) : null}
 
-            <View style={styles.buttons}>
-              <Pressable
-                style={[styles.button, { backgroundColor: theme.backgroundRoot }]}
-                onPress={handleCancel}
-              >
-                <ThemedText type="body" style={{ fontWeight: "600" }}>Cancel</ThemedText>
-              </Pressable>
-              <Pressable
-                style={[
-                  styles.button,
-                  { backgroundColor: pin.length === 6 ? theme.accent : theme.border },
-                ]}
-                onPress={handleSubmit}
-                disabled={pin.length !== 6}
-              >
-                <ThemedText type="body" style={{ fontWeight: "600", color: pin.length === 6 ? "#fff" : theme.textSecondary }}>
-                  OK
-                </ThemedText>
-              </Pressable>
-            </View>
+            <Pressable
+              style={[styles.cancelButton, { backgroundColor: theme.backgroundRoot }]}
+              onPress={handleCancel}
+            >
+              <ThemedText type="body" style={{ fontWeight: "600" }}>Cancel</ThemedText>
+            </Pressable>
           </View>
         </KeyboardAvoidingView>
       </BlurView>
@@ -186,15 +170,11 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.md,
     textAlign: "center",
   },
-  buttons: {
-    flexDirection: "row",
-    gap: Spacing.md,
-    marginTop: Spacing.sm,
-  },
-  button: {
-    flex: 1,
+  cancelButton: {
+    width: "100%",
     paddingVertical: Spacing.md,
     borderRadius: BorderRadius.md,
     alignItems: "center",
+    marginTop: Spacing.sm,
   },
 });
