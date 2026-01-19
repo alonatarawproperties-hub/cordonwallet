@@ -301,6 +301,10 @@ export default function AssetDetailScreen({ route }: Props) {
     try {
       const apiUrl = getApiUrl();
       const url = new URL(`/api/token-info/${tokenSymbol}`, apiUrl);
+      url.searchParams.set("chainId", String(chainId));
+      if (address) {
+        url.searchParams.set("address", address);
+      }
       const response = await fetch(url.toString());
       if (response.ok) {
         const data = await response.json();
@@ -721,12 +725,14 @@ function getDefaultMarketCap(symbol: string): string {
 
 function getTokenLinks(symbol: string, chainId: number, address?: string, tokenInfo?: TokenInfo | null): { label: string; url: string }[] {
   const explorerBaseUrls: Record<number, string> = {
+    0: "https://solscan.io",
     1: "https://etherscan.io",
     137: "https://polygonscan.com",
     56: "https://bscscan.com",
   };
 
   const fallbackSites: Record<string, string> = {
+    SOL: "https://solana.com",
     ETH: "https://ethereum.org",
     POL: "https://polygon.technology",
     BNB: "https://www.bnbchain.org",
@@ -742,11 +748,23 @@ function getTokenLinks(symbol: string, chainId: number, address?: string, tokenI
     links.push({ label: "Official website", url: website });
   }
 
-  const explorerBase = explorerBaseUrls[chainId] || "https://etherscan.io";
-  if (address) {
-    links.push({ label: "Explorer", url: `${explorerBase}/token/${address}` });
+  // Handle Solana (chainId 0)
+  if (chainId === 0) {
+    if (address) {
+      // SPL token - link to token address on Solscan
+      links.push({ label: "Explorer", url: `https://solscan.io/token/${address}` });
+    } else if (symbol === "SOL") {
+      // Native SOL - link to Solana homepage on Solscan
+      links.push({ label: "Explorer", url: "https://solscan.io" });
+    }
   } else {
-    links.push({ label: "Explorer", url: explorerBase });
+    // EVM chains
+    const explorerBase = explorerBaseUrls[chainId] || "https://etherscan.io";
+    if (address) {
+      links.push({ label: "Explorer", url: `${explorerBase}/token/${address}` });
+    } else {
+      links.push({ label: "Explorer", url: explorerBase });
+    }
   }
 
   if (tokenInfo?.twitter) {

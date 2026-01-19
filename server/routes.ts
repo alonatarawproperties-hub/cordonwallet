@@ -898,72 +898,134 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/token-info/:symbol", async (req: Request, res: Response) => {
     try {
       const { symbol } = req.params;
+      const chainId = parseInt(req.query.chainId as string) || 1;
+      const address = req.query.address as string;
       
-      const tokenInfo: Record<string, any> = {
+      // Hardcoded fallback info for major tokens
+      const staticTokenInfo: Record<string, any> = {
+        SOL: {
+          description: "Solana is a high-performance blockchain platform designed for decentralized apps and crypto-currencies. It uses a unique proof-of-history consensus combined with proof-of-stake for fast, secure transactions.",
+          website: "https://solana.com",
+          twitter: "https://twitter.com/solana",
+          coingeckoId: "solana",
+        },
         ETH: {
           description: "Ethereum is a decentralized blockchain platform that enables smart contracts and decentralized applications (dApps). It is the second-largest cryptocurrency by market capitalization.",
-          marketCap: 372637000000,
-          circulatingSupply: 120694733,
-          totalSupply: 120694733,
           website: "https://ethereum.org",
           twitter: "https://twitter.com/ethereum",
+          coingeckoId: "ethereum",
         },
         POL: {
           description: "POL (formerly MATIC) is the native token of Polygon, a Layer 2 scaling solution for Ethereum that provides faster and cheaper transactions while maintaining security through the Ethereum mainnet.",
-          marketCap: 1580000000,
-          circulatingSupply: 10000000000,
-          totalSupply: 10000000000,
           website: "https://polygon.technology",
           twitter: "https://twitter.com/0xPolygon",
+          coingeckoId: "matic-network",
         },
         BNB: {
           description: "BNB is the native cryptocurrency of the BNB Chain ecosystem, used for transaction fees, staking, and participating in token sales on the Binance Launchpad.",
-          marketCap: 95200000000,
-          circulatingSupply: 145934632,
-          totalSupply: 145934632,
           website: "https://www.bnbchain.org",
           twitter: "https://twitter.com/BNBCHAIN",
+          coingeckoId: "binancecoin",
         },
         USDC: {
           description: "USD Coin (USDC) is a stablecoin pegged 1:1 to the US Dollar, backed by fully reserved assets and regularly audited to ensure transparency. It is issued by Circle.",
-          marketCap: 52800000000,
-          circulatingSupply: 52800000000,
-          totalSupply: 52800000000,
           website: "https://www.circle.com/usdc",
           twitter: "https://twitter.com/circle",
+          coingeckoId: "usd-coin",
         },
         USDT: {
           description: "Tether (USDT) is the world's largest stablecoin by market cap, designed to maintain a stable value equivalent to the US Dollar.",
-          marketCap: 139400000000,
-          circulatingSupply: 139400000000,
-          totalSupply: 139400000000,
           website: "https://tether.to",
           twitter: "https://twitter.com/Tether_to",
+          coingeckoId: "tether",
         },
         DAI: {
           description: "DAI is a decentralized stablecoin soft-pegged to the US Dollar, created and maintained by the MakerDAO protocol through a system of smart contracts.",
-          marketCap: 5300000000,
-          circulatingSupply: 5300000000,
-          totalSupply: 5300000000,
           website: "https://makerdao.com",
           twitter: "https://twitter.com/MakerDAO",
+          coingeckoId: "dai",
         },
         WBTC: {
           description: "Wrapped Bitcoin (WBTC) is an ERC-20 token backed 1:1 by Bitcoin, allowing BTC to be used in Ethereum's DeFi ecosystem.",
-          marketCap: 13500000000,
-          circulatingSupply: 148000,
-          totalSupply: 148000,
           website: "https://wbtc.network",
           twitter: "https://twitter.com/WrappedBTC",
+          coingeckoId: "wrapped-bitcoin",
         },
       };
 
-      const info = tokenInfo[symbol.toUpperCase()];
-      if (info) {
-        res.json(info);
-      } else {
-        res.json({ description: null, marketCap: null, circulatingSupply: null, totalSupply: null });
+      const upperSymbol = symbol.toUpperCase();
+      const staticInfo = staticTokenInfo[upperSymbol];
+      
+      // Try to fetch live data from CoinGecko for major tokens
+      if (staticInfo?.coingeckoId) {
+        try {
+          const cgResponse = await fetch(
+            `https://api.coingecko.com/api/v3/coins/${staticInfo.coingeckoId}?localization=false&tickers=false&community_data=false&developer_data=false`
+          );
+          if (cgResponse.ok) {
+            const cgData = await cgResponse.json();
+            res.json({
+              description: cgData.description?.en || staticInfo.description,
+              marketCap: cgData.market_data?.market_cap?.usd || null,
+              circulatingSupply: cgData.market_data?.circulating_supply || null,
+              totalSupply: cgData.market_data?.total_supply || null,
+              website: staticInfo.website,
+              twitter: staticInfo.twitter,
+            });
+            return;
+          }
+        } catch (cgError) {
+          console.error("[CoinGecko API] Error fetching token info:", cgError);
+        }
+        // Return static fallback for major tokens
+        res.json({
+          description: staticInfo.description,
+          marketCap: null,
+          circulatingSupply: null,
+          totalSupply: null,
+          website: staticInfo.website,
+          twitter: staticInfo.twitter,
+        });
+        return;
       }
+      
+      // For Solana SPL tokens with an address, try DexScreener
+      if (chainId === 0 && address) {
+        try {
+          const dexResponse = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${address}`);
+          if (dexResponse.ok) {
+            const dexData = await dexResponse.json();
+            if (dexData.pairs && dexData.pairs.length > 0) {
+              // Get the pair with the highest liquidity
+              const sortedPairs = [...dexData.pairs].sort((a: any, b: any) => {
+                const liqA = a.liquidity?.usd || 0;
+                const liqB = b.liquidity?.usd || 0;
+                return liqB - liqA;
+              });
+              const bestPair = sortedPairs[0];
+              const tokenInfo = bestPair.baseToken?.address === address ? bestPair.baseToken : bestPair.quoteToken;
+              
+              // Calculate market cap from FDV or price * supply if available
+              const fdv = bestPair.fdv || null;
+              
+              res.json({
+                description: tokenInfo?.name ? `${tokenInfo.name} (${tokenInfo.symbol}) is a token on the Solana blockchain.` : null,
+                marketCap: fdv,
+                circulatingSupply: null,
+                totalSupply: null,
+                website: bestPair.info?.websites?.[0]?.url || null,
+                twitter: bestPair.info?.socials?.find((s: any) => s.type === "twitter")?.url || null,
+              });
+              return;
+            }
+          }
+        } catch (dexError) {
+          console.error("[DexScreener API] Error fetching token info:", dexError);
+        }
+      }
+      
+      // Default empty response for unknown tokens
+      res.json({ description: null, marketCap: null, circulatingSupply: null, totalSupply: null });
     } catch (error) {
       console.error("[Token Info API] Error:", error);
       res.status(500).json({ error: "Failed to fetch token info" });
