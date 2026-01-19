@@ -131,18 +131,21 @@ export default function SettingsScreen() {
   };
 
   const handleChangePin = () => {
-    let currentPin = "";
-    let newPin = "";
-
     Alert.prompt(
       "Change PIN",
       "Enter your current 6-digit PIN",
-      (pin: string) => {
-        if (!pin || pin.length !== 6) {
+      async (currentPinInput: string) => {
+        if (!currentPinInput || currentPinInput.length !== 6) {
           Alert.alert("Invalid PIN", "Please enter your 6-digit PIN.");
           return;
         }
-        currentPin = pin;
+
+        const isCurrentValid = await verifyPin(currentPinInput);
+        if (!isCurrentValid) {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+          Alert.alert("Incorrect PIN", "The current PIN you entered is incorrect.");
+          return;
+        }
 
         Alert.prompt(
           "New PIN",
@@ -152,19 +155,19 @@ export default function SettingsScreen() {
               Alert.alert("Invalid PIN", "Please enter a 6-digit PIN.");
               return;
             }
-            newPin = newPinInput;
 
             Alert.prompt(
               "Confirm New PIN",
               "Re-enter your new 6-digit PIN",
               async (confirmPin: string) => {
-                if (confirmPin !== newPin) {
+                if (confirmPin !== newPinInput) {
+                  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
                   Alert.alert("PIN Mismatch", "The PINs you entered do not match.");
                   return;
                 }
 
                 try {
-                  const success = await changePin(currentPin, newPin);
+                  const success = await changePin(currentPinInput, newPinInput);
                   if (success) {
                     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
                     Alert.alert("Success", "Your PIN has been changed successfully.");
