@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { View, StyleSheet, ScrollView, Pressable, Alert, Switch } from "react-native";
+import { Image } from "expo-image";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
@@ -29,8 +30,16 @@ export default function SettingsScreen() {
   const { isDemoMode, toggleDemoMode } = useDemo();
   const { settings, updateSetting, loadSettings } = useDevSettings();
   const [showDebug, setShowDebug] = useState(false);
+  const [showNetworks, setShowNetworks] = useState(false);
   const tapCountRef = useRef(0);
   const lastTapRef = useRef(0);
+
+  const supportedNetworks = [
+    { name: "Ethereum", symbol: "ETH", color: "#627EEA", logoUrl: "https://assets.coingecko.com/coins/images/279/small/ethereum.png" },
+    { name: "Polygon", symbol: "POL", color: "#8247E5", logoUrl: "https://coin-images.coingecko.com/coins/images/32440/small/polygon.png" },
+    { name: "BNB Chain", symbol: "BNB", color: "#F3BA2F", logoUrl: "https://assets.coingecko.com/coins/images/825/small/bnb-icon2_2x.png" },
+    { name: "Solana", symbol: "SOL", color: "#9945FF", logoUrl: "https://assets.coingecko.com/coins/images/4128/small/solana.png" },
+  ];
 
   useEffect(() => {
     loadSettings();
@@ -84,7 +93,7 @@ export default function SettingsScreen() {
     { title: "Manage Wallets", subtitle: `${activeWallet?.name || "No wallet"}`, icon: "credit-card", onPress: () => navigation.navigate("WalletManager") },
     { title: "Token Approvals", subtitle: "Manage contract approvals", icon: "check-circle", onPress: () => navigation.navigate("Approvals") },
     { title: "WalletConnect", subtitle: "Connect to dApps", icon: "link", onPress: () => navigation.navigate("WalletConnect") },
-    { title: "Networks", subtitle: "Ethereum, Polygon, BSC", icon: "globe", onPress: () => {} },
+    { title: "Networks", subtitle: "Ethereum, Polygon, BSC, Solana", icon: "globe", onPress: () => setShowNetworks(!showNetworks), expandable: true },
   ];
 
   const aboutItems = [
@@ -136,23 +145,63 @@ export default function SettingsScreen() {
         </ThemedText>
         <View style={styles.sectionContent}>
           {walletItems.map((item, index) => (
-            <ListRow
-              key={item.title}
-              title={item.title}
-              subtitle={item.subtitle}
-              leftIcon={
+            <View key={item.title}>
+              <Pressable
+                style={[
+                  styles.networkRowItem,
+                  { backgroundColor: theme.backgroundDefault },
+                  index === 0 ? styles.firstItem : {},
+                  index === walletItems.length - 1 && !(item.title === "Networks" && showNetworks) ? styles.lastItem : {},
+                  index > 0 ? { marginTop: 1 } : {},
+                ]}
+                onPress={item.onPress}
+              >
                 <View style={[styles.iconContainer, { backgroundColor: theme.success + "20" }]}>
                   <Feather name={item.icon as any} size={18} color={theme.success} />
                 </View>
-              }
-              showChevron
-              onPress={item.onPress}
-              style={{
-                ...(index === 0 ? styles.firstItem : {}),
-                ...(index === walletItems.length - 1 ? styles.lastItem : {}),
-                ...(index > 0 ? { marginTop: 1 } : {}),
-              }}
-            />
+                <View style={{ flex: 1, marginLeft: Spacing.md }}>
+                  <ThemedText type="body" style={{ fontWeight: "500" }}>{item.title}</ThemedText>
+                  <ThemedText type="caption" style={{ color: theme.textSecondary }}>{item.subtitle}</ThemedText>
+                </View>
+                <Feather 
+                  name={item.title === "Networks" ? (showNetworks ? "chevron-up" : "chevron-down") : "chevron-right"} 
+                  size={18} 
+                  color={theme.textSecondary} 
+                />
+              </Pressable>
+              {item.title === "Networks" && showNetworks ? (
+                <View style={[styles.networksPanel, { backgroundColor: theme.backgroundDefault }]}>
+                  {supportedNetworks.map((network, nIndex) => (
+                    <View 
+                      key={network.symbol} 
+                      style={[
+                        styles.networkRow,
+                        nIndex > 0 ? { borderTopWidth: 1, borderTopColor: theme.border } : {},
+                      ]}
+                    >
+                      <Image
+                        source={{ uri: network.logoUrl }}
+                        style={[styles.networkLogo, { backgroundColor: network.color + "20" }]}
+                        contentFit="contain"
+                      />
+                      <View style={{ flex: 1, marginLeft: Spacing.md }}>
+                        <ThemedText type="body" style={{ fontWeight: "500" }}>
+                          {network.name}
+                        </ThemedText>
+                        <ThemedText type="caption" style={{ color: theme.textSecondary }}>
+                          {network.symbol}
+                        </ThemedText>
+                      </View>
+                      <View style={[styles.networkBadge, { backgroundColor: theme.success + "20" }]}>
+                        <ThemedText type="caption" style={{ color: theme.success, fontSize: 10 }}>
+                          Active
+                        </ThemedText>
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              ) : null}
+            </View>
           ))}
         </View>
       </View>
@@ -345,5 +394,31 @@ const styles = StyleSheet.create({
     padding: Spacing.md,
     borderRadius: BorderRadius.sm,
     marginTop: Spacing.md,
+  },
+  networkRowItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: Spacing.md,
+  },
+  networksPanel: {
+    paddingHorizontal: Spacing.md,
+    paddingBottom: Spacing.sm,
+    borderBottomLeftRadius: BorderRadius.md,
+    borderBottomRightRadius: BorderRadius.md,
+  },
+  networkRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: Spacing.sm,
+  },
+  networkLogo: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+  },
+  networkBadge: {
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 4,
+    borderRadius: BorderRadius.xs,
   },
 });
