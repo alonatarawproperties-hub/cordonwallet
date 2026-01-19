@@ -45,10 +45,12 @@ export interface RoachyAuthResponse {
   returnUrl: string;
 }
 
+const IOS_GOOGLE_CLIENT_ID = "829325518924-edjl71pfsolhuc2jhm0d33v2s95bfs4f.apps.googleusercontent.com";
+const IOS_REVERSED_CLIENT_ID = "com.googleusercontent.apps.829325518924-edjl71pfsolhuc2jhm0d33v2s95bfs4f";
+
 function getGoogleClientId(): string {
   if (Platform.OS === "ios") {
-    return process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID || 
-           process.env.GOOGLE_IOS_CLIENT_ID || "";
+    return IOS_GOOGLE_CLIENT_ID;
   } else if (Platform.OS === "android") {
     return process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID || 
            process.env.GOOGLE_ANDROID_CLIENT_ID || "";
