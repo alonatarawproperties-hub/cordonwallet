@@ -5,6 +5,7 @@ Cordon is a production-grade, non-custodial EVM and Solana wallet application di
 
 ## User Preferences
 Preferred communication style: Simple, everyday language.
+OTA Updates: Always ask for permission before publishing OTA updates.
 
 ## System Architecture
 
