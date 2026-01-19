@@ -40,6 +40,7 @@ export default function SettingsScreen() {
   const [pinModalVisible, setPinModalVisible] = useState(false);
   const [pinModalStep, setPinModalStep] = useState<"current" | "new" | "confirm">("current");
   const [pinModalError, setPinModalError] = useState<string | null>(null);
+  const [pinModalLoading, setPinModalLoading] = useState(false);
   const [currentPinValue, setCurrentPinValue] = useState("");
   const [newPinValue, setNewPinValue] = useState("");
   const tapCountRef = useRef(0);
@@ -164,8 +165,10 @@ export default function SettingsScreen() {
         return;
       }
       
+      setPinModalLoading(true);
       try {
         const success = await changePin(currentPinValue, newPinValue);
+        setPinModalLoading(false);
         if (success) {
           setPinModalVisible(false);
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -174,6 +177,7 @@ export default function SettingsScreen() {
           setPinModalError("Could not change PIN. Please try again.");
         }
       } catch (error: any) {
+        setPinModalLoading(false);
         setPinModalError(error.message || "Could not change PIN.");
       }
     }
@@ -182,6 +186,7 @@ export default function SettingsScreen() {
   const handlePinModalCancel = () => {
     setPinModalVisible(false);
     setPinModalError(null);
+    setPinModalLoading(false);
   };
 
   const getPinModalTitle = () => {
@@ -510,6 +515,7 @@ export default function SettingsScreen() {
         onCancel={handlePinModalCancel}
         error={pinModalError}
         step={pinModalStep}
+        loading={pinModalLoading}
       />
     </ScrollView>
   );

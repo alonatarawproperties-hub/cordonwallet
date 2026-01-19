@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { View, StyleSheet, TextInput, Pressable, Modal, KeyboardAvoidingView, Platform } from "react-native";
+import { View, StyleSheet, TextInput, Pressable, Modal, KeyboardAvoidingView, Platform, ActivityIndicator } from "react-native";
 import { BlurView } from "expo-blur";
 import * as Haptics from "expo-haptics";
 
@@ -15,9 +15,10 @@ interface PinInputModalProps {
   onCancel: () => void;
   error?: string | null;
   step?: string;
+  loading?: boolean;
 }
 
-export function PinInputModal({ visible, title, message, onSubmit, onCancel, error, step }: PinInputModalProps) {
+export function PinInputModal({ visible, title, message, onSubmit, onCancel, error, step, loading }: PinInputModalProps) {
   const { theme } = useTheme();
   const [pin, setPin] = useState("");
   const inputRef = useRef<TextInput>(null);
@@ -66,52 +67,63 @@ export function PinInputModal({ visible, title, message, onSubmit, onCancel, err
           style={styles.container}
         >
           <View style={[styles.modal, { backgroundColor: theme.backgroundDefault }]}>
-            <ThemedText type="h3" style={styles.title}>{title}</ThemedText>
-            <ThemedText type="body" style={[styles.message, { color: theme.textSecondary }]}>
-              {message}
-            </ThemedText>
-
-            <Pressable 
-              style={[styles.pinContainer, { backgroundColor: theme.backgroundRoot, borderColor: error ? theme.danger : theme.border }]}
-              onPress={focusInput}
-            >
-              <View style={styles.dotsContainer}>
-                {[...Array(6)].map((_, i) => (
-                  <View
-                    key={i}
-                    style={[
-                      styles.dot,
-                      {
-                        backgroundColor: i < pin.length ? theme.accent : theme.border,
-                      },
-                    ]}
-                  />
-                ))}
+            {loading ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="large" color={theme.accent} />
+                <ThemedText type="body" style={[styles.loadingText, { color: theme.textSecondary }]}>
+                  Updating PIN...
+                </ThemedText>
               </View>
-              <TextInput
-                ref={inputRef}
-                style={styles.hiddenInput}
-                value={pin}
-                onChangeText={handlePinChange}
-                keyboardType="number-pad"
-                maxLength={6}
-                secureTextEntry
-                autoFocus
-              />
-            </Pressable>
+            ) : (
+              <>
+                <ThemedText type="h3" style={styles.title}>{title}</ThemedText>
+                <ThemedText type="body" style={[styles.message, { color: theme.textSecondary }]}>
+                  {message}
+                </ThemedText>
 
-            {error ? (
-              <ThemedText type="caption" style={[styles.error, { color: theme.danger }]}>
-                {error}
-              </ThemedText>
-            ) : null}
+                <Pressable 
+                  style={[styles.pinContainer, { backgroundColor: theme.backgroundRoot, borderColor: error ? theme.danger : theme.border }]}
+                  onPress={focusInput}
+                >
+                  <View style={styles.dotsContainer}>
+                    {[...Array(6)].map((_, i) => (
+                      <View
+                        key={i}
+                        style={[
+                          styles.dot,
+                          {
+                            backgroundColor: i < pin.length ? theme.accent : theme.border,
+                          },
+                        ]}
+                      />
+                    ))}
+                  </View>
+                  <TextInput
+                    ref={inputRef}
+                    style={styles.hiddenInput}
+                    value={pin}
+                    onChangeText={handlePinChange}
+                    keyboardType="number-pad"
+                    maxLength={6}
+                    secureTextEntry
+                    autoFocus
+                  />
+                </Pressable>
 
-            <Pressable
-              style={[styles.cancelButton, { backgroundColor: theme.backgroundRoot }]}
-              onPress={handleCancel}
-            >
-              <ThemedText type="body" style={{ fontWeight: "600" }}>Cancel</ThemedText>
-            </Pressable>
+                {error ? (
+                  <ThemedText type="caption" style={[styles.error, { color: theme.danger }]}>
+                    {error}
+                  </ThemedText>
+                ) : null}
+
+                <Pressable
+                  style={[styles.cancelButton, { backgroundColor: theme.backgroundRoot }]}
+                  onPress={handleCancel}
+                >
+                  <ThemedText type="body" style={{ fontWeight: "600" }}>Cancel</ThemedText>
+                </Pressable>
+              </>
+            )}
           </View>
         </KeyboardAvoidingView>
       </BlurView>
@@ -176,5 +188,13 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.md,
     alignItems: "center",
     marginTop: Spacing.sm,
+  },
+  loadingContainer: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: Spacing.xl,
+  },
+  loadingText: {
+    marginTop: Spacing.lg,
   },
 });
