@@ -258,7 +258,7 @@ const styles = StyleSheet.create({
     borderTopRightRadius: BorderRadius.xl,
     paddingHorizontal: Spacing.xl,
     paddingBottom: Spacing["3xl"],
-    maxHeight: "80%",
+    height: "75%",
   },
   modalHandle: {
     width: 40,
