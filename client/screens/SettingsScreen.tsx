@@ -509,6 +509,7 @@ export default function SettingsScreen() {
         onSubmit={handlePinModalSubmit}
         onCancel={handlePinModalCancel}
         error={pinModalError}
+        step={pinModalStep}
       />
     </ScrollView>
   );

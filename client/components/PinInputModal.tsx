@@ -14,9 +14,10 @@ interface PinInputModalProps {
   onSubmit: (pin: string) => void;
   onCancel: () => void;
   error?: string | null;
+  step?: string;
 }
 
-export function PinInputModal({ visible, title, message, onSubmit, onCancel, error }: PinInputModalProps) {
+export function PinInputModal({ visible, title, message, onSubmit, onCancel, error, step }: PinInputModalProps) {
   const { theme } = useTheme();
   const [pin, setPin] = useState("");
   const inputRef = useRef<TextInput>(null);
@@ -26,7 +27,11 @@ export function PinInputModal({ visible, title, message, onSubmit, onCancel, err
       setPin("");
       setTimeout(() => inputRef.current?.focus(), 100);
     }
-  }, [visible]);
+  }, [visible, step]);
+
+  const focusInput = () => {
+    inputRef.current?.focus();
+  };
 
   useEffect(() => {
     if (error) {
@@ -68,7 +73,10 @@ export function PinInputModal({ visible, title, message, onSubmit, onCancel, err
               {message}
             </ThemedText>
 
-            <View style={[styles.pinContainer, { backgroundColor: theme.backgroundRoot, borderColor: error ? theme.danger : theme.border }]}>
+            <Pressable 
+              style={[styles.pinContainer, { backgroundColor: theme.backgroundRoot, borderColor: error ? theme.danger : theme.border }]}
+              onPress={focusInput}
+            >
               <View style={styles.dotsContainer}>
                 {[...Array(6)].map((_, i) => (
                   <View
@@ -92,7 +100,7 @@ export function PinInputModal({ visible, title, message, onSubmit, onCancel, err
                 secureTextEntry
                 autoFocus
               />
-            </View>
+            </Pressable>
 
             {error ? (
               <ThemedText type="caption" style={[styles.error, { color: theme.danger }]}>
