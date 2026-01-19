@@ -120,3 +120,27 @@ The project is organized into `/client` (React Native frontend), `/server` (Expr
 - **Rescan**: Manual rescan button ignores cache TTL
 - **Footer**: "Verified = on-chain facts. Signals = heuristics, not guarantees."
 - Files: `client/lib/securityScan.ts`, `client/screens/AssetDetailScreen.tsx`
+
+### Swap Token Safety Scan
+- **Location**: Integrated into SwapScreen.tsx for output token safety assessment
+- **Files**: `client/hooks/useTokenSafetyScan.ts`, `client/components/TokenSafetyStrip.tsx`, `client/components/RiskGateModal.tsx`
+- **Risk Levels**: LOW, MEDIUM, HIGH, NEEDS_DEEPER_SCAN
+- **Checks Performed**:
+  - Token Program: SPL vs Token-2022 detection
+  - Mintable: Checks if mintAuthority exists (warning if yes)
+  - Freezable: Checks if freezeAuthority exists (warning if yes)
+  - Token-2022 Extensions: Detects risky extensions (TransferHook, PermanentDelegate, etc.)
+  - Pump Token Detection: Flags pump route tokens with "High volatility" note
+- **Risk Scoring**:
+  - LOW: No red flags
+  - MEDIUM: mintable OR freezable, OR pump token, OR risky extensions
+  - HIGH: mintable AND freezable, OR pump + (mintable/freezable)
+  - NEEDS_DEEPER_SCAN: RPC error or extension decode failure
+- **UI Components**:
+  - TokenSafetyStrip: Compact strip showing risk badge + scan time, tappable for details modal
+  - RiskGateModal: Pre-swap confirmation for MEDIUM/HIGH/NEEDS_DEEPER_SCAN tokens
+    - HIGH risk: 2-step confirmation ("I understand" → "Continue anyway")
+    - MEDIUM/NEEDS_DEEPER_SCAN: 1-step confirmation
+    - LOW: No modal, proceeds directly
+- **Caching**: AsyncStorage with key `cordon_swap_safety_{mint}`, 10-minute TTL
+- **Rescan**: Manual rescan bypasses cache
