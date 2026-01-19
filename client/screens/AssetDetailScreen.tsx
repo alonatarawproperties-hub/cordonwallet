@@ -1,4 +1,4 @@
-import { useState, useEffect, useLayoutEffect } from "react";
+import { useState, useEffect, useLayoutEffect, useCallback } from "react";
 import { View, StyleSheet, ScrollView, Pressable, ActivityIndicator } from "react-native";
 import { Image } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -8,6 +8,8 @@ import { NativeStackNavigationProp, NativeStackScreenProps } from "@react-naviga
 import { Feather } from "@expo/vector-icons";
 import * as WebBrowser from "expo-web-browser";
 import { GlassView } from "expo-glass-effect";
+import { Connection, PublicKey } from "@solana/web3.js";
+import { TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, unpackMint } from "@solana/spl-token";
 
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius } from "@/constants/theme";
@@ -36,6 +38,15 @@ interface TokenInfo {
   explorer?: string;
   twitter?: string;
 }
+
+type TokenSecurity = {
+  tokenProgram: "SPL" | "Token-2022" | "Unknown";
+  mintable: boolean;
+  freezable: boolean;
+};
+
+const securityCache = new Map<string, TokenSecurity>();
+const SOLANA_RPC_URL = process.env.SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com";
 
 function formatPrice(price: number): string {
   if (price >= 1000) {
@@ -143,6 +154,9 @@ export default function AssetDetailScreen({ route }: Props) {
   const [tokenInfo, setTokenInfo] = useState<TokenInfo | null>(null);
   const [isLoadingInfo, setIsLoadingInfo] = useState(false);
   const [pnlData, setPnlData] = useState<{ timestamp: number; value: number }[]>([]);
+  const [tokenSecurity, setTokenSecurity] = useState<TokenSecurity | null>(null);
+  const [isLoadingSecurity, setIsLoadingSecurity] = useState(false);
+  const [securityError, setSecurityError] = useState<string | null>(null);
 
   useEffect(() => {
     if (activeWallet && transactions.length === 0) {
@@ -161,6 +175,69 @@ export default function AssetDetailScreen({ route }: Props) {
       calculatePnlData();
     }
   }, [priceUsd, balance, priceChange24h, transactions]);
+
+  const loadTokenSecurity = useCallback(async () => {
+    const isSolana = chainName === "Solana" || chainId === 0;
+    if (!isSolana) {
+      setTokenSecurity(null);
+      return;
+    }
+    if (tokenSymbol === "SOL" && isNative) {
+      setTokenSecurity({ tokenProgram: "SPL", mintable: false, freezable: false });
+      return;
+    }
+    if (!address) {
+      setTokenSecurity(null);
+      return;
+    }
+    const cached = securityCache.get(address);
+    if (cached) {
+      setTokenSecurity(cached);
+      return;
+    }
+    setIsLoadingSecurity(true);
+    setSecurityError(null);
+    try {
+      const connection = new Connection(SOLANA_RPC_URL, "confirmed");
+      const mintPk = new PublicKey(address);
+      const info = await connection.getAccountInfo(mintPk);
+      if (!info) {
+        const unknown: TokenSecurity = { tokenProgram: "Unknown", mintable: false, freezable: false };
+        securityCache.set(address, unknown);
+        setTokenSecurity(unknown);
+        return;
+      }
+      const ownerStr = info.owner.toBase58();
+      const is2022 = ownerStr === TOKEN_2022_PROGRAM_ID.toBase58();
+      const isSpl = ownerStr === TOKEN_PROGRAM_ID.toBase58();
+      const programId = is2022 ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
+      const mint = unpackMint(mintPk, info, programId);
+      const sec: TokenSecurity = {
+        tokenProgram: is2022 ? "Token-2022" : isSpl ? "SPL" : "Unknown",
+        mintable: mint.mintAuthority !== null,
+        freezable: mint.freezeAuthority !== null,
+      };
+      securityCache.set(address, sec);
+      setTokenSecurity(sec);
+    } catch (err) {
+      console.error("[TokenSecurity] Failed to load:", err);
+      setSecurityError("Unable to load security details.");
+      setTokenSecurity(null);
+    } finally {
+      setIsLoadingSecurity(false);
+    }
+  }, [address, chainName, chainId, tokenSymbol, isNative]);
+
+  useEffect(() => {
+    if (activeTab === "about") {
+      loadTokenSecurity();
+    }
+  }, [activeTab, loadTokenSecurity]);
+
+  useEffect(() => {
+    setTokenSecurity(null);
+    setSecurityError(null);
+  }, [address]);
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -648,6 +725,79 @@ export default function AssetDetailScreen({ route }: Props) {
               ))}
             </View>
           </View>
+
+          {(chainName === "Solana" || chainId === 0) && (
+            <View style={styles.aboutSection}>
+              <ThemedText type="h4" style={{ marginBottom: Spacing.md }}>
+                Contract & Security
+              </ThemedText>
+              <View style={[styles.statsCard, { backgroundColor: theme.backgroundDefault }]}>
+                {isLoadingSecurity ? (
+                  <View style={[styles.statRow, { justifyContent: "center" }]}>
+                    <ActivityIndicator size="small" color={theme.accent} />
+                    <ThemedText type="body" style={{ color: theme.textSecondary, marginLeft: Spacing.sm }}>
+                      Fetching on-chain security...
+                    </ThemedText>
+                  </View>
+                ) : securityError ? (
+                  <View style={styles.statRow}>
+                    <ThemedText type="body" style={{ color: theme.textSecondary }}>
+                      {securityError}
+                    </ThemedText>
+                  </View>
+                ) : tokenSymbol === "SOL" && isNative ? (
+                  <View style={styles.statRow}>
+                    <ThemedText type="body" style={{ color: theme.textSecondary }}>
+                      Asset type
+                    </ThemedText>
+                    <View style={[styles.securityPill, { backgroundColor: theme.accent + "20" }]}>
+                      <ThemedText type="small" style={{ color: theme.accent, fontWeight: "600" }}>
+                        Native SOL
+                      </ThemedText>
+                    </View>
+                  </View>
+                ) : tokenSecurity ? (
+                  <>
+                    <View style={styles.statRow}>
+                      <ThemedText type="body" style={{ color: theme.textSecondary }}>
+                        Token program
+                      </ThemedText>
+                      <View style={[styles.securityPill, { backgroundColor: theme.accent + "20" }]}>
+                        <ThemedText type="small" style={{ color: theme.accent, fontWeight: "600" }}>
+                          {tokenSecurity.tokenProgram}
+                        </ThemedText>
+                      </View>
+                    </View>
+                    <View style={[styles.statRow, { borderTopWidth: 1, borderTopColor: theme.border }]}>
+                      <ThemedText type="body" style={{ color: theme.textSecondary }}>
+                        Mintable
+                      </ThemedText>
+                      <View style={[styles.securityPill, { backgroundColor: tokenSecurity.mintable ? theme.danger + "20" : theme.success + "20" }]}>
+                        <ThemedText type="small" style={{ color: tokenSecurity.mintable ? theme.danger : theme.success, fontWeight: "600" }}>
+                          {tokenSecurity.mintable ? "YES" : "NO"}
+                        </ThemedText>
+                      </View>
+                    </View>
+                    <View style={[styles.statRow, { borderTopWidth: 1, borderTopColor: theme.border }]}>
+                      <ThemedText type="body" style={{ color: theme.textSecondary }}>
+                        Freezable
+                      </ThemedText>
+                      <View style={[styles.securityPill, { backgroundColor: tokenSecurity.freezable ? theme.danger + "20" : theme.success + "20" }]}>
+                        <ThemedText type="small" style={{ color: tokenSecurity.freezable ? theme.danger : theme.success, fontWeight: "600" }}>
+                          {tokenSecurity.freezable ? "YES" : "NO"}
+                        </ThemedText>
+                      </View>
+                    </View>
+                    <View style={[styles.statRow, { borderTopWidth: 1, borderTopColor: theme.border }]}>
+                      <ThemedText type="caption" style={{ color: theme.textSecondary, fontStyle: "italic" }}>
+                        Mintable/Freezable means issuer retains extra control.
+                      </ThemedText>
+                    </View>
+                  </>
+                ) : null}
+              </View>
+            </View>
+          )}
         </>
       )}
     </View>
@@ -1094,6 +1244,11 @@ const styles = StyleSheet.create({
   statusBadge: {
     paddingHorizontal: Spacing.sm,
     paddingVertical: 2,
+    borderRadius: BorderRadius.xs,
+  },
+  securityPill: {
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 4,
     borderRadius: BorderRadius.xs,
   },
   aboutSection: {
