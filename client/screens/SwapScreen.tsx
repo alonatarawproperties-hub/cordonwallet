@@ -100,6 +100,9 @@ import {
   hasPendingFeeForSwap,
 } from "@/services/successFeeService";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
+import { useTokenSafetyScan, RiskLevel } from "@/hooks/useTokenSafetyScan";
+import { TokenSafetyStrip } from "@/components/TokenSafetyStrip";
+import { RiskGateModal } from "@/components/RiskGateModal";
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type Props = NativeStackScreenProps<RootStackParamList, "Swap">;
@@ -227,8 +230,14 @@ export default function SwapScreen({ route }: Props) {
 
   const [successFeeEnabled, setSuccessFeeEnabled] = useState(true);
   const [isPro] = useState(false); // Mock for now - Pro users skip success fee
+  const [showRiskGateModal, setShowRiskGateModal] = useState(false);
 
   const quoteEngineRef = useRef(getQuoteEngine());
+  
+  const safetyScan = useTokenSafetyScan(
+    outputToken?.mint,
+    { routeSource: swapRoute === "pump" ? "pump" : swapRoute === "jupiter" ? "jupiter" : null }
+  );
 
   const getTokenBalance = useCallback((mint: string): number => {
     if (!solanaAssets || solanaAssets.length === 0) return 0;
@@ -564,10 +573,8 @@ export default function SwapScreen({ route }: Props) {
 
   const canSwap = ((swapRoute === "jupiter" && quote) || (swapRoute === "pump" && pumpMeta)) && !insufficientSolForFees;
 
-  const handleSwapPress = async () => {
+  const executeSwap = async () => {
     if (!canSwap || !inputToken || !outputToken || !activeWallet) return;
-
-    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     const solanaAddr = activeWallet.addresses?.solana;
     if (!solanaAddr) {
@@ -880,6 +887,26 @@ export default function SwapScreen({ route }: Props) {
       setSwapStatus("");
       setPendingSwap(null);
     }
+  };
+
+  const handleSwapPress = async () => {
+    if (!canSwap || !inputToken || !outputToken || !activeWallet) return;
+    
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    
+    const riskLevel = safetyScan.result?.riskLevel;
+    
+    if (riskLevel === "HIGH" || riskLevel === "MEDIUM" || riskLevel === "NEEDS_DEEPER_SCAN") {
+      setShowRiskGateModal(true);
+      return;
+    }
+    
+    executeSwap();
+  };
+
+  const handleRiskGateProceed = () => {
+    setShowRiskGateModal(false);
+    executeSwap();
   };
 
   const feeConfig = calculateFeeConfig(speed, customCapSol ?? undefined);
@@ -1642,6 +1669,14 @@ export default function SwapScreen({ route }: Props) {
                 <ThemedText style={[styles.outputAmount, { color: theme.textSecondary + "60" }]}>0.0</ThemedText>
               )}
             </View>
+            {outputToken ? (
+              <TokenSafetyStrip
+                result={safetyScan.result}
+                isScanning={safetyScan.isScanning}
+                timeAgo={safetyScan.timeAgo}
+                onRescan={safetyScan.rescan}
+              />
+            ) : null}
           </View>
         </View>
 
@@ -2009,6 +2044,18 @@ export default function SwapScreen({ route }: Props) {
       {renderTokenModal()}
       {renderConfirmModal()}
       {renderSlippageModal()}
+      {safetyScan.result ? (
+        <RiskGateModal
+          visible={showRiskGateModal}
+          result={safetyScan.result}
+          onCancel={() => setShowRiskGateModal(false)}
+          onProceed={handleRiskGateProceed}
+          onRescan={() => {
+            setShowRiskGateModal(false);
+            safetyScan.rescan();
+          }}
+        />
+      ) : null}
     </ThemedView>
   );
 }

@@ -80,7 +80,7 @@ export function TokenSafetyStrip({
   timeAgo,
   onRescan,
 }: TokenSafetyStripProps) {
-  const theme = useTheme();
+  const { theme } = useTheme();
   const [showDetails, setShowDetails] = useState(false);
 
   if (!result && !isScanning) {

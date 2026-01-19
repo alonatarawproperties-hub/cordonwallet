@@ -8,7 +8,7 @@ import {
   TOKEN_2022_PROGRAM_ID,
 } from "@solana/spl-token";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { RPC_PRIMARY } from "@/constants/solana";
+import { RPC_PRIMARY } from "@/constants/solanaSwap";
 
 export type RiskLevel = "LOW" | "MEDIUM" | "HIGH" | "NEEDS_DEEPER_SCAN";
 

@@ -87,7 +87,7 @@ export function RiskGateModal({
   onProceed,
   onRescan,
 }: RiskGateModalProps) {
-  const theme = useTheme();
+  const { theme } = useTheme();
   const [step, setStep] = useState<1 | 2>(1);
   const config = getRiskConfig(result.riskLevel);
 
