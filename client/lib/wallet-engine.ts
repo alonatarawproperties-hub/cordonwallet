@@ -502,8 +502,6 @@ export async function createWallet(
   const pinHash = bytesToHex(sha256(new TextEncoder().encode(pin)));
   await setSecureItem(STORAGE_KEYS.PIN_HASH, pinHash);
   
-  await savePinForBiometrics(pin);
-  
   cachedSecrets = secrets;
   isVaultUnlocked = true;
   
