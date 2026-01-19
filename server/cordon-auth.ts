@@ -745,7 +745,7 @@ export function registerCordonAuthRoutes(app: Express) {
     
     // Always use production domain for mobile OAuth redirect URI
     // This must match what's registered in Google Cloud Console
-    const baseUrl = "https://cordonwallet2026.replit.app";
+    const baseUrl = "https://app.cordonwallet.com";
     const redirectUri = `${baseUrl}/auth/cordon/mobile/callback`;
     console.log("[Cordon Mobile Auth] Using production redirect URI:", redirectUri);
     console.log("[Cordon Mobile Auth] Redirect URI:", redirectUri);
@@ -810,7 +810,7 @@ export function registerCordonAuthRoutes(app: Express) {
     const clientSecret = process.env.GOOGLE_CLIENT_SECRET_CORDON || process.env.GOOGLE_CLIENT_SECRET;
     
     // Always use production domain - must match what was used in /start
-    const baseUrl = "https://cordonwallet2026.replit.app";
+    const baseUrl = "https://app.cordonwallet.com";
     const redirectUri = `${baseUrl}/auth/cordon/mobile/callback`;
     
     if (!clientSecret) {
