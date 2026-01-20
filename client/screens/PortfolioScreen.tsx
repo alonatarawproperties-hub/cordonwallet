@@ -152,6 +152,20 @@ function AssetRow({
     scale.value = withSpring(1, { damping: 15, stiffness: 400 });
   };
 
+  const getChainLogoUrl = (chainName: string): string | null => {
+    const chainLogos: Record<string, string> = {
+      "Ethereum": "https://assets.coingecko.com/coins/images/279/small/ethereum.png",
+      "Polygon": "https://coin-images.coingecko.com/coins/images/32440/small/polygon.png",
+      "BNB Chain": "https://assets.coingecko.com/coins/images/825/small/bnb-icon2_2x.png",
+      "Arbitrum": "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/arbitrum/info/logo.png",
+      "Base": "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/base/info/logo.png",
+      "Solana": "https://assets.coingecko.com/coins/images/4128/small/solana.png",
+    };
+    return chainLogos[chainName] || null;
+  };
+
+  const chainLogoUrl = getChainLogoUrl(asset.chainName);
+
   return (
     <AnimatedPressable
       style={[styles.tokenRow, { backgroundColor: theme.backgroundDefault }, animatedStyle]}
@@ -159,15 +173,22 @@ function AssetRow({
       onPressIn={handlePressIn}
       onPressOut={handlePressOut}
     >
-      <View style={[styles.tokenIcon, { backgroundColor: getChainColor(asset.chainName) + "12" }]}>
-        {("logoUrl" in asset && asset.logoUrl) || getTokenLogoUrl(asset.symbol) ? (
-          <Image 
-            source={{ uri: ("logoUrl" in asset && asset.logoUrl) ? asset.logoUrl : getTokenLogoUrl(asset.symbol)! }} 
-            style={styles.tokenLogoImage}
-          />
-        ) : (
-          <Feather name={getTokenIcon(asset.symbol)} size={18} color={getChainColor(asset.chainName)} />
-        )}
+      <View style={styles.tokenIconContainer}>
+        <View style={[styles.tokenIcon, { backgroundColor: getChainColor(asset.chainName) + "12" }]}>
+          {("logoUrl" in asset && asset.logoUrl) || getTokenLogoUrl(asset.symbol) ? (
+            <Image 
+              source={{ uri: ("logoUrl" in asset && asset.logoUrl) ? asset.logoUrl : getTokenLogoUrl(asset.symbol)! }} 
+              style={styles.tokenLogoImage}
+            />
+          ) : (
+            <Feather name={getTokenIcon(asset.symbol)} size={18} color={getChainColor(asset.chainName)} />
+          )}
+        </View>
+        {chainLogoUrl ? (
+          <View style={[styles.chainLogoOverlay, { borderColor: theme.backgroundDefault }]}>
+            <Image source={{ uri: chainLogoUrl }} style={styles.chainLogoImage} />
+          </View>
+        ) : null}
       </View>
       <View style={styles.tokenInfo}>
         <View style={styles.tokenHeader}>
@@ -735,6 +756,11 @@ const styles = StyleSheet.create({
     gap: Spacing.md,
     marginBottom: 2,
   },
+  tokenIconContainer: {
+    position: "relative",
+    width: 44,
+    height: 44,
+  },
   tokenIcon: {
     width: 40,
     height: 40,
@@ -742,6 +768,22 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     overflow: "hidden",
+  },
+  chainLogoOverlay: {
+    position: "absolute",
+    bottom: 0,
+    right: 0,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 2,
+    overflow: "hidden",
+    backgroundColor: "#1A1A1A",
+  },
+  chainLogoImage: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
   },
   tokenLogoImage: {
     width: 28,
