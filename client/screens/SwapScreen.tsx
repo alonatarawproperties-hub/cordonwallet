@@ -1510,6 +1510,15 @@ export default function SwapScreen({ route }: Props) {
         ]}
         showsVerticalScrollIndicator={false}
       >
+        <View style={[styles.betaBanner, { backgroundColor: theme.accent + "15", borderColor: theme.accent + "30" }]}>
+          <Feather name="zap" size={14} color={theme.accent} />
+          <ThemedText type="caption" style={{ color: theme.accent, flex: 1 }}>
+            Phase I Beta — Solana swaps only
+          </ThemedText>
+          <View style={[styles.betaBadge, { backgroundColor: theme.accent + "25" }]}>
+            <ThemedText type="caption" style={{ color: theme.accent, fontWeight: "700", fontSize: 10 }}>BETA</ThemedText>
+          </View>
+        </View>
         <View style={[styles.swapCard, { backgroundColor: theme.glass, borderColor: theme.glassBorder }]}>
           <View style={styles.tokenSection}>
             <ThemedText type="caption" style={[styles.sectionLabel, { color: theme.textSecondary }]}>
@@ -2066,6 +2075,21 @@ const styles = StyleSheet.create({
   },
   content: {
     paddingHorizontal: Spacing.xl,
+  },
+  betaBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    marginBottom: Spacing.md,
+  },
+  betaBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: BorderRadius.xs,
   },
   swapCard: {
     borderRadius: BorderRadius.lg,
