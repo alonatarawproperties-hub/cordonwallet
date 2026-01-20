@@ -120,6 +120,44 @@ export const defaultTokens: Record<number, TokenInfo[]> = {
     },
   ],
   97: [],
+  42161: [
+    {
+      address: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+      symbol: "USDC",
+      name: "USD Coin",
+      decimals: 6,
+    },
+    {
+      address: "0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9",
+      symbol: "USDT",
+      name: "Tether USD",
+      decimals: 6,
+    },
+    {
+      address: "0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1",
+      symbol: "DAI",
+      name: "Dai Stablecoin",
+      decimals: 18,
+    },
+    {
+      address: "0x2f2a2543B76A4166549F7aaB2e75Bef0aefC5B0f",
+      symbol: "WBTC",
+      name: "Wrapped BTC",
+      decimals: 8,
+    },
+    {
+      address: "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1",
+      symbol: "WETH",
+      name: "Wrapped Ether",
+      decimals: 18,
+    },
+    {
+      address: "0x912CE59144191C1204E64559FE8253a0e49E6548",
+      symbol: "ARB",
+      name: "Arbitrum",
+      decimals: 18,
+    },
+  ],
 };
 
 export function getTokensForChain(chainId: number): TokenInfo[] {

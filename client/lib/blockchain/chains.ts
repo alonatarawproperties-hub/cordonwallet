@@ -1,4 +1,4 @@
-import { Chain, mainnet, polygon, bsc, sepolia, polygonAmoy, bscTestnet } from "viem/chains";
+import { Chain, mainnet, polygon, bsc, arbitrum, sepolia, polygonAmoy, bscTestnet } from "viem/chains";
 
 export interface ChainConfig {
   chainId: number;
@@ -46,6 +46,17 @@ const MAINNET_CHAINS: ChainConfig[] = [
     explorerBaseUrl: "https://bscscan.com",
     iconName: "bnb",
     viemChain: bsc,
+    isTestnet: false,
+  },
+  {
+    chainId: 42161,
+    name: "Arbitrum",
+    nativeSymbol: "ETH",
+    nativeDecimals: 18,
+    rpcUrl: process.env.EXPO_PUBLIC_ARBITRUM_RPC_URL || "https://arb1.arbitrum.io/rpc",
+    explorerBaseUrl: "https://arbiscan.io",
+    iconName: "arbitrum",
+    viemChain: arbitrum,
     isTestnet: false,
   },
 ];
