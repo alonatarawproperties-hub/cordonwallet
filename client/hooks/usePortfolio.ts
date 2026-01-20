@@ -7,6 +7,15 @@ import { NETWORKS, NetworkId } from "@/lib/types";
 import { getApiUrl } from "@/lib/query-client";
 import { useWallet } from "@/lib/wallet-context";
 
+function createTimeoutSignal(ms: number): { signal: AbortSignal; cleanup: () => void } {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), ms);
+  return {
+    signal: controller.signal,
+    cleanup: () => clearTimeout(timeoutId),
+  };
+}
+
 export interface PortfolioAsset {
   symbol: string;
   name: string;
@@ -161,11 +170,13 @@ export function usePortfolio(address: string | undefined, networkId: NetworkId) 
       let useDiscoveryApi = true;
       const apiUrl = getApiUrl();
 
+      const { signal: timeoutSignal, cleanup: cleanupTimeout } = createTimeoutSignal(10000);
       try {
         const discoveryUrl = new URL(`/api/evm/${chainId}/${address}/tokens`, apiUrl);
         const discoveryResponse = await fetch(discoveryUrl.toString(), {
-          signal: AbortSignal.timeout(10000),
+          signal: timeoutSignal,
         });
+        cleanupTimeout();
         
         if (!isFetchValid()) return;
 
@@ -214,6 +225,7 @@ export function usePortfolio(address: string | undefined, networkId: NetworkId) 
           useDiscoveryApi = false;
         }
       } catch (discoveryError: any) {
+        cleanupTimeout();
         const isTimeout = discoveryError.name === "TimeoutError" || discoveryError.name === "AbortError";
         console.log("[Portfolio] Discovery API error", {
           type: isTimeout ? "timeout" : "network",

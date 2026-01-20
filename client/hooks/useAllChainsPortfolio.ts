@@ -10,6 +10,15 @@ import { useWallet } from "@/lib/wallet-context";
 
 const POLLING_INTERVAL = 60000; // 60 seconds - less disruptive
 
+function createTimeoutSignal(ms: number): { signal: AbortSignal; cleanup: () => void } {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), ms);
+  return {
+    signal: controller.signal,
+    cleanup: () => clearTimeout(timeoutId),
+  };
+}
+
 export interface MultiChainAsset {
   symbol: string;
   name: string;
@@ -170,11 +179,13 @@ export function useAllChainsPortfolio(address: string | undefined) {
         let useDiscoveryApi = true;
         const apiUrl = getApiUrl();
 
+        const { signal: timeoutSignal, cleanup: cleanupTimeout } = createTimeoutSignal(8000);
         try {
           const discoveryUrl = new URL(`/api/evm/${chain.chainId}/${address}/tokens`, apiUrl);
           const discoveryResponse = await fetch(discoveryUrl.toString(), {
-            signal: AbortSignal.timeout(8000),
+            signal: timeoutSignal,
           });
+          cleanupTimeout();
 
           if (discoveryResponse.ok) {
             const discoveryData = await discoveryResponse.json();
@@ -213,6 +224,7 @@ export function useAllChainsPortfolio(address: string | undefined) {
             useDiscoveryApi = false;
           }
         } catch (discoveryError: any) {
+          cleanupTimeout();
           const isTimeout = discoveryError.name === "TimeoutError" || discoveryError.name === "AbortError";
           console.log(`[AllChainsPortfolio] Discovery failed for ${chain.chainId}, fallback to hardcoded: ${isTimeout ? "timeout" : discoveryError.message}`);
           useDiscoveryApi = false;
