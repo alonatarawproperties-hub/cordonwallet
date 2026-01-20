@@ -58,29 +58,43 @@ async function fetchMoralisTokenBalances(
 ): Promise<TokenDiscoveryToken[]> {
   const apiKey = getMoralisApiKey();
   if (!apiKey) {
-    throw new Error("MORALIS_API_KEY not configured");
+    throw new Error("MORALIS_NOT_CONFIGURED");
   }
 
   const moralisChain = CHAIN_ID_TO_MORALIS[chainId];
   if (!moralisChain) {
-    throw new Error(`Unsupported chain ID: ${chainId}`);
+    throw new Error(`MORALIS_UNSUPPORTED_CHAIN:${chainId}`);
   }
 
   const url = `${MORALIS_API_BASE}/${address}/erc20?chain=${moralisChain}&exclude_spam=true`;
   
   console.log(`[EVM API] Fetching tokens from Moralis for ${address} on ${moralisChain}`);
   
-  const response = await fetch(url, {
-    headers: {
-      "Accept": "application/json",
-      "X-API-Key": apiKey,
-    },
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
+  
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      headers: {
+        "Accept": "application/json",
+        "X-API-Key": apiKey,
+      },
+      signal: controller.signal,
+    });
+  } catch (fetchError: any) {
+    clearTimeout(timeoutId);
+    if (fetchError.name === "AbortError" || fetchError.message?.includes("timeout")) {
+      throw new Error("MORALIS_TIMEOUT");
+    }
+    throw new Error("MORALIS_NETWORK_ERROR");
+  }
+  clearTimeout(timeoutId);
 
   if (!response.ok) {
     const errorText = await response.text();
     console.error(`[EVM API] Moralis error: ${response.status}`, errorText);
-    throw new Error(`Moralis API error: ${response.status}`);
+    throw new Error(`MORALIS_STATUS:${response.status}`);
   }
 
   const data = await response.json();
@@ -381,36 +395,120 @@ async function fetchMoralisApprovals(
 
 export function registerEvmRoutes(app: Express): void {
   app.get("/api/evm/:chainId/:address/tokens", async (req: Request, res: Response) => {
-    try {
-      const chainId = parseInt(req.params.chainId);
-      const address = req.params.address;
+    const chainId = parseInt(req.params.chainId);
+    const address = req.params.address;
 
-      if (!VALID_CHAIN_IDS.includes(chainId)) {
-        return res.status(400).json({
-          error: `Invalid chainId. Supported: ${VALID_CHAIN_IDS.join(", ")}`,
+    if (isNaN(chainId) || !VALID_CHAIN_IDS.includes(chainId)) {
+      return res.status(400).json({
+        ok: false,
+        error: {
+          code: "BAD_REQUEST",
+          message: `Invalid chainId. Supported: ${VALID_CHAIN_IDS.join(", ")}`,
+        },
+      });
+    }
+
+    if (!address || !/^0x[a-fA-F0-9]{40}$/.test(address)) {
+      return res.status(400).json({
+        ok: false,
+        error: {
+          code: "BAD_REQUEST",
+          message: "Invalid address format",
+        },
+      });
+    }
+
+    const cacheKey = `${chainId}:${address.toLowerCase()}`;
+    const cached = tokenBalanceCache.get(cacheKey);
+    
+    if (cached && Date.now() - cached.timestamp < TOKEN_BALANCE_CACHE_TTL) {
+      console.log(`[EVM API] Returning cached tokens for ${address}`);
+      return res.json({ ok: true, tokens: cached.data, cached: true });
+    }
+
+    try {
+      const tokens = await fetchMoralisTokenBalances(chainId, address);
+      tokenBalanceCache.set(cacheKey, { data: tokens, timestamp: Date.now() });
+      res.json({ ok: true, tokens, cached: false });
+    } catch (error: any) {
+      const errMsg: string = error.message || "";
+      console.error("[EVM API] Token fetch error:", errMsg);
+
+      if (errMsg === "MORALIS_NOT_CONFIGURED") {
+        return res.status(503).json({
+          ok: false,
+          error: {
+            code: "MORALIS_NOT_CONFIGURED",
+            message: "Token discovery is not configured",
+          },
         });
       }
 
-      if (!address || !/^0x[a-fA-F0-9]{40}$/.test(address)) {
-        return res.status(400).json({ error: "Invalid address" });
+      if (errMsg === "MORALIS_TIMEOUT") {
+        return res.status(504).json({
+          ok: false,
+          error: {
+            code: "TIMEOUT",
+            message: "Token discovery timed out",
+          },
+        });
       }
 
-      const cacheKey = `${chainId}:${address.toLowerCase()}`;
-      const cached = tokenBalanceCache.get(cacheKey);
-      
-      if (cached && Date.now() - cached.timestamp < TOKEN_BALANCE_CACHE_TTL) {
-        console.log(`[EVM API] Returning cached tokens for ${address}`);
-        return res.json({ tokens: cached.data, cached: true });
+      if (errMsg === "MORALIS_NETWORK_ERROR") {
+        return res.status(502).json({
+          ok: false,
+          error: {
+            code: "MORALIS_UPSTREAM_ERROR",
+            message: "Token discovery provider unavailable",
+          },
+        });
       }
 
-      const tokens = await fetchMoralisTokenBalances(chainId, address);
-      
-      tokenBalanceCache.set(cacheKey, { data: tokens, timestamp: Date.now() });
+      const statusMatch = errMsg.match(/^MORALIS_STATUS:(\d+)$/);
+      if (statusMatch) {
+        const upstreamStatus = parseInt(statusMatch[1]);
+        
+        if (upstreamStatus === 429) {
+          res.setHeader("Retry-After", "30");
+          return res.status(429).json({
+            ok: false,
+            error: {
+              code: "MORALIS_RATE_LIMITED",
+              message: "Token discovery rate limited",
+              retryAfterSec: 30,
+              upstreamStatus: 429,
+            },
+          });
+        }
 
-      res.json({ tokens, cached: false });
-    } catch (error: any) {
-      console.error("[EVM API] Token fetch error:", error.message);
-      res.status(500).json({ error: error.message || "Failed to fetch tokens" });
+        if (upstreamStatus >= 400 && upstreamStatus < 500) {
+          return res.status(502).json({
+            ok: false,
+            error: {
+              code: "MORALIS_UPSTREAM_ERROR",
+              message: `Moralis error ${upstreamStatus}`,
+              upstreamStatus,
+            },
+          });
+        }
+
+        return res.status(502).json({
+          ok: false,
+          error: {
+            code: "MORALIS_UPSTREAM_ERROR",
+            message: `Moralis error ${upstreamStatus}`,
+            upstreamStatus,
+          },
+        });
+      }
+
+      return res.status(502).json({
+        ok: false,
+        error: {
+          code: "MORALIS_UPSTREAM_ERROR",
+          message: "Token discovery provider unavailable",
+        },
+      });
     }
   });
 

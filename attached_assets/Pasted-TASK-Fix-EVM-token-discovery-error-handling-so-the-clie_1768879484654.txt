@@ -1,0 +1,71 @@
+TASK: Fix EVM token discovery error handling so the client can distinguish missing Moralis key vs rate limit vs upstream outage. DO NOT change any swap logic or wallet logic. Only touch the EVM token discovery endpoint + client fallback logging/UX.
+
+GOALS
+1) Server /api/evm/:chainId/:address/tokens must NOT always return 500.
+2) Return consistent JSON for errors: { ok:false, error:{ code, message, retryAfterSec?, upstreamStatus? } }
+3) Client usePortfolio.ts must log the real reason and fall back safely to hardcoded list (no breaking changes).
+4) Keep success response unchanged: { tokens:[...] } (you may add ok:true optionally but preserve tokens field).
+
+SERVER CHANGES
+A) In the server handler for token discovery (the route at lines ~383-415):
+- Validate params:
+  - chainId is a number, supported/positive
+  - address matches 0x-prefixed 40 hex (lower/upper ok)
+  If invalid -> return 400 with:
+  { ok:false, error:{ code:"BAD_REQUEST", message:"Invalid chainId or address" } }
+
+- Wrap fetchMoralisTokenBalances in try/catch, but map errors:
+  1) If error message includes "MORALIS_API_KEY not configured":
+     status 503
+     body { ok:false, error:{ code:"MORALIS_NOT_CONFIGURED", message:"Token discovery is not configured" } }
+
+  2) If error message matches "Moralis API error: 429":
+     status 429
+     set header Retry-After: 30
+     body { ok:false, error:{ code:"MORALIS_RATE_LIMITED", message:"Token discovery rate limited", retryAfterSec:30, upstreamStatus:429 } }
+
+  3) If error message matches "Moralis API error: <status>" where status is 400-499 (except 429):
+     status 502 (treat as upstream)
+     body { ok:false, error:{ code:"MORALIS_UPSTREAM_ERROR", message:`Moralis error ${status}`, upstreamStatus:status } }
+
+  4) If fetch to Moralis times out (AbortError / timeout text):
+     status 504
+     body { ok:false, error:{ code:"TIMEOUT", message:"Token discovery timed out" } }
+
+  5) Else:
+     status 502
+     body { ok:false, error:{ code:"MORALIS_UPSTREAM_ERROR", message:"Token discovery provider unavailable" } }
+
+B) In fetchMoralisTokenBalances (lines ~55-113):
+- When Moralis returns non-200, throw an Error that includes the status number exactly, e.g. `throw new Error("MORALIS_STATUS:"+res.status);`
+- When missing key, throw `throw new Error("MORALIS_NOT_CONFIGURED");`
+- When timeout, throw `throw new Error("MORALIS_TIMEOUT");`
+This makes mapping deterministic (don’t rely on fragile string contains).
+
+- Add a request timeout (8s) if not already:
+  use AbortController with setTimeout; on abort throw MORALIS_TIMEOUT.
+
+C) Ensure the endpoint still returns 200 with { tokens:[...] } on success.
+
+CLIENT CHANGES (usePortfolio.ts)
+D) In the discovery fetch block:
+- If response.ok: parse JSON and proceed exactly as today.
+- Else:
+  - attempt to parse JSON; if shape has error.code, log it.
+  - log status + code + message.
+  - set useDiscoveryApi=false so we fall back.
+
+- Example logging:
+  console.log("[Portfolio] Discovery API failed", { status, code, message, retryAfterSec })
+
+- OPTIONAL: store a local flag in state like `discoveryStatus`:
+  "ok" | "not_configured" | "rate_limited" | "down"
+  but do NOT require UI changes elsewhere. Just keep it available for later.
+
+E) Keep existing fallback behavior intact (hardcoded list with Promise.allSettled).
+
+TEST CHECKLIST
+1) With MORALIS_API_KEY missing -> endpoint returns 503 + code MORALIS_NOT_CONFIGURED; client logs it and falls back.
+2) If Moralis returns 429 -> endpoint returns 429 + Retry-After; client logs rate limited and falls back.
+3) If Moralis is down -> 502; client logs upstream/down and falls back.
+4) No crashes, no changes to swaps.
