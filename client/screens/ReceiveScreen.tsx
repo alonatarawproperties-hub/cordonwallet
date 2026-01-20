@@ -159,6 +159,7 @@ export default function ReceiveScreen({ navigation, route }: Props) {
             chainName: asset.chainName,
             chainType: "evm",
             address: asset.address,
+            logoUrl: asset.logoURI,
           });
         }
       });

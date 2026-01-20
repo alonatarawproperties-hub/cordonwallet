@@ -156,6 +156,7 @@ export default function SendScreen({ navigation, route }: Props) {
           chainType: "evm",
           priceUsd: asset.priceUsd,
           valueUsd: asset.valueUsd,
+          logoUrl: asset.logoURI,
         });
       });
     }
