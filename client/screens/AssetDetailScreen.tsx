@@ -162,6 +162,7 @@ function getChainColor(chainName: string): string {
     Polygon: "#8247E5",
     "BNB Chain": "#F3BA2F",
     Arbitrum: "#12AAFF",
+    Base: "#0052FF",
     Solana: "#9945FF",
   };
   return colorMap[chainName] || "#888";

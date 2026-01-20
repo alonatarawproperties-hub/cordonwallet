@@ -201,6 +201,7 @@ export default function ManageCryptoScreen() {
       case 137: return "#8247E5";
       case 56: return "#F3BA2F";
       case 42161: return "#28A0F0";
+      case 8453: return "#0052FF";
       default: return theme.textSecondary;
     }
   };
@@ -224,7 +225,8 @@ export default function ManageCryptoScreen() {
     const isPolygon = numericChainId === 137;
     const isBsc = numericChainId === 56;
     const isArb = numericChainId === 42161;
-    const shouldShowBadge = !isSolana && (isPolygon || isBsc || isArb);
+    const isBase = numericChainId === 8453;
+    const shouldShowBadge = !isSolana && (isPolygon || isBsc || isArb || isBase);
     
     return (
       <View style={[styles.assetRow, { borderBottomColor: theme.border }]}>

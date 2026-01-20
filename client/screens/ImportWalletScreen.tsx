@@ -50,6 +50,8 @@ function getChainColor(chain: string): string {
     ETH: "#627EEA",
     MATIC: "#8247E5",
     BNB: "#F3BA2F",
+    ARB: "#12AAFF",
+    BASE: "#0052FF",
     SOL: "#9945FF",
   };
   return colors[chain] || "#888";

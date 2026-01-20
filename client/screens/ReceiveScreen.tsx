@@ -47,6 +47,7 @@ const CHAIN_FILTERS: ChainFilter[] = [
   { id: "polygon", name: "POL", color: "#8247E5", logoUrl: "https://coin-images.coingecko.com/coins/images/32440/small/polygon.png" },
   { id: "bsc", name: "BNB", color: "#F0B90B", logoUrl: "https://assets.coingecko.com/coins/images/825/small/bnb-icon2_2x.png" },
   { id: "arbitrum", name: "ARB", color: "#28A0F0", logoUrl: "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/arbitrum/info/logo.png" },
+  { id: "base", name: "BASE", color: "#0052FF", logoUrl: "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/base/info/logo.png" },
   { id: "solana", name: "SOL", color: "#9945FF", logoUrl: "https://assets.coingecko.com/coins/images/4128/small/solana.png" },
 ];
 
@@ -64,6 +65,8 @@ function getChainFilterKey(chainId: number | string): string {
       return "bsc";
     case 42161:
       return "arbitrum";
+    case 8453:
+      return "base";
     default:
       return String(chainId);
   }
@@ -74,6 +77,8 @@ function getChainColor(chainName: string): string {
     "Ethereum": "#627EEA",
     "Polygon": "#8247E5",
     "BNB Chain": "#F0B90B",
+    "Arbitrum": "#12AAFF",
+    "Base": "#0052FF",
     "Solana": "#9945FF",
   };
   return colors[chainName] || "#6B7280";
