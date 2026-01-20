@@ -27,6 +27,7 @@ import { getHiddenTokens, hideToken, showToken, getCustomTokens, removeCustomTok
 import { supportedChains, ChainConfig } from "@/lib/blockchain/chains";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { getTokenLogoUrl } from "@/lib/token-logos";
+import { ChainBadge } from "@/components/ChainBadge";
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -216,19 +217,34 @@ export default function ManageCryptoScreen() {
     const itemIsCustom = isCustomToken(item.chainId, item.address);
     const itemLogoUrl = item.logoURI || item.logoUrl || getCustomTokenLogoUrl(item.chainId, item.address) || getTokenLogoUrl(item.symbol);
     
+    const badgeChainId: any = item.chainId ?? null;
+    const numericChainId = typeof badgeChainId === "string" ? Number(badgeChainId) : (badgeChainId as number | null);
+    const isSolana = badgeChainId === 0 || badgeChainId === "solana";
+    const isPolygon = numericChainId === 137;
+    const isBsc = numericChainId === 56;
+    const isArb = numericChainId === 42161;
+    const shouldShowBadge = !isSolana && (isPolygon || isBsc || isArb);
+    
     return (
       <View style={[styles.assetRow, { borderBottomColor: theme.border }]}>
-        <View style={[styles.assetIcon, { backgroundColor: getChainColor(item.chainId) + "20" }]}>
-          {itemLogoUrl ? (
-            <Image 
-              source={{ uri: itemLogoUrl }} 
-              style={styles.tokenLogoImage}
-            />
-          ) : (
-            <ThemedText type="body" style={{ color: getChainColor(item.chainId), fontWeight: "600" }}>
-              {item.symbol.slice(0, 2)}
-            </ThemedText>
-          )}
+        <View style={styles.iconWrap}>
+          <View style={[styles.assetIcon, { backgroundColor: getChainColor(item.chainId) + "20" }]}>
+            {itemLogoUrl ? (
+              <Image 
+                source={{ uri: itemLogoUrl }} 
+                style={styles.tokenLogoImage}
+              />
+            ) : (
+              <ThemedText type="body" style={{ color: getChainColor(item.chainId), fontWeight: "600" }}>
+                {item.symbol.slice(0, 2)}
+              </ThemedText>
+            )}
+          </View>
+          {shouldShowBadge ? (
+            <View style={styles.badgePos}>
+              <ChainBadge chainId={badgeChainId} size={14} />
+            </View>
+          ) : null}
         </View>
         <View style={styles.assetInfo}>
           <View style={styles.assetNameRow}>
@@ -381,6 +397,18 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.md,
     borderBottomWidth: 1,
     gap: Spacing.md,
+  },
+  iconWrap: {
+    position: "relative",
+    width: 40,
+    height: 40,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  badgePos: {
+    position: "absolute",
+    right: -2,
+    bottom: -2,
   },
   assetIcon: {
     width: 40,
