@@ -489,7 +489,11 @@ export default function AssetDetailScreen({ route }: Props) {
         }
       } else {
         const history = await fetchTransactionHistory(activeWallet.address, chainId);
-        allTxs = history.filter(tx => tx.tokenSymbol === tokenSymbol);
+        allTxs = history.filter(tx => {
+          if (tx.tokenSymbol.toUpperCase() === tokenSymbol.toUpperCase()) return true;
+          if (address && tx.tokenAddress?.toLowerCase() === address.toLowerCase()) return true;
+          return false;
+        });
       }
       
       setTransactions(filterTreasuryTransactions(allTxs));
