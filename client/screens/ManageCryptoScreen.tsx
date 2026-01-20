@@ -198,6 +198,7 @@ export default function ManageCryptoScreen() {
       case 1: return "#627EEA";
       case 137: return "#8247E5";
       case 56: return "#F3BA2F";
+      case 42161: return "#28A0F0";
       default: return theme.textSecondary;
     }
   };
@@ -213,7 +214,7 @@ export default function ManageCryptoScreen() {
   const renderAssetItem = ({ item }: { item: MultiChainAsset & { logoUrl?: string } }) => {
     const visible = !isHidden(item.chainId, item.symbol);
     const itemIsCustom = isCustomToken(item.chainId, item.address);
-    const itemLogoUrl = item.logoUrl || getCustomTokenLogoUrl(item.chainId, item.address) || getTokenLogoUrl(item.symbol);
+    const itemLogoUrl = item.logoURI || item.logoUrl || getCustomTokenLogoUrl(item.chainId, item.address) || getTokenLogoUrl(item.symbol);
     
     return (
       <View style={[styles.assetRow, { borderBottomColor: theme.border }]}>
