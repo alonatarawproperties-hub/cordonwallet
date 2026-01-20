@@ -167,3 +167,13 @@ The project is organized into `/client` (React Native frontend), `/server` (Expr
   - `MORALIS_NOT_CONFIGURED` (503): MORALIS_API_KEY not set
   - `MORALIS_TIMEOUT` (504): Request timed out (8s limit)
 - **Client Behavior**: Logs error details and gracefully falls back to hardcoded token list
+
+### EVM Transaction History (Etherscan V2 Integration)
+- **Files**: `server/routes.ts`, `client/lib/blockchain/explorer-api.ts`
+- **Endpoints**:
+  - `GET /api/transactions/:address` - Fetches native transactions (legacy, supports ?type=tokentx for ERC-20)
+  - `GET /api/transactions/:address/all` - Fetches both native and ERC-20 token transactions combined
+- **Supported Chains**: Ethereum (1), Polygon (137), BSC (56), Arbitrum (42161)
+- **Features**: Uses Etherscan V2 unified API with chainid parameter for multi-chain support
+- **Transaction Types**: Returns combined native + ERC-20 token transfers, sorted by timestamp
+- **Client Integration**: `fetchTransactionHistory()` automatically fetches all transaction types for EVM chains

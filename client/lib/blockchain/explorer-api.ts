@@ -120,13 +120,13 @@ export async function fetchTransactionHistory(
       return transactions;
     }
     
-    const url = new URL(`/api/transactions/${walletAddress}`, apiUrl);
+    const url = new URL(`/api/transactions/${walletAddress}/all`, apiUrl);
     url.searchParams.set("chainId", chainId.toString());
     
-    console.log(`[ExplorerAPI] Fetching transactions for ${chain.name}:`, walletAddress);
+    console.log(`[ExplorerAPI] Fetching all transactions for ${chain.name}:`, walletAddress);
     
     const response = await fetch(url.toString());
-    const data: ExplorerResponse = await response.json();
+    const data = await response.json();
 
     console.log(`[ExplorerAPI] ${chain.name} response status:`, data.status, data.message);
 
@@ -138,22 +138,27 @@ export async function fetchTransactionHistory(
     console.log(`[ExplorerAPI] ${chain.name} found ${data.result.length} transactions`);
 
     const transactions: TxRecord[] = data.result
-      .filter((tx) => tx.value !== "0" || tx.to.toLowerCase() === walletAddress.toLowerCase())
-      .map((tx): TxRecord => {
+      .filter((tx: any) => {
+        if (tx.txType === "token") return true;
+        return tx.value !== "0" || tx.to.toLowerCase() === walletAddress.toLowerCase();
+      })
+      .map((tx: any): TxRecord => {
         const isReceive = tx.to.toLowerCase() === walletAddress.toLowerCase();
         const activityType: ActivityType = isReceive ? "receive" : "send";
+        const isTokenTx = tx.txType === "token";
 
         return {
           id: `${tx.hash}-${tx.timeStamp}`,
           chainId,
           walletAddress,
           hash: tx.hash,
-          type: "native",
+          type: isTokenTx ? "erc20" : "native",
           activityType,
-          tokenSymbol: chain.nativeSymbol,
+          tokenSymbol: isTokenTx ? (tx.tokenSymbol || "TOKEN") : chain.nativeSymbol,
+          tokenAddress: isTokenTx ? tx.contractAddress : undefined,
           to: tx.to,
           from: tx.from,
-          amount: formatAmount(tx.value, chain.nativeDecimals),
+          amount: formatAmount(tx.value, isTokenTx ? parseInt(tx.tokenDecimal || "18") : chain.nativeDecimals),
           status: tx.isError === "0" ? "confirmed" : "failed",
           createdAt: parseInt(tx.timeStamp) * 1000,
           explorerUrl: `${chain.explorerBaseUrl}/tx/${tx.hash}`,

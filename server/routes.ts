@@ -321,18 +321,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { address } = req.params;
       const chainId = req.query.chainId as string;
+      const txType = (req.query.type as string) || "txlist";
       
       if (!address || !chainId) {
         return res.status(400).json({ error: "Missing address or chainId" });
       }
 
       const apiKey = process.env.ETHERSCAN_API_KEY;
-      console.log(`[Transactions API] API key configured: ${!!apiKey}`);
+      console.log(`[Transactions API] API key configured: ${!!apiKey}, type: ${txType}`);
       
       const params = new URLSearchParams({
         chainid: chainId,
         module: "account",
-        action: "txlist",
+        action: txType,
         address: address,
         startblock: "0",
         endblock: "99999999",
@@ -353,6 +354,54 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(data);
     } catch (error) {
       console.error("Error fetching transactions:", error);
+      res.status(500).json({ error: "Failed to fetch transactions" });
+    }
+  });
+
+  app.get("/api/transactions/:address/all", async (req: Request, res: Response) => {
+    try {
+      const { address } = req.params;
+      const chainId = req.query.chainId as string;
+      
+      if (!address || !chainId) {
+        return res.status(400).json({ error: "Missing address or chainId" });
+      }
+
+      const apiKey = process.env.ETHERSCAN_API_KEY;
+      console.log(`[Transactions API] Fetching all tx types for chainId ${chainId}`);
+      
+      const baseParams = {
+        chainid: chainId,
+        module: "account",
+        address: address,
+        startblock: "0",
+        endblock: "99999999",
+        page: "1",
+        offset: "50",
+        sort: "desc",
+        ...(apiKey ? { apikey: apiKey } : {}),
+      };
+
+      const [nativeTxs, tokenTxs] = await Promise.all([
+        fetch(`${ETHERSCAN_V2_API}?${new URLSearchParams({ ...baseParams, action: "txlist" })}`).then(r => r.json()),
+        fetch(`${ETHERSCAN_V2_API}?${new URLSearchParams({ ...baseParams, action: "tokentx" })}`).then(r => r.json()),
+      ]);
+
+      const nativeResult = nativeTxs.status === "1" && Array.isArray(nativeTxs.result) ? nativeTxs.result : [];
+      const tokenResult = tokenTxs.status === "1" && Array.isArray(tokenTxs.result) ? tokenTxs.result : [];
+
+      const combined = [
+        ...nativeResult.map((tx: any) => ({ ...tx, txType: "native" })),
+        ...tokenResult.map((tx: any) => ({ ...tx, txType: "token" })),
+      ].sort((a, b) => parseInt(b.timeStamp) - parseInt(a.timeStamp));
+
+      res.json({
+        status: combined.length > 0 ? "1" : "0",
+        message: combined.length > 0 ? "OK" : "No transactions found",
+        result: combined.slice(0, 100),
+      });
+    } catch (error) {
+      console.error("Error fetching all transactions:", error);
       res.status(500).json({ error: "Failed to fetch transactions" });
     }
   });
