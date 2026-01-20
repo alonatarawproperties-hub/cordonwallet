@@ -527,15 +527,20 @@ export default function ActivityScreen() {
       return "";
     };
 
+    const truncateSymbol = (symbol: string, maxLen = 12): string => {
+      if (!symbol) return "";
+      return symbol.length > maxLen ? symbol.slice(0, maxLen) + "…" : symbol;
+    };
+
     const getAmountDisplay = () => {
       if (activityType === "send") {
-        return `-${formatAmountTrader(item.amount)} ${item.tokenSymbol}`;
+        return `-${formatAmountTrader(item.amount)} ${truncateSymbol(item.tokenSymbol)}`;
       } else if (activityType === "receive") {
-        return `+${formatAmountTrader(item.amount)} ${item.tokenSymbol}`;
+        return `+${formatAmountTrader(item.amount)} ${truncateSymbol(item.tokenSymbol)}`;
       } else if (activityType === "swap" && item.toAmount && item.toTokenSymbol) {
-        return `+${formatAmountTrader(item.toAmount)} ${item.toTokenSymbol}`;
+        return `+${formatAmountTrader(item.toAmount)} ${truncateSymbol(item.toTokenSymbol)}`;
       }
-      return `${formatAmountTrader(item.amount)} ${item.tokenSymbol}`;
+      return `${formatAmountTrader(item.amount)} ${truncateSymbol(item.tokenSymbol)}`;
     };
 
     const getUsdValue = (): string | null => {
@@ -606,6 +611,7 @@ export default function ActivityScreen() {
         <View style={styles.txAmount}>
           <ThemedText
             type="body"
+            numberOfLines={1}
             style={{
               fontWeight: "600",
               textAlign: "right",
@@ -614,7 +620,7 @@ export default function ActivityScreen() {
           >
             {getAmountDisplay()}
           </ThemedText>
-          <ThemedText type="caption" style={{ color: theme.textSecondary, textAlign: "right" }}>
+          <ThemedText type="caption" numberOfLines={1} style={{ color: theme.textSecondary, textAlign: "right" }}>
             {usdValue ? `≈ ${usdValue}` : chainName}
           </ThemedText>
         </View>
@@ -811,5 +817,7 @@ const styles = StyleSheet.create({
   txAmount: {
     alignItems: "flex-end",
     gap: 2,
+    maxWidth: "50%",
+    flexShrink: 0,
   },
 });
