@@ -84,6 +84,7 @@ const DEXSCREENER_CHAIN_IDS: Record<number | string, string> = {
   137: "polygon",
   56: "bsc",
   42161: "arbitrum",
+  8453: "base",
   "solana": "solana",
 };
 
@@ -92,6 +93,7 @@ const NATIVE_TOKEN_IDS: Record<number | string, string> = {
   137: "polygon-ecosystem-token",
   56: "binancecoin",
   42161: "ethereum",
+  8453: "ethereum",
   "solana": "solana",
 };
 
@@ -102,6 +104,7 @@ const CHAIN_PLATFORM_IDS: Record<number, string> = {
   137: "polygon-pos",
   56: "binance-smart-chain",
   42161: "arbitrum-one",
+  8453: "base",
 };
 
 interface PriceData {

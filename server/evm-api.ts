@@ -7,6 +7,7 @@ const CHAIN_ID_TO_MORALIS: Record<number, string> = {
   56: "bsc",
   137: "polygon",
   42161: "arbitrum",
+  8453: "base",
 };
 
 const CHAIN_ID_TO_TRUSTWALLET: Record<number, string> = {
@@ -14,9 +15,10 @@ const CHAIN_ID_TO_TRUSTWALLET: Record<number, string> = {
   56: "smartchain",
   137: "polygon",
   42161: "arbitrum",
+  8453: "base",
 };
 
-const VALID_CHAIN_IDS = [1, 56, 137, 42161];
+const VALID_CHAIN_IDS = [1, 56, 137, 42161, 8453];
 
 function getTrustWalletLogoUrl(chainId: number, tokenAddress: string): string {
   const chain = CHAIN_ID_TO_TRUSTWALLET[chainId];
