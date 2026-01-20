@@ -147,6 +147,10 @@ export async function fetchTransactionHistory(
         const activityType: ActivityType = isReceive ? "receive" : "send";
         const isTokenTx = tx.txType === "token";
 
+        const hasConfirmations = tx.confirmations && parseInt(tx.confirmations) > 0;
+        const isError = tx.isError === "1";
+        const txStatus = isError ? "failed" : (hasConfirmations || tx.isError === "0" ? "confirmed" : "pending");
+
         return {
           id: `${tx.hash}-${tx.timeStamp}`,
           chainId,
@@ -159,7 +163,7 @@ export async function fetchTransactionHistory(
           to: tx.to,
           from: tx.from,
           amount: formatAmount(tx.value, isTokenTx ? parseInt(tx.tokenDecimal || "18") : chain.nativeDecimals),
-          status: tx.isError === "0" ? "confirmed" : "failed",
+          status: txStatus,
           createdAt: parseInt(tx.timeStamp) * 1000,
           explorerUrl: `${chain.explorerBaseUrl}/tx/${tx.hash}`,
         };
