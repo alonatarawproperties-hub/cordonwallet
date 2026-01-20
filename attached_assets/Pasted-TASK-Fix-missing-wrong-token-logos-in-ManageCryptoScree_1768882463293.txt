@@ -1,0 +1,86 @@
+TASK: Fix missing/wrong token logos in ManageCryptoScreen (multi-chain list). Root cause: ManageCryptoScreen uses useAllChainsPortfolio.ts which DOES NOT use Moralis discovery and MultiChainAsset has no logoURI field, so Moralis logos never reach the UI. Implement the SAME discovery flow used in usePortfolio.ts for each EVM chain inside useAllChainsPortfolio, add logoURI to MultiChainAsset, and render it in ManageCryptoScreen. Keep current fallbacks. DO NOT refactor unrelated files. DO NOT change swap logic. Keep changes minimal and safe.
+
+CONSTRAINTS:
+- Only touch these areas unless absolutely required:
+  1) client/hooks/useAllChainsPortfolio.ts
+  2) client/screens/ManageCryptoScreen.tsx (or wherever the token row/avatar is rendered)
+  3) the shared type/interface used for MultiChainAsset (likely in client/hooks/useAllChainsPortfolio.ts or a nearby types file)
+- Keep existing behavior: If discovery API fails, fall back to getTokensForChain() hardcoded list.
+- Do NOT remove existing chains or tokens.
+- Must work for ALL EVM chains (Ethereum, Polygon, BSC, Arbitrum) not just Arbitrum.
+
+WHAT TO IMPLEMENT:
+
+A) Add logoURI to the multi-chain asset type
+- Find MultiChainAsset interface/type used by useAllChainsPortfolio and ManageCryptoScreen.
+- Add: logoURI?: string
+
+B) Update useAllChainsPortfolio to pull discovery tokens (logos included)
+- For each EVM chainId you already support in multi-chain (1, 137, 56, 42161), do this:
+  1. Call discovery endpoint: GET `${getApiUrl()}/api/evm/${chainId}/${address}/tokens` with AbortSignal.timeout(8000)
+  2. If response.ok, parse JSON, map response.tokens into assets:
+     - address: token.address (lowercase ok)
+     - symbol/name/decimals from response
+     - rawBalance BigInt(token.balanceRaw)
+     - balance formatted token.balanceFormatted (or formatBalance)
+     - priceUsd if present
+     - logoURI: token.logoURI
+     - isNative=false
+     - chainId set correctly
+  3. Filter out zero balances.
+  4. If response not ok OR throws, fall back to existing hardcoded logic for that chain (current Promise.allSettled balanceOf path).
+- IMPORTANT: Avoid spamming requests:
+  - Use Promise.allSettled but limit concurrency to 2 chains at a time OR do simple sequential for 4 chains (acceptable under 1k DAU).
+- IMPORTANT: caching:
+  - If there is an existing cache layer (portfolio-cache.ts), reuse it if convenient, but do NOT create a big refactor. Minimal in-memory cache inside the hook is okay:
+    - key `${chainId}:${address}`
+    - TTL 60 seconds
+  - If too risky, skip caching—just do the API calls with timeout.
+
+C) Update ManageCryptoScreen token icon rendering
+- Wherever the token icon is displayed (Image/avatar):
+  - If asset.isNative:
+      show chain icon (existing logic)
+    else if asset.logoURI:
+      render <Image source={{ uri: asset.logoURI }} ...> with proper size + borderRadius
+    else:
+      fallback to existing placeholder icon
+- Ensure Arbitrum USDC shows the Moralis logoURI from discovery.
+
+D) Logging (lightweight)
+- Add console logs ONLY in dev:
+  - `[AllChainsPortfolio] Discovery ${chainId} found X tokens`
+  - `[AllChainsPortfolio] Discovery failed for ${chainId}, fallback to hardcoded: ${errorCode/message}`
+- Do not spam logs in production if you have a logger flag; otherwise keep minimal.
+
+E) Acceptance tests (must do)
+1) Open Manage Crypto screen on a wallet that holds Arbitrum USDC:
+   - Should show USDC logo (from logo.moralis.io) not generic.
+2) If MORALIS_API_KEY missing:
+   - endpoint returns 503 with {ok:false...}
+   - app should still show balances from hardcoded list (no crash).
+3) If discovery times out:
+   - fallback works.
+4) No changes to usePortfolio.ts behavior.
+
+FILES/HINTS:
+- usePortfolio.ts already calls discovery API:
+  GET /api/evm/${chainId}/${address}/tokens
+  and maps token.logoURI -> asset.logoURI
+- ManageCryptoScreen currently uses useAllChainsPortfolio (not usePortfolio), hence logos missing.
+- Sample discovery token object:
+{
+ "address":"0xff970a61a04b1ca14834a43f5de4533ebddb5cc8",
+ "symbol":"USDC",
+ "name":"USD Coin (Arb1)",
+ "decimals":6,
+ "logoURI":"https://logo.moralis.io/0xa4b1_0xff970a61a04b1ca14834a43f5de4533ebddb5cc8_....webp",
+ "balanceRaw":"100002",
+ "balanceFormatted":"0.100002"
+}
+
+DELIVERABLE:
+- Commit code changes that make logos render correctly in ManageCryptoScreen for Arbitrum tokens using discovery API, with safe fallback.
+- Provide a short summary of which files/lines changed and how to test.
+
+NOW IMPLEMENT.

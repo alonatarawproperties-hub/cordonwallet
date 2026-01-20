@@ -23,6 +23,7 @@ export interface MultiChainAsset {
   priceUsd?: number;
   valueUsd?: number;
   priceChange24h?: number;
+  logoURI?: string;
 }
 
 export interface AllChainsPortfolioState {
@@ -166,39 +167,92 @@ export function useAllChainsPortfolio(address: string | undefined) {
           });
         }
 
-        const tokens = getTokensForChain(chain.chainId);
+        let useDiscoveryApi = true;
+        const apiUrl = getApiUrl();
 
-        const tokenResults = await Promise.allSettled(
-          tokens.map(token =>
-            getERC20Balance({
-              tokenAddress: token.address,
-              owner: address,
-              chainId: chain.chainId,
-              decimals: token.decimals,
-              symbol: token.symbol,
-            })
-          )
-        );
+        try {
+          const discoveryUrl = new URL(`/api/evm/${chain.chainId}/${address}/tokens`, apiUrl);
+          const discoveryResponse = await fetch(discoveryUrl.toString(), {
+            signal: AbortSignal.timeout(8000),
+          });
 
-        tokenResults.forEach((result, index) => {
-          if (result.status === "fulfilled" && !isBalanceError(result.value)) {
-            const token = tokens[index];
-            const balanceResult = result.value as BalanceResult;
-            if (balanceResult.raw > 0n) {
-              chainAssets.push({
-                symbol: token.symbol,
-                name: token.name,
-                balance: formatBalance(balanceResult.formatted),
-                rawBalance: balanceResult.raw,
-                decimals: token.decimals,
-                isNative: false,
-                address: token.address,
-                chainId: chain.chainId,
-                chainName: chain.name,
-              });
+          if (discoveryResponse.ok) {
+            const discoveryData = await discoveryResponse.json();
+            const discoveredTokens = discoveryData.tokens || [];
+
+            console.log(`[AllChainsPortfolio] Discovery ${chain.chainId} found ${discoveredTokens.length} tokens`);
+
+            for (const token of discoveredTokens) {
+              if (token.balanceRaw && BigInt(token.balanceRaw) > 0n) {
+                chainAssets.push({
+                  symbol: token.symbol,
+                  name: token.name,
+                  balance: token.balanceFormatted || formatBalance(token.balanceRaw),
+                  rawBalance: BigInt(token.balanceRaw),
+                  decimals: token.decimals,
+                  isNative: false,
+                  address: token.address,
+                  chainId: chain.chainId,
+                  chainName: chain.name,
+                  priceUsd: token.priceUsd || undefined,
+                  logoURI: token.logoURI || undefined,
+                });
+              }
             }
+          } else {
+            let errorCode = "UNKNOWN";
+            let errorMessage = `HTTP ${discoveryResponse.status}`;
+            try {
+              const errorData = await discoveryResponse.json();
+              if (errorData.error?.code) {
+                errorCode = errorData.error.code;
+                errorMessage = errorData.error.message || errorMessage;
+              }
+            } catch {}
+            console.log(`[AllChainsPortfolio] Discovery failed for ${chain.chainId}, fallback to hardcoded: ${errorCode} - ${errorMessage}`);
+            useDiscoveryApi = false;
           }
-        });
+        } catch (discoveryError: any) {
+          const isTimeout = discoveryError.name === "TimeoutError" || discoveryError.name === "AbortError";
+          console.log(`[AllChainsPortfolio] Discovery failed for ${chain.chainId}, fallback to hardcoded: ${isTimeout ? "timeout" : discoveryError.message}`);
+          useDiscoveryApi = false;
+        }
+
+        if (!useDiscoveryApi) {
+          const tokens = getTokensForChain(chain.chainId);
+
+          const tokenResults = await Promise.allSettled(
+            tokens.map(token =>
+              getERC20Balance({
+                tokenAddress: token.address,
+                owner: address,
+                chainId: chain.chainId,
+                decimals: token.decimals,
+                symbol: token.symbol,
+              })
+            )
+          );
+
+          tokenResults.forEach((result, index) => {
+            if (result.status === "fulfilled" && !isBalanceError(result.value)) {
+              const token = tokens[index];
+              const balanceResult = result.value as BalanceResult;
+              if (balanceResult.raw > 0n) {
+                chainAssets.push({
+                  symbol: token.symbol,
+                  name: token.name,
+                  balance: formatBalance(balanceResult.formatted),
+                  rawBalance: balanceResult.raw,
+                  decimals: token.decimals,
+                  isNative: false,
+                  address: token.address,
+                  chainId: chain.chainId,
+                  chainName: chain.name,
+                });
+              }
+            }
+          });
+        }
       } catch (error) {
         hasAnyError = true;
         errorMessage = `Failed to load ${chain.name} assets`;
