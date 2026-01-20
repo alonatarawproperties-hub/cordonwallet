@@ -19,9 +19,48 @@ import { useBrowserStore, getFaviconUrl, normalizeUrl } from "@/store/browserSto
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { useExternalAuth, AuthStatus } from "@/context/ExternalAuthContext";
 import { useWallet } from "@/lib/wallet-context";
+import { useWalletConnect } from "@/lib/walletconnect/context";
 import { getApiUrl } from "@/lib/query-client";
 import { BrowserConnectSheet } from "@/components/BrowserConnectSheet";
 import { BrowserSignSheet } from "@/components/BrowserSignSheet";
+
+function extractWalletConnectUri(inputUrl: string): string | null {
+  try {
+    if (!inputUrl) return null;
+
+    if (inputUrl.startsWith("wc:")) return inputUrl;
+
+    const u = new URL(inputUrl);
+
+    const uriParam = u.searchParams.get("uri");
+    if (uriParam) {
+      const decoded = decodeURIComponent(uriParam);
+      if (decoded.startsWith("wc:")) return decoded;
+      if (uriParam.startsWith("wc:")) return uriParam;
+    }
+
+    const raw = inputUrl;
+    const decodedAll = decodeURIComponent(raw);
+    const match1 = raw.match(/uri=(wc%3A[^&]+)/i);
+    if (match1?.[1]) {
+      const decoded = decodeURIComponent(match1[1]);
+      if (decoded.startsWith("wc:")) return decoded;
+    }
+    const match2 = decodedAll.match(/uri=(wc:[^&]+)/i);
+    if (match2?.[1]) return match2[1];
+
+    return null;
+  } catch {
+    try {
+      if (inputUrl.startsWith("wc:")) return inputUrl;
+      const decodedAll = decodeURIComponent(inputUrl);
+      const match = decodedAll.match(/uri=(wc:[^&]+)/i);
+      return match?.[1] || null;
+    } catch {
+      return null;
+    }
+  }
+}
 
 const GOOGLE_DISCOVERY = {
   authorizationEndpoint: "https://accounts.google.com/o/oauth2/v2/auth",
@@ -428,6 +467,71 @@ const CORDON_INJECTED_SCRIPT = `
 true;
 `;
 
+const WALLETCONNECT_CAPTURE_SCRIPT = `
+(function() {
+  if (window.__cordonWcCapture) return;
+  window.__cordonWcCapture = true;
+
+  function postWc(uri) {
+    try {
+      if (window.ReactNativeWebView && typeof uri === 'string' && (uri.startsWith('wc:') || uri.includes('walletconnect') || uri.includes('uri=wc'))) {
+        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'WALLETCONNECT_URI', uri: uri }));
+      }
+    } catch (e) {}
+  }
+
+  var originalOpen = window.open;
+  window.open = function(url) {
+    try {
+      if (typeof url === 'string' && (url.startsWith('wc:') || url.includes('walletconnect') || url.includes('uri=wc'))) {
+        postWc(url);
+        return null;
+      }
+    } catch (e) {}
+    return originalOpen.apply(window, arguments);
+  };
+
+  var originalAssign = window.location.assign.bind(window.location);
+  window.location.assign = function(url) {
+    try {
+      if (typeof url === 'string' && (url.startsWith('wc:') || url.includes('walletconnect') || url.includes('uri=wc'))) {
+        postWc(url);
+        return;
+      }
+    } catch (e) {}
+    return originalAssign(url);
+  };
+
+  var originalReplace = window.location.replace.bind(window.location);
+  window.location.replace = function(url) {
+    try {
+      if (typeof url === 'string' && (url.startsWith('wc:') || url.includes('walletconnect') || url.includes('uri=wc'))) {
+        postWc(url);
+        return;
+      }
+    } catch (e) {}
+    return originalReplace(url);
+  };
+
+  document.addEventListener('click', function(e) {
+    try {
+      var a = e.target && e.target.closest ? e.target.closest('a') : null;
+      if (!a) return;
+      var href = a.getAttribute('href') || '';
+      if (href.startsWith('wc:') || href.includes('walletconnect') || href.includes('uri=wc')) {
+        e.preventDefault();
+        postWc(href);
+      }
+    } catch (e) {}
+  }, true);
+
+  console.log('[Cordon] WalletConnect capture injected');
+})();
+true;
+`;
+
+const COMBINED_INJECTED_SCRIPT = CORDON_INJECTED_SCRIPT + WALLETCONNECT_CAPTURE_SCRIPT;
+
 const IGNORED_URL_PATTERNS = [
   /google\.com\/s2\/favicons/,
   /favicon\.ico$/,
@@ -461,8 +565,28 @@ export default function BrowserWebViewScreen() {
   const webViewRef = useRef<WebView>(null);
   const externalAuth = useExternalAuth();
   const { activeWallet } = useWallet();
+  const { connect: wcConnect } = useWalletConnect();
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [isAuthInProgress, setIsAuthInProgress] = useState(false);
+  const wcPairingInProgress = useRef(false);
+
+  const handleWalletConnectUri = useCallback(async (uri: string) => {
+    try {
+      if (!uri || !uri.startsWith("wc:")) return;
+      if (wcPairingInProgress.current) {
+        console.log("[BrowserWC] Pairing already in progress, ignoring");
+        return;
+      }
+      wcPairingInProgress.current = true;
+      console.log("[BrowserWC] Intercepted WC URI:", uri.substring(0, 50) + "...");
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      await wcConnect(uri);
+    } catch (e) {
+      console.log("[BrowserWC] Failed to pair:", e);
+    } finally {
+      wcPairingInProgress.current = false;
+    }
+  }, [wcConnect]);
 
   const walletAddress = activeWallet?.addresses?.evm || activeWallet?.address || null;
 
@@ -599,6 +723,14 @@ export default function BrowserWebViewScreen() {
     try {
       const data = JSON.parse(event.nativeEvent.data);
       console.log("[BrowserWebView] Message received:", data.type);
+
+      if (data.type === "WALLETCONNECT_URI") {
+        const wcUri = extractWalletConnectUri(data.uri);
+        if (wcUri) {
+          handleWalletConnectUri(wcUri);
+        }
+        return;
+      }
 
       if (data.type === "cordon_getWalletAddress") {
         // Show connect sheet for approval before sharing wallet address
@@ -1007,7 +1139,7 @@ export default function BrowserWebViewScreen() {
     } catch (error) {
       console.error("[BrowserWebView] Message parse error:", error);
     }
-  }, [walletAddress, isAuthInProgress, activeWallet, pageTitle, currentUrl]);
+  }, [walletAddress, isAuthInProgress, activeWallet, pageTitle, currentUrl, handleWalletConnectUri]);
 
   const handleShouldStartLoad = useCallback(
     (request: { url: string }) => {
@@ -1018,6 +1150,12 @@ export default function BrowserWebViewScreen() {
         }
       }
 
+      const wcUri = extractWalletConnectUri(request.url);
+      if (wcUri) {
+        handleWalletConnectUri(wcUri);
+        return false;
+      }
+
       if (externalAuth.isAuthTrigger(request.url)) {
         externalAuth.startAuth(request.url);
         return false;
@@ -1025,7 +1163,7 @@ export default function BrowserWebViewScreen() {
 
       return true;
     },
-    [externalAuth]
+    [externalAuth, handleWalletConnectUri]
   );
 
   useEffect(() => {
@@ -1276,8 +1414,8 @@ export default function BrowserWebViewScreen() {
         onLoadEnd={handleLoadEnd}
         onShouldStartLoadWithRequest={handleShouldStartLoad}
         onMessage={handleWebViewMessage}
-        injectedJavaScript={CORDON_INJECTED_SCRIPT}
-        injectedJavaScriptBeforeContentLoaded={CORDON_INJECTED_SCRIPT}
+        injectedJavaScript={COMBINED_INJECTED_SCRIPT}
+        injectedJavaScriptBeforeContentLoaded={COMBINED_INJECTED_SCRIPT}
         javaScriptEnabled
         domStorageEnabled
         startInLoadingState

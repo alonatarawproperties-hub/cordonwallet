@@ -1,0 +1,179 @@
+You are editing the Cordon wallet repo. Make ONLY the changes below. Do NOT refactor or rename existing working code. Keep diffs minimal.
+
+GOAL:
+1) Auto-capture WalletConnect URIs from Browser WebView (OpenSea and other dapps) and call WalletConnect connect(uri) automatically.
+2) Ensure the WebView does NOT navigate to wc links (we intercept them).
+3) Support these WC URI formats:
+   - wc:....
+   - https://walletconnect.com/wc?uri=...
+   - https://*.walletconnect.com/*?uri=...
+   - any URL containing "uri=wc%3A" or "uri=wc:" (encoded/decoded)
+
+FILES:
+- client/screens/BrowserWebViewScreen.tsx (main work)
+- (optional) add a small helper inside the same file (do NOT create new files unless necessary)
+
+IMPLEMENTATION DETAILS:
+
+A) In client/screens/BrowserWebViewScreen.tsx
+1) Import useWalletConnect from:
+   client/lib/walletconnect/context.tsx
+   Use it inside BrowserWebViewScreen:
+     const { connect } = useWalletConnect();
+
+2) Add a helper function inside BrowserWebViewScreen.tsx (top-level or inside component):
+
+   function extractWalletConnectUri(inputUrl: string): string | null {
+     try {
+       if (!inputUrl) return null;
+
+       // direct wc: scheme
+       if (inputUrl.startsWith("wc:")) return inputUrl;
+
+       // try parse as URL
+       const u = new URL(inputUrl);
+
+       // common: walletconnect.com/wc?uri=...
+       const uriParam = u.searchParams.get("uri");
+       if (uriParam) {
+         const decoded = decodeURIComponent(uriParam);
+         if (decoded.startsWith("wc:")) return decoded;
+         if (uriParam.startsWith("wc:")) return uriParam;
+       }
+
+       // sometimes nested/encoded
+       const raw = inputUrl;
+       const decodedAll = decodeURIComponent(raw);
+       const match1 = raw.match(/uri=(wc%3A[^&]+)/i);
+       if (match1?.[1]) {
+         const decoded = decodeURIComponent(match1[1]);
+         if (decoded.startsWith("wc:")) return decoded;
+       }
+       const match2 = decodedAll.match(/uri=(wc:[^&]+)/i);
+       if (match2?.[1]) return match2[1];
+
+       return null;
+     } catch {
+       // if URL() fails, still attempt simple decode/match
+       try {
+         if (inputUrl.startsWith("wc:")) return inputUrl;
+         const decodedAll = decodeURIComponent(inputUrl);
+         const match = decodedAll.match(/uri=(wc:[^&]+)/i);
+         return match?.[1] || null;
+       } catch {
+         return null;
+       }
+     }
+   }
+
+3) Add a function to handle the uri:
+
+   async function handleWalletConnectUri(uri: string) {
+     try {
+       // basic guard
+       if (!uri || !uri.startsWith("wc:")) return;
+       console.log("[BrowserWC] Intercepted WC URI:", uri);
+
+       // call WalletConnect connect
+       await connect(uri);
+
+       // optionally show a lightweight toast/log only; DO NOT crash UI if connect throws
+     } catch (e) {
+       console.log("[BrowserWC] Failed to pair:", e);
+     }
+   }
+
+4) Add WebView interception in BOTH places:
+
+   (a) onShouldStartLoadWithRequest:
+       - get request.url
+       - const wcUri = extractWalletConnectUri(request.url)
+       - if wcUri -> call handleWalletConnectUri(wcUri) and return false (BLOCK navigation)
+       - otherwise return true
+
+   (b) onMessage handler:
+       - parse event.nativeEvent.data as JSON
+       - if { type: "WALLETCONNECT_URI", uri: "wc:..." } then handleWalletConnectUri(uri)
+
+5) Inject JavaScript into WebView to capture window.open + location changes + click links that contain wc:
+
+   const injectedJavaScript = `
+     (function() {
+       function postWc(uri) {
+         try {
+           window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: "WALLETCONNECT_URI", uri: uri }));
+         } catch (e) {}
+       }
+
+       // Hook window.open
+       const originalOpen = window.open;
+       window.open = function(url) {
+         try {
+           if (typeof url === "string" && (url.startsWith("wc:") || url.includes("walletconnect") || url.includes("uri=wc"))) {
+             postWc(url);
+             return null;
+           }
+         } catch (e) {}
+         return originalOpen.apply(window, arguments);
+       };
+
+       // Hook location assign/replace
+       const originalAssign = window.location.assign.bind(window.location);
+       window.location.assign = function(url) {
+         try {
+           if (typeof url === "string" && (url.startsWith("wc:") || url.includes("walletconnect") || url.includes("uri=wc"))) {
+             postWc(url);
+             return;
+           }
+         } catch (e) {}
+         return originalAssign(url);
+       };
+
+       const originalReplace = window.location.replace.bind(window.location);
+       window.location.replace = function(url) {
+         try {
+           if (typeof url === "string" && (url.startsWith("wc:") || url.includes("walletconnect") || url.includes("uri=wc"))) {
+             postWc(url);
+             return;
+           }
+         } catch (e) {}
+         return originalReplace(url);
+       };
+
+       // Capture link clicks
+       document.addEventListener("click", function(e) {
+         try {
+           const a = e.target && e.target.closest ? e.target.closest("a") : null;
+           if (!a) return;
+           const href = a.getAttribute("href") || "";
+           if (href.startsWith("wc:") || href.includes("walletconnect") || href.includes("uri=wc")) {
+             e.preventDefault();
+             postWc(href);
+           }
+         } catch (e) {}
+       }, true);
+     })();
+     true;
+   `;
+
+   Then pass it to WebView via injectedJavaScript prop.
+
+6) Make sure WebView allows the interception to work:
+   - Ensure javaScriptEnabled={true}
+   - Ensure domStorageEnabled={true}
+   - Add setSupportMultipleWindows={true} if it exists already, keep it
+   - If onOpenWindow exists in your rn-webview version, also intercept it similarly, but ONLY if already present. Do not add risky new API usage.
+
+B) Testing checklist (add as comments at bottom of file)
+- Open OpenSea in Cordon browser
+- Tap Connect -> WalletConnect
+- If OpenSea triggers a wc link, Cordon should auto-pair and show your BrowserConnectSheet approval.
+- No user copy/paste needed.
+- If OpenSea only shows QR, user will still need scan — that’s expected. (We’ll add scan button next if needed.)
+
+IMPORTANT:
+- Do NOT break existing BrowserConnectSheet / BrowserSignSheet flows.
+- Do NOT change WalletConnect client.ts exports; only call connect(uri) from context.
+- Any errors must be caught and logged; never crash.
+
+After changes, run typecheck/build and ensure no lint/type errors.
