@@ -73,9 +73,9 @@ async function fetchMoralisTokenBalances(
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 8000);
   
-  let response: Response;
+  let fetchRes: globalThis.Response;
   try {
-    response = await fetch(url, {
+    fetchRes = await fetch(url, {
       headers: {
         "Accept": "application/json",
         "X-API-Key": apiKey,
@@ -91,13 +91,13 @@ async function fetchMoralisTokenBalances(
   }
   clearTimeout(timeoutId);
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error(`[EVM API] Moralis error: ${response.status}`, errorText);
-    throw new Error(`MORALIS_STATUS:${response.status}`);
+  if (!fetchRes.ok) {
+    const errorText = await fetchRes.text();
+    console.error(`[EVM API] Moralis error: ${fetchRes.status}`, errorText);
+    throw new Error(`MORALIS_STATUS:${fetchRes.status}`);
   }
 
-  const data = await response.json();
+  const data = await fetchRes.json();
   const tokens: TokenDiscoveryToken[] = [];
 
   if (Array.isArray(data)) {

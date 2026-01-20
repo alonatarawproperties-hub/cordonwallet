@@ -164,7 +164,7 @@ export function usePortfolio(address: string | undefined, networkId: NetworkId) 
       try {
         const discoveryUrl = new URL(`/api/evm/${chainId}/${address}/tokens`, apiUrl);
         const discoveryResponse = await fetch(discoveryUrl.toString(), {
-          signal: AbortSignal.timeout(8000),
+          signal: AbortSignal.timeout(10000),
         });
         
         if (!isFetchValid()) return;
@@ -191,11 +191,34 @@ export function usePortfolio(address: string | undefined, networkId: NetworkId) 
             }
           }
         } else {
-          console.log("[Portfolio] Discovery API failed, falling back to hardcoded list");
+          let errorCode = "UNKNOWN";
+          let errorMessage = `HTTP ${discoveryResponse.status}`;
+          let retryAfterSec: number | undefined;
+          
+          try {
+            const errorData = await discoveryResponse.json();
+            if (errorData.error?.code) {
+              errorCode = errorData.error.code;
+              errorMessage = errorData.error.message || errorMessage;
+              retryAfterSec = errorData.error.retryAfterSec;
+            }
+          } catch {}
+          
+          console.log("[Portfolio] Discovery API failed", {
+            status: discoveryResponse.status,
+            code: errorCode,
+            message: errorMessage,
+            retryAfterSec,
+          });
+          
           useDiscoveryApi = false;
         }
-      } catch (discoveryError) {
-        console.log("[Portfolio] Discovery API error, falling back to hardcoded list:", discoveryError);
+      } catch (discoveryError: any) {
+        const isTimeout = discoveryError.name === "TimeoutError" || discoveryError.name === "AbortError";
+        console.log("[Portfolio] Discovery API error", {
+          type: isTimeout ? "timeout" : "network",
+          message: discoveryError.message,
+        });
         useDiscoveryApi = false;
       }
 
