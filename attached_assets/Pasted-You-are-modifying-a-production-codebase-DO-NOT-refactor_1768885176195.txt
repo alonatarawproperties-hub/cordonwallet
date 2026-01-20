@@ -1,0 +1,63 @@
+You are modifying a production codebase. DO NOT refactor, DO NOT rename unrelated types, DO NOT “clean up”. Make minimal, targeted changes only.
+
+Goal:
+1) Arbitrum (chainId 42161) must display the ARBITRUM CHAIN logo (not ETH) anywhere a CHAIN badge/icon is shown.
+2) ETH can remain the native symbol for Arbitrum (that’s correct), but the chain badge/icon must use Arbitrum branding.
+3) The top chain icon row (filters) must include Arbitrum as its own chain chip/icon, like Trust Wallet.
+
+IMPORTANT CONCEPT:
+- “Chain logo” != “native token logo”
+- Arbitrum chain uses ETH as gas, but chain identity/logo must be Arbitrum.
+
+Step A — Add Arbitrum to chain logo mapping (this is missing now)
+File: client/lib/token-logos.ts
+Function: getChainLogoUrl(chainId)
+Add chainId 42161 mapping.
+Use a stable public logo URL OR a local bundled asset fallback.
+
+Use this URL (works well in production):
+"42161": "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/arbitrum/info/logo.png"
+
+Keep existing mappings unchanged.
+
+Step B — Ensure UI uses CHAIN LOGO for chain badges, not native token symbol
+Search for any logic like:
+- getAssetLogoUrl(...) being used for chain badge
+- using nativeSymbol ("ETH") to decide the chain icon
+- any conditional like: if nativeSymbol === "ETH" show ethereum logo
+
+In these screens/components (likely):
+- client/screens/ManageCryptoScreen.tsx
+- client/screens/ReceiveScreen.tsx (or whatever renders the top chain icon row)
+- any component rendering the chain pill/badge (search for “Arbitrum”, “chain badge”, “chain icon”, “getChainLogoUrl”, “nativeSymbol”)
+
+Fix rule:
+- If it’s a CHAIN label/pill/badge/icon → use getChainLogoUrl(chainId) (chainId=42161 => arbitrum logo)
+- If it’s a TOKEN icon (USDC/USDT/etc) → use token.logoURI first, else token icon resolver
+
+Do NOT change token display behavior except chain badges.
+
+Step C — Add Arbitrum to the top chain filter/icon row
+In ManageCryptoScreen, there’s a top row with ETH / POL / BNB / SOL.
+Update the data source that generates those chips to include Arbitrum.
+Do NOT hardcode “ETH” as a chain chip for arbitrum.
+Add an “ARB”/Arbitrum chip:
+- label: "ARB" or "ETH" is NOT correct for chain chip. Use "ARB" (chain shorthand) or "Arbitrum".
+- chainId: 42161
+- icon: getChainLogoUrl(42161)
+
+Same for Receive screen (top chain icons row). Add Arbitrum icon there too.
+
+Step D — Defensive fallback
+If getChainLogoUrl returns null, fallback to a generic globe icon (existing behavior), but for Arbitrum it must not be null after step A.
+
+Step E — Verify
+After changes:
+1) “ETH Arbitrum” row should show Arbitrum chain logo (not Ethereum logo) in the small chain badge.
+2) The top chain icon row should include Arbitrum as its own icon.
+3) Token icons (USDC, USDT etc) should still show token logoURI when available.
+
+Deliverables:
+- Commit minimal code changes only.
+- Print the exact file+line edits you made.
+- Do not touch unrelated code.

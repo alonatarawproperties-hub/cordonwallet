@@ -36,6 +36,7 @@ const chainFilters = [
   { id: "1", name: "ETH", color: "#627EEA" },
   { id: "137", name: "POL", color: "#8247E5" },
   { id: "56", name: "BNB", color: "#F3BA2F" },
+  { id: "42161", name: "ARB", color: "#28A0F0" },
   { id: "solana", name: "SOL", color: "#9945FF" },
 ];
 
