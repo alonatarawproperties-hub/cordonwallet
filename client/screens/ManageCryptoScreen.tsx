@@ -32,12 +32,12 @@ import { ChainBadge } from "@/components/ChainBadge";
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
 const chainFilters = [
-  { id: "all", name: "All", icon: "globe" },
-  { id: "1", name: "ETH", color: "#627EEA" },
-  { id: "137", name: "POL", color: "#8247E5" },
-  { id: "56", name: "BNB", color: "#F3BA2F" },
-  { id: "42161", name: "ARB", color: "#28A0F0" },
-  { id: "solana", name: "SOL", color: "#9945FF" },
+  { id: "all", name: "All", icon: "globe", color: "#6366F1" },
+  { id: "1", name: "ETH", color: "#627EEA", logoUrl: "https://assets.coingecko.com/coins/images/279/small/ethereum.png" },
+  { id: "137", name: "POL", color: "#8247E5", logoUrl: "https://coin-images.coingecko.com/coins/images/32440/small/polygon.png" },
+  { id: "56", name: "BNB", color: "#F3BA2F", logoUrl: "https://assets.coingecko.com/coins/images/825/small/bnb-icon2_2x.png" },
+  { id: "42161", name: "ARB", color: "#28A0F0", logoUrl: "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/arbitrum/info/logo.png" },
+  { id: "solana", name: "SOL", color: "#9945FF", logoUrl: "https://assets.coingecko.com/coins/images/4128/small/solana.png" },
 ];
 
 export default function ManageCryptoScreen() {
@@ -301,38 +301,33 @@ export default function ManageCryptoScreen() {
         </View>
 
         <View style={styles.chainFilters}>
-          {chainFilters.map((chain) => (
-            <Pressable
-              key={chain.id}
-              style={[
-                styles.chainChip,
-                { 
-                  backgroundColor: selectedChain === chain.id 
-                    ? (chain.color || theme.accent) 
-                    : theme.backgroundDefault,
-                },
-              ]}
-              onPress={() => setSelectedChain(chain.id)}
-            >
-              {chain.icon ? (
-                <Feather 
-                  name={chain.icon as any} 
-                  size={14} 
-                  color={selectedChain === chain.id ? "#FFF" : theme.textSecondary} 
-                />
-              ) : (
-                <ThemedText 
-                  type="small" 
-                  style={{ 
-                    color: selectedChain === chain.id ? "#FFF" : theme.text,
-                    fontWeight: "600",
-                  }}
-                >
-                  {chain.name}
-                </ThemedText>
-              )}
-            </Pressable>
-          ))}
+          {chainFilters.map((chain) => {
+            const isSelected = selectedChain === chain.id;
+            return (
+              <Pressable
+                key={chain.id}
+                style={[
+                  styles.chainChipCircle,
+                  { 
+                    borderColor: isSelected ? chain.color : "transparent",
+                    borderWidth: isSelected ? 2 : 0,
+                  },
+                ]}
+                onPress={() => setSelectedChain(chain.id)}
+              >
+                {chain.icon ? (
+                  <View style={[styles.chainIconCircle, { backgroundColor: chain.color }]}>
+                    <Feather name={chain.icon as any} size={18} color="#FFF" />
+                  </View>
+                ) : (
+                  <Image 
+                    source={{ uri: chain.logoUrl }} 
+                    style={styles.chainLogoImage}
+                  />
+                )}
+              </Pressable>
+            );
+          })}
         </View>
 
         {isLoading || isLoadingPrefs ? (
@@ -391,6 +386,26 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.sm,
     borderRadius: 20,
+  },
+  chainChipCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 2,
+  },
+  chainIconCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  chainLogoImage: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
   },
   assetRow: {
     flexDirection: "row",
