@@ -1,7 +1,7 @@
 # Cordon
 
 ## Overview
-Cordon is a production-grade, non-custodial EVM and Solana wallet application distributed as a monorepo, featuring a React Native mobile app and an Express backend. Its core purpose is to provide secure, user-friendly cryptocurrency management with advanced features. Key functionalities include a Wallet Firewall for pre-transaction analysis and policy enforcement, Bundles for multi-wallet batch operations, and an AI Explainer for simplifying transaction details and assessing risks. It supports major EVM networks (Ethereum, Polygon, BNB Chain) and Solana, deriving both EVM and Solana addresses from a single mnemonic. All key generation and storage are securely handled on-device.
+Cordon is a production-grade, non-custodial EVM and Solana wallet application distributed as a monorepo, featuring a React Native mobile app and an Express backend. Its core purpose is to provide secure, user-friendly cryptocurrency management with advanced features. Key functionalities include a Wallet Firewall for pre-transaction analysis and policy enforcement, Bundles for multi-wallet batch operations, and an AI Explainer for simplifying transaction details and assessing risks. It supports major EVM networks (Ethereum, Polygon, BNB Chain, Arbitrum, Base) and Solana, deriving both EVM and Solana addresses from a single mnemonic. All key generation and storage are securely handled on-device.
 
 ## User Preferences
 Preferred communication style: Simple, everyday language.
@@ -35,7 +35,7 @@ The project is organized into `/client` (React Native frontend), `/server` (Expr
 - **Session Management**: On-demand decryption of vaults for signing, with clear lock/unlock mechanisms.
 
 ### Blockchain Interaction
-- **Multi-Chain Support**: Configuration for supported EVM chains (Ethereum, Polygon, BSC, Arbitrum) and Solana.
+- **Multi-Chain Support**: Configuration for supported EVM chains (Ethereum, Polygon, BSC, Arbitrum, Base) and Solana.
 - **RPC Clients**: `viem` for EVM and `@solana/web3.js` for Solana, including caching and error handling.
 - **Portfolio Management**: Unified view of EVM and Solana assets with real-time balance fetching and price enrichment.
 - **Transaction Handling**: Supports native, ERC-20, and SPL token transfers, approvals, and signing with gas estimation and EIP-1559.
@@ -155,7 +155,7 @@ The project is organized into `/client` (React Native frontend), `/server` (Expr
   - `GET /api/evm/:chainId/:address/tokens` - Discovers all ERC-20 tokens held by address
   - `GET /api/evm/:chainId/token-security/:tokenAddress` - Security scan for EVM tokens
   - `GET /api/evm/:chainId/:address/approvals` - Lists all token approvals for address
-- **Supported Chains**: Ethereum (1), Polygon (137), BSC (56), Arbitrum (42161)
+- **Supported Chains**: Ethereum (1), Polygon (137), BSC (56), Arbitrum (42161), Base (8453)
 - **Caching**: 60-second cache for token discovery, 5-minute cache for security scans
 - **Fallback**: Falls back to hardcoded token list when discovery API fails
 - **Required Secret**: MORALIS_API_KEY (optional, enhances token discovery)
@@ -173,7 +173,7 @@ The project is organized into `/client` (React Native frontend), `/server` (Expr
 - **Endpoints**:
   - `GET /api/transactions/:address` - Fetches native transactions (legacy, supports ?type=tokentx for ERC-20)
   - `GET /api/transactions/:address/all` - Fetches both native and ERC-20 token transactions combined
-- **Supported Chains**: Ethereum (1), Polygon (137), BSC (56), Arbitrum (42161)
+- **Supported Chains**: Ethereum (1), Polygon (137), BSC (56), Arbitrum (42161), Base (8453)
 - **Features**: Uses Etherscan V2 unified API with chainid parameter for multi-chain support
 - **Transaction Types**: Returns combined native + ERC-20 token transfers, sorted by timestamp
 - **Client Integration**: `fetchTransactionHistory()` automatically fetches all transaction types for EVM chains
