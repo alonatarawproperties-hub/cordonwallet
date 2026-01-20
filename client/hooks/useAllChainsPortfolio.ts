@@ -354,6 +354,7 @@ export function useAllChainsPortfolio(address: string | undefined) {
               1: "ethereum",
               137: "polygon",
               56: "bsc",
+              42161: "arbitrum",
             };
 
             tokensWithoutPrice.forEach((asset) => {
