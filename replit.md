@@ -165,5 +165,5 @@ The project is organized into `/client` (React Native frontend), `/server` (Expr
   - `MORALIS_RATE_LIMITED` (429): Rate limited, includes Retry-After header
   - `MORALIS_UPSTREAM_ERROR` (502): Moralis API error or unavailable
   - `MORALIS_NOT_CONFIGURED` (503): MORALIS_API_KEY not set
-  - `TIMEOUT` (504): Request timed out (8s limit)
+  - `MORALIS_TIMEOUT` (504): Request timed out (8s limit)
 - **Client Behavior**: Logs error details and gracefully falls back to hardcoded token list

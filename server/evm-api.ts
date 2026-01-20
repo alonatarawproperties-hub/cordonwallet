@@ -448,7 +448,7 @@ export function registerEvmRoutes(app: Express): void {
         return res.status(504).json({
           ok: false,
           error: {
-            code: "TIMEOUT",
+            code: "MORALIS_TIMEOUT",
             message: "Token discovery timed out",
           },
         });
