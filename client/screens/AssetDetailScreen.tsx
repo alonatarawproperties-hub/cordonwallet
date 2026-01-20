@@ -293,95 +293,31 @@ export default function AssetDetailScreen({ route }: Props) {
   const calculatePnlData = () => {
     if (!priceUsd) return;
     
-    // Parse balance, removing commas if present
-    const balanceStr = String(balance).replace(/,/g, '');
+    // Parse balance, removing commas and special characters
+    const balanceStr = String(balance).replace(/[<>,]/g, '');
     const balanceNum = parseFloat(balanceStr) || 0;
-    if (balanceNum <= 0 && transactions.length === 0) return;
-    
-    const sortedTxs = [...transactions].sort((a, b) => a.createdAt - b.createdAt);
-    const dataPoints: { timestamp: number; value: number }[] = [];
-    
-    const priceYesterday = priceUsd / (1 + (priceChange24h || 0) / 100);
+    if (balanceNum <= 0) {
+      setPnlData([]);
+      return;
+    }
     
     // Calculate 24h PnL based on current balance and price change
+    // This is reliable since we have accurate current price and 24h change data
+    const priceYesterday = priceUsd / (1 + (priceChange24h || 0) / 100);
     const currentValue = balanceNum * priceUsd;
     const valueYesterday = balanceNum * priceYesterday;
     const pnl24h = currentValue - valueYesterday;
     
-    // Try transaction-based PnL calculation
-    let cumulativeTokens = 0;
-    let cumulativeCost = 0;
-    let hasReceives = false;
+    const now = Date.now();
+    const yesterday = now - 24 * 60 * 60 * 1000;
     
-    // Determine the symbol we're viewing for swap direction detection
-    const viewingSymbol = isNative ? "SOL" : tokenSymbol;
+    // Create simple 24h P&L chart data
+    const pnlPoints: { timestamp: number; value: number }[] = [
+      { timestamp: yesterday, value: 0 },
+      { timestamp: now, value: pnl24h },
+    ];
     
-    for (const tx of sortedTxs) {
-      const amountStr = String(tx.amount).replace(/,/g, '');
-      const amount = parseFloat(amountStr) || 0;
-      const txPrice = tx.priceUsd || priceYesterday;
-      
-      // Determine effective direction for the token being viewed
-      let isReceive = tx.activityType === "receive";
-      let isSend = tx.activityType === "send";
-      
-      // For swap transactions, check swapInfo to determine direction
-      if (tx.activityType === "swap" && tx.swapInfo) {
-        if (tx.swapInfo.toSymbol === viewingSymbol) {
-          // User received this token in the swap
-          isReceive = true;
-          isSend = false;
-        } else if (tx.swapInfo.fromSymbol === viewingSymbol) {
-          // User sent this token in the swap
-          isReceive = false;
-          isSend = true;
-        }
-      }
-      
-      if (isReceive) {
-        cumulativeTokens += amount;
-        cumulativeCost += amount * txPrice;
-        hasReceives = true;
-      } else if (isSend) {
-        const avgCost = cumulativeTokens > 0 ? cumulativeCost / cumulativeTokens : 0;
-        cumulativeTokens = Math.max(0, cumulativeTokens - amount);
-        cumulativeCost = Math.max(0, cumulativeCost - amount * avgCost);
-      }
-      
-      const txCurrentValue = cumulativeTokens * priceUsd;
-      const pnl = txCurrentValue - cumulativeCost;
-      
-      dataPoints.push({
-        timestamp: tx.createdAt,
-        value: pnl,
-      });
-    }
-    
-    // Only use transaction-based PnL if we have meaningful data
-    // (i.e., we tracked receives and the calculated balance is close to actual balance)
-    const useTxBasedPnl = hasReceives && 
-      Math.abs(cumulativeTokens - balanceNum) < balanceNum * 0.1; // Within 10% tolerance
-    
-    if (useTxBasedPnl && dataPoints.length > 0) {
-      const finalPnl = dataPoints[dataPoints.length - 1].value;
-      dataPoints.push({
-        timestamp: Date.now(),
-        value: finalPnl,
-      });
-      setPnlData(dataPoints);
-    } else if (balanceNum > 0) {
-      // Use 24h price change-based PnL as fallback
-      const now = Date.now();
-      const yesterday = now - 24 * 60 * 60 * 1000;
-      
-      const fallbackData: { timestamp: number; value: number }[] = [];
-      fallbackData.push({ timestamp: yesterday, value: 0 });
-      fallbackData.push({ timestamp: now, value: pnl24h });
-      
-      setPnlData(fallbackData);
-    } else {
-      setPnlData([]);
-    }
+    setPnlData(pnlPoints);
   };
 
   const loadTransactionHistory = async () => {
@@ -556,10 +492,9 @@ export default function AssetDetailScreen({ route }: Props) {
   ];
 
   const totalPnl = pnlData.length > 0 ? pnlData[pnlData.length - 1].value : 0;
-  const balanceNum = parseFloat(String(balance)) || 0;
-  const currentValue = balanceNum * (priceUsd || 0);
-  const costBasis = currentValue - totalPnl;
-  const pnlPercent = costBasis > 0 ? (totalPnl / costBasis) * 100 : (transactions.length > 0 ? 0 : priceChange24h || 0);
+  const balanceNumDisplay = parseFloat(String(balance).replace(/[<>,]/g, '')) || 0;
+  const currentValue = balanceNumDisplay * (priceUsd || 0);
+  const pnlPercent = priceChange24h || 0;
 
   const renderHoldingsTab = () => (
     <View style={styles.tabContent}>
