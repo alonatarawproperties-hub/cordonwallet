@@ -136,7 +136,7 @@ export default function PrivateKeyExportScreen({ navigation, route }: Props) {
                 EVM Networks
               </ThemedText>
               <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                ETH, Polygon, BSC
+                ETH, Polygon, BSC, ARB, Base
               </ThemedText>
             </View>
             <View style={[styles.keyBox, { backgroundColor: theme.backgroundRoot }]}>

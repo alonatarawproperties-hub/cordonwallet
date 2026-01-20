@@ -1,4 +1,4 @@
-export type NetworkId = "ethereum" | "polygon" | "bsc" | "arbitrum" | "solana";
+export type NetworkId = "ethereum" | "polygon" | "bsc" | "arbitrum" | "base" | "solana";
 export type ChainType = "evm" | "solana";
 
 export interface Network {
@@ -134,7 +134,16 @@ export const NETWORKS: Record<NetworkId, Network> = {
     rpcUrl: "https://arb1.arbitrum.io/rpc",
     explorerUrl: "https://arbiscan.io",
     nativeSymbol: "ETH",
-    color: "#28A0F0",
+    color: "#12AAFF",
+  },
+  base: {
+    id: "base",
+    name: "Base",
+    chainId: 8453,
+    rpcUrl: "https://base-rpc.publicnode.com",
+    explorerUrl: "https://basescan.org",
+    nativeSymbol: "ETH",
+    color: "#0052FF",
   },
   solana: {
     id: "solana",

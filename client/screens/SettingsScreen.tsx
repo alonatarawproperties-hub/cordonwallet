@@ -50,6 +50,8 @@ export default function SettingsScreen() {
     { name: "Ethereum", symbol: "ETH", color: "#627EEA", logoUrl: "https://assets.coingecko.com/coins/images/279/small/ethereum.png" },
     { name: "Polygon", symbol: "POL", color: "#8247E5", logoUrl: "https://coin-images.coingecko.com/coins/images/32440/small/polygon.png" },
     { name: "BNB Chain", symbol: "BNB", color: "#F3BA2F", logoUrl: "https://assets.coingecko.com/coins/images/825/small/bnb-icon2_2x.png" },
+    { name: "Arbitrum", symbol: "ETH", color: "#12AAFF", logoUrl: "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/arbitrum/info/logo.png" },
+    { name: "Base", symbol: "ETH", color: "#0052FF", logoUrl: "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/base/info/logo.png" },
     { name: "Solana", symbol: "SOL", color: "#9945FF", logoUrl: "https://assets.coingecko.com/coins/images/4128/small/solana.png" },
   ];
 
@@ -259,7 +261,7 @@ export default function SettingsScreen() {
     { title: "Manage Wallets", subtitle: `${activeWallet?.name || "No wallet"}`, icon: "credit-card", onPress: () => navigation.navigate("WalletManager") },
     { title: "Token Approvals", subtitle: "Manage contract approvals", icon: "check-circle", onPress: () => navigation.navigate("Approvals") },
     { title: "WalletConnect", subtitle: "Connect to dApps", icon: "link", onPress: () => navigation.navigate("WalletConnect") },
-    { title: "Networks", subtitle: "Ethereum, Polygon, BSC, Solana", icon: "globe", onPress: () => setShowNetworks(!showNetworks), expandable: true },
+    { title: "Networks", subtitle: "ETH, Polygon, BSC, ARB, Base, SOL", icon: "globe", onPress: () => setShowNetworks(!showNetworks), expandable: true },
   ];
 
   const aboutItems = [

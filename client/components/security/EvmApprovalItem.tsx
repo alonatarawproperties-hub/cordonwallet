@@ -31,6 +31,8 @@ function getChainBadgeColor(chainId: number): string {
     1: "#627EEA",
     137: "#8247E5",
     56: "#F3BA2F",
+    42161: "#12AAFF",
+    8453: "#0052FF",
   };
   return colors[chainId] || "#888";
 }

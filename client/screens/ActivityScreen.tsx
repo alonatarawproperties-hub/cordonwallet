@@ -31,6 +31,8 @@ const NETWORK_TO_CHAIN_ID: Record<NetworkId, number> = {
   ethereum: 1,
   polygon: 137,
   bsc: 56,
+  arbitrum: 42161,
+  base: 8453,
   solana: 0,
 };
 

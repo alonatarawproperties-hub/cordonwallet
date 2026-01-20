@@ -34,11 +34,22 @@ interface NetworkOption {
   color: string;
 }
 
+function getChainColor(chainId: number): string {
+  switch (chainId) {
+    case 1: return "#627EEA";
+    case 137: return "#8247E5";
+    case 56: return "#F3BA2F";
+    case 42161: return "#12AAFF";
+    case 8453: return "#0052FF";
+    default: return "#888888";
+  }
+}
+
 const networkOptions: NetworkOption[] = [
   ...supportedChains.filter((c: ChainConfig) => !c.isTestnet).map((c: ChainConfig) => ({
     id: c.chainId,
     name: c.name,
-    color: c.chainId === 1 ? "#627EEA" : c.chainId === 137 ? "#8247E5" : "#F3BA2F",
+    color: getChainColor(c.chainId),
   })),
   { id: "solana", name: "Solana", color: "#9945FF" },
 ];

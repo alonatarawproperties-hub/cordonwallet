@@ -5,7 +5,7 @@ import { ThemedText } from "@/components/ThemedText";
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius } from "@/constants/theme";
 
-export type NetworkId = "ethereum" | "polygon" | "bsc" | "solana";
+export type NetworkId = "ethereum" | "polygon" | "bsc" | "arbitrum" | "base" | "solana";
 
 interface NetworkBadgeProps {
   networkId: NetworkId;
@@ -17,6 +17,8 @@ const NETWORK_CONFIG: Record<NetworkId, { name: string; color: string }> = {
   ethereum: { name: "Ethereum", color: "#627EEA" },
   polygon: { name: "Polygon", color: "#8247E5" },
   bsc: { name: "BSC", color: "#F0B90B" },
+  arbitrum: { name: "Arbitrum", color: "#12AAFF" },
+  base: { name: "Base", color: "#0052FF" },
   solana: { name: "Solana", color: "#9945FF" },
 };
 
