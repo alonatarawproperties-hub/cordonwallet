@@ -44,6 +44,8 @@ export function getChainLogoUrl(chainId: number | string): string | null {
     "1": "https://assets.coingecko.com/coins/images/279/small/ethereum.png",
     "137": "https://coin-images.coingecko.com/coins/images/32440/small/polygon.png",
     "56": "https://assets.coingecko.com/coins/images/825/small/bnb-icon2_2x.png",
+    "42161": "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/arbitrum/info/logo.png",
+    "arbitrum": "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/arbitrum/info/logo.png",
     "solana": "https://assets.coingecko.com/coins/images/4128/small/solana.png",
   };
   return chainLogos[chainId.toString()] || null;

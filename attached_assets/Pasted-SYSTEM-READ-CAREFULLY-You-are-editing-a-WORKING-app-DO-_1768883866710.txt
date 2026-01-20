@@ -1,0 +1,155 @@
+SYSTEM / READ CAREFULLY:
+You are editing a WORKING app. DO NOT refactor. DO NOT rename types. DO NOT touch swaps/auth/portfolio hooks/token discovery. DO NOT “cleanup”. ONLY fix icons/logos UI in Manage Crypto + Receive lists. Make minimal, production-safe diffs.
+
+GOAL (match TrustWallet behavior):
+1) Arbitrum (chainId 42161) must have a chain logo (currently missing).
+2) For token rows, show TOKEN icon as main icon, then show a small CHAIN badge overlay bottom-right (Polygon/BSC/Arbitrum).
+3) Ethereum mainnet (1) should NOT show a badge (because token icon already implies ETH).
+4) Solana should NOT show a badge (different icon system).
+5) If token logoURI exists, use it. If not, fallback to existing placeholder logic.
+
+────────────────────────────────────────
+A) Add Arbitrum chain logo mapping
+File: client/lib/token-logos.ts
+Find getChainLogoUrl() and add Arbitrum mappings to chainLogos.
+
+Use this stable production URL (TrustWallet repo):
+https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/arbitrum/info/logo.png
+
+PATCH (ONLY add these entries; keep everything else unchanged):
+const chainLogos: Record<string, string> = {
+  "1": "...",
+  "137": "...",
+  "56": "...",
+  "42161": "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/arbitrum/info/logo.png",
+  "arbitrum": "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/arbitrum/info/logo.png",
+  "solana": "...",
+};
+
+Do NOT change return logic.
+
+────────────────────────────────────────
+B) Create a tiny reusable ChainBadge component
+Create NEW file: client/components/ChainBadge.tsx
+PASTE EXACTLY:
+
+import React from "react";
+import { Image, StyleSheet, View } from "react-native";
+import { getChainLogoUrl } from "../lib/token-logos";
+
+type Props = {
+  chainId?: number | string | null;
+  size?: number;
+};
+
+export function ChainBadge({ chainId, size = 14 }: Props) {
+  if (chainId === undefined || chainId === null) return null;
+  const url = getChainLogoUrl(chainId);
+  if (!url) return null;
+
+  return (
+    <View style={[styles.wrap, { width: size, height: size, borderRadius: size / 2 }]}>
+      <Image
+        source={{ uri: url }}
+        style={{ width: size, height: size, borderRadius: size / 2 }}
+        resizeMode="contain"
+      />
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  wrap: {
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.20)",
+    backgroundColor: "rgba(0,0,0,0.35)",
+  },
+});
+
+────────────────────────────────────────
+C) Apply overlay badge in ManageCryptoScreen list rows
+File: client/screens/ManageCryptoScreen.tsx
+
+1) Import:
+import { ChainBadge } from "../components/ChainBadge";
+
+2) Add styles in StyleSheet (don’t break existing styles):
+iconWrap: { position: "relative", width: 40, height: 40, justifyContent: "center", alignItems: "center" },
+badgePos: { position: "absolute", right: -2, bottom: -2 },
+
+3) In renderItem where the LEFT icon is rendered:
+- Keep current token icon rendering exactly as-is
+- Just wrap it and overlay ChainBadge
+
+Replace:
+{renderTokenIcon(item)}
+with:
+
+<View style={styles.iconWrap}>
+  {renderTokenIcon(item)}
+  {shouldShowBadge ? (
+    <View style={styles.badgePos}>
+      <ChainBadge chainId={badgeChainId} size={14} />
+    </View>
+  ) : null}
+</View>
+
+4) Right above return() inside renderItem, compute badge flags MINIMALLY.
+IMPORTANT: Don’t assume exact field names—support the common ones safely.
+
+Add:
+
+const badgeChainId: any = (item.chainId ?? item.chain ?? item.networkChainId ?? item.networkId ?? null);
+const numericChainId =
+  typeof badgeChainId === "string" ? Number(badgeChainId) : (badgeChainId as number | null);
+
+const isSolana =
+  badgeChainId === "solana" || badgeChainId === "SOL" || item.networkId === "solana";
+
+const isPolygon = numericChainId === 137 || badgeChainId === "polygon";
+const isBsc = numericChainId === 56 || badgeChainId === "bsc" || badgeChainId === "BNB";
+const isArb = numericChainId === 42161 || badgeChainId === "arbitrum";
+
+const shouldShowBadge = !isSolana && (isPolygon || isBsc || isArb);
+
+DO NOT show badge for chainId 1.
+
+5) Ensure token icon uses Moralis logoURI if present:
+Inside renderTokenIcon(item) (or wherever icon source is selected),
+if item.logoURI exists, use it FIRST before fallback.
+DO NOT change any fetch/hook logic, only the Image source resolution.
+
+────────────────────────────────────────
+D) Apply the same overlay badge in the Receive screen list
+Find the Receive screen file that renders the list shown in screenshot (title “Receive”).
+Common filenames: client/screens/ReceiveScreen.tsx, client/screens/Receive.tsx, client/screens/ReceiveModal.tsx
+
+DO THIS:
+1) Import ChainBadge
+2) Add iconWrap + badgePos styles (reuse or add)
+3) Wrap the existing left icon with the same overlay block
+4) Use the same badgeChainId + shouldShowBadge logic (Polygon/BSC/Arbitrum only)
+
+DO NOT change QR/copy actions, and DO NOT change list filtering/search.
+
+If you can’t locate the exact Receive screen file, STOP and report:
+- the filename(s) you found containing “Receive”
+- the component name that renders the token rows
+Do not guess.
+
+────────────────────────────────────────
+E) What “done” looks like
+- Manage Crypto: the “ETH Arbitrum” row displays ETH icon + small Arbitrum badge bottom-right.
+- Receive list: Arbitrum tokens show their token icon (or placeholder) + Arbitrum badge.
+- Polygon/BSC show badges.
+- Ethereum mainnet tokens show NO badge.
+- Solana shows NO badge.
+
+ONLY these files should change:
+- client/lib/token-logos.ts
+- client/components/ChainBadge.tsx (new)
+- client/screens/ManageCryptoScreen.tsx
+- Receive screen file (whatever it is)
+
+Proceed with minimal diffs now.
