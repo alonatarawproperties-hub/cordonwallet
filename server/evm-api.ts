@@ -9,7 +9,21 @@ const CHAIN_ID_TO_MORALIS: Record<number, string> = {
   42161: "arbitrum",
 };
 
+const CHAIN_ID_TO_TRUSTWALLET: Record<number, string> = {
+  1: "ethereum",
+  56: "smartchain",
+  137: "polygon",
+  42161: "arbitrum",
+};
+
 const VALID_CHAIN_IDS = [1, 56, 137, 42161];
+
+function getTrustWalletLogoUrl(chainId: number, tokenAddress: string): string {
+  const chain = CHAIN_ID_TO_TRUSTWALLET[chainId];
+  if (!chain) return "";
+  const checksumAddress = tokenAddress.toLowerCase();
+  return `https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/${chain}/assets/${checksumAddress}/logo.png`;
+}
 
 interface TokenDiscoveryToken {
   address: string;
@@ -108,12 +122,15 @@ async function fetchMoralisTokenBalances(
         BigInt(balanceRaw) / BigInt(10 ** Math.min(decimals, 18))
       ).toString();
 
+      const moralisLogo = token.logo || token.thumbnail || null;
+      const fallbackLogo = moralisLogo ? null : getTrustWalletLogoUrl(chainId, token.token_address);
+      
       tokens.push({
         address: token.token_address,
         symbol: token.symbol || "???",
         name: token.name || "Unknown Token",
         decimals,
-        logoURI: token.logo || token.thumbnail || null,
+        logoURI: moralisLogo || fallbackLogo || null,
         balanceRaw,
         balanceFormatted: formatTokenBalance(balanceRaw, decimals),
         priceUsd: token.usd_price || null,

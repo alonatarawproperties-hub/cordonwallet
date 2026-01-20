@@ -253,6 +253,7 @@ export default function PortfolioScreen() {
     const evmAssets: UnifiedAsset[] = walletType === "solana-only" ? [] : evmPortfolio.assets.map((a) => ({
       ...a,
       chainType: "evm" as ChainType,
+      logoUrl: a.logoURI,
     }));
     
     const solAssets: UnifiedAsset[] = solanaPortfolio.assets.map((a) => {
