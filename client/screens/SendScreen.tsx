@@ -270,11 +270,12 @@ export default function SendScreen({ navigation, route }: Props) {
 
   const renderTokenItem = ({ item }: { item: UnifiedAsset }) => {
     const logoUrl = getTokenLogoUrl(item, customTokens);
-    const valueFormatted = item.valueUsd 
-      ? `$${item.valueUsd.toFixed(2)}`
-      : item.priceUsd 
-        ? `$${(item.priceUsd * parseFloat(item.balance.replace(/,/g, ""))).toFixed(2)}`
-        : "$0.00";
+    const cleanBalance = item.balance.replace(/[<>,]/g, "").trim();
+    const balanceNum = parseFloat(cleanBalance) || 0;
+    const calculatedValue = item.valueUsd ?? (item.priceUsd ? item.priceUsd * balanceNum : 0);
+    const valueFormatted = isNaN(calculatedValue) || calculatedValue === 0 
+      ? "$0.00" 
+      : `$${calculatedValue.toFixed(2)}`;
 
     return (
       <Pressable
