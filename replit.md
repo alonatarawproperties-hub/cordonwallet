@@ -35,7 +35,7 @@ The project is organized into `/client` (React Native frontend), `/server` (Expr
 - **Session Management**: On-demand decryption of vaults for signing, with clear lock/unlock mechanisms.
 
 ### Blockchain Interaction
-- **Multi-Chain Support**: Configuration for supported EVM chains (Ethereum, Polygon, BSC) and Solana.
+- **Multi-Chain Support**: Configuration for supported EVM chains (Ethereum, Polygon, BSC, Arbitrum) and Solana.
 - **RPC Clients**: `viem` for EVM and `@solana/web3.js` for Solana, including caching and error handling.
 - **Portfolio Management**: Unified view of EVM and Solana assets with real-time balance fetching and price enrichment.
 - **Transaction Handling**: Supports native, ERC-20, and SPL token transfers, approvals, and signing with gas estimation and EIP-1559.
@@ -84,6 +84,7 @@ The project is organized into `/client` (React Native frontend), `/server` (Expr
 - **DexScreener API**: Fallback for long-tail token prices.
 - **Jupiter API**: Solana swap quotes and transaction building.
 - **Pumpportal.fun API**: For Pump.fun bonding curve trades.
+- **Moralis API**: EVM token discovery and security scanning (optional, falls back to hardcoded list).
 
 ### Database
 - **PostgreSQL**: Used with Drizzle ORM.
@@ -147,3 +148,14 @@ The project is organized into `/client` (React Native frontend), `/server` (Expr
     - LOW risk: No modal, proceeds directly to swap
 - **Caching**: Uses V2 service cache (5-minute TTL)
 - **Integration**: Hook returns legacy interface for backward compatibility
+
+### EVM Token Discovery & Security (Moralis Integration)
+- **Files**: `server/evm-api.ts`
+- **Endpoints**:
+  - `GET /api/evm/:chainId/:address/tokens` - Discovers all ERC-20 tokens held by address
+  - `GET /api/evm/:chainId/token-security/:tokenAddress` - Security scan for EVM tokens
+  - `GET /api/evm/:chainId/:address/approvals` - Lists all token approvals for address
+- **Supported Chains**: Ethereum (1), Polygon (137), BSC (56), Arbitrum (42161)
+- **Caching**: 60-second cache for token discovery, 5-minute cache for security scans
+- **Fallback**: Falls back to hardcoded token list when MORALIS_API_KEY not configured
+- **Required Secret**: MORALIS_API_KEY (optional, enhances token discovery)
