@@ -150,12 +150,20 @@ The project is organized into `/client` (React Native frontend), `/server` (Expr
 - **Integration**: Hook returns legacy interface for backward compatibility
 
 ### EVM Token Discovery & Security (Moralis Integration)
-- **Files**: `server/evm-api.ts`
+- **Files**: `server/evm-api.ts`, `client/hooks/usePortfolio.ts`
 - **Endpoints**:
   - `GET /api/evm/:chainId/:address/tokens` - Discovers all ERC-20 tokens held by address
   - `GET /api/evm/:chainId/token-security/:tokenAddress` - Security scan for EVM tokens
   - `GET /api/evm/:chainId/:address/approvals` - Lists all token approvals for address
 - **Supported Chains**: Ethereum (1), Polygon (137), BSC (56), Arbitrum (42161)
 - **Caching**: 60-second cache for token discovery, 5-minute cache for security scans
-- **Fallback**: Falls back to hardcoded token list when MORALIS_API_KEY not configured
+- **Fallback**: Falls back to hardcoded token list when discovery API fails
 - **Required Secret**: MORALIS_API_KEY (optional, enhances token discovery)
+- **Error Response Format**: `{ ok: false, error: { code, message, retryAfterSec?, upstreamStatus? } }`
+- **Error Codes**:
+  - `BAD_REQUEST` (400): Invalid chainId or address format
+  - `MORALIS_RATE_LIMITED` (429): Rate limited, includes Retry-After header
+  - `MORALIS_UPSTREAM_ERROR` (502): Moralis API error or unavailable
+  - `MORALIS_NOT_CONFIGURED` (503): MORALIS_API_KEY not set
+  - `TIMEOUT` (504): Request timed out (8s limit)
+- **Client Behavior**: Logs error details and gracefully falls back to hardcoded token list
