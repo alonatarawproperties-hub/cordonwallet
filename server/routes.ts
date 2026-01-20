@@ -83,6 +83,7 @@ const DEXSCREENER_CHAIN_IDS: Record<number | string, string> = {
   1: "ethereum",
   137: "polygon",
   56: "bsc",
+  42161: "arbitrum",
   "solana": "solana",
 };
 
@@ -90,15 +91,17 @@ const NATIVE_TOKEN_IDS: Record<number | string, string> = {
   1: "ethereum",
   137: "polygon-ecosystem-token",
   56: "binancecoin",
+  42161: "ethereum",
   "solana": "solana",
 };
 
-const EXTRA_TOKEN_IDS = ["bitcoin"];
+const EXTRA_TOKEN_IDS = ["bitcoin", "arbitrum"];
 
 const CHAIN_PLATFORM_IDS: Record<number, string> = {
   1: "ethereum",
   137: "polygon-pos",
   56: "binance-smart-chain",
+  42161: "arbitrum-one",
 };
 
 interface PriceData {
@@ -417,6 +420,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       if (data["binancecoin"]?.usd) {
         prices["BNB"] = { price: data["binancecoin"].usd, change24h: data["binancecoin"].usd_24h_change };
+      }
+      if (data["arbitrum"]?.usd) {
+        prices["ARB"] = { price: data["arbitrum"].usd, change24h: data["arbitrum"].usd_24h_change };
       }
       if (data["solana"]?.usd) {
         prices["SOL"] = { price: data["solana"].usd, change24h: data["solana"].usd_24h_change };

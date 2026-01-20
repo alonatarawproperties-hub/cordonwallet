@@ -16,6 +16,7 @@ export interface PortfolioAsset {
   isNative: boolean;
   address?: string;
   priceUsd?: number;
+  logoURI?: string | null;
 }
 
 export interface PortfolioState {
@@ -157,60 +158,102 @@ export function usePortfolio(address: string | undefined, networkId: NetworkId) 
         });
       }
 
-      const tokens = getTokensForChain(chainId);
-      
-      const tokenResults = await Promise.allSettled(
-        tokens.map(token => 
-          getERC20Balance({
-            tokenAddress: token.address,
-            owner: address,
-            chainId,
-            decimals: token.decimals,
-            symbol: token.symbol,
-          })
-        )
-      );
+      let useDiscoveryApi = true;
+      const apiUrl = getApiUrl();
 
-      if (!isFetchValid()) return;
+      try {
+        const discoveryUrl = new URL(`/api/evm/${chainId}/${address}/tokens`, apiUrl);
+        const discoveryResponse = await fetch(discoveryUrl.toString(), {
+          signal: AbortSignal.timeout(8000),
+        });
+        
+        if (!isFetchValid()) return;
 
-      let tokenErrors = 0;
-      tokenResults.forEach((result, index) => {
-        if (result.status === "fulfilled") {
-          if (isBalanceError(result.value)) {
-            tokenErrors++;
-          } else {
-            const token = tokens[index];
-            const balanceResult = result.value as BalanceResult;
-            if (balanceResult.raw > 0n) {
+        if (discoveryResponse.ok) {
+          const discoveryData = await discoveryResponse.json();
+          const discoveredTokens = discoveryData.tokens || [];
+          
+          console.log(`[Portfolio] Discovery API found ${discoveredTokens.length} tokens`);
+          
+          for (const token of discoveredTokens) {
+            if (token.balanceRaw && BigInt(token.balanceRaw) > 0n) {
               assets.push({
                 symbol: token.symbol,
                 name: token.name,
-                balance: formatBalance(balanceResult.formatted),
-                rawBalance: balanceResult.raw,
+                balance: token.balanceFormatted || formatBalance(token.balanceRaw),
+                rawBalance: BigInt(token.balanceRaw),
                 decimals: token.decimals,
                 isNative: false,
                 address: token.address,
+                priceUsd: token.priceUsd || undefined,
+                logoURI: token.logoURI,
               });
             }
           }
         } else {
-          tokenErrors++;
+          console.log("[Portfolio] Discovery API failed, falling back to hardcoded list");
+          useDiscoveryApi = false;
         }
-      });
+      } catch (discoveryError) {
+        console.log("[Portfolio] Discovery API error, falling back to hardcoded list:", discoveryError);
+        useDiscoveryApi = false;
+      }
 
-      if (tokenErrors > 0 && !hasRpcError) {
-        errorMessage = `Failed to load ${tokenErrors} token${tokenErrors > 1 ? "s" : ""}`;
+      if (!useDiscoveryApi) {
+        const tokens = getTokensForChain(chainId);
+        
+        const tokenResults = await Promise.allSettled(
+          tokens.map(token => 
+            getERC20Balance({
+              tokenAddress: token.address,
+              owner: address,
+              chainId,
+              decimals: token.decimals,
+              symbol: token.symbol,
+            })
+          )
+        );
+
+        if (!isFetchValid()) return;
+
+        let tokenErrors = 0;
+        tokenResults.forEach((result, index) => {
+          if (result.status === "fulfilled") {
+            if (isBalanceError(result.value)) {
+              tokenErrors++;
+            } else {
+              const token = tokens[index];
+              const balanceResult = result.value as BalanceResult;
+              if (balanceResult.raw > 0n) {
+                assets.push({
+                  symbol: token.symbol,
+                  name: token.name,
+                  balance: formatBalance(balanceResult.formatted),
+                  rawBalance: balanceResult.raw,
+                  decimals: token.decimals,
+                  isNative: false,
+                  address: token.address,
+                });
+              }
+            }
+          } else {
+            tokenErrors++;
+          }
+        });
+
+        if (tokenErrors > 0 && !hasRpcError) {
+          errorMessage = `Failed to load ${tokenErrors} token${tokenErrors > 1 ? "s" : ""}`;
+        }
       }
 
       try {
-        const apiUrl = getApiUrl();
         const priceUrl = new URL("/api/prices", apiUrl);
         const priceResponse = await fetch(priceUrl.toString());
         if (priceResponse.ok) {
           const priceData = await priceResponse.json();
           const prices = priceData.prices || {};
           assets.forEach(asset => {
-            if (prices[asset.symbol]) {
+            if (!asset.priceUsd && prices[asset.symbol]) {
               asset.priceUsd = prices[asset.symbol].usd;
             }
           });
