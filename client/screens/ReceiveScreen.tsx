@@ -18,6 +18,7 @@ import { useAllChainsPortfolio, MultiChainAsset } from "@/hooks/useAllChainsPort
 import { useSolanaPortfolio, SolanaAsset } from "@/hooks/useSolanaPortfolio";
 import { getCustomTokens, CustomToken } from "@/lib/token-preferences";
 import { getTokenLogoUrl as getStandardTokenLogo } from "@/lib/token-logos";
+import { ChainBadge } from "@/components/ChainBadge";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Receive">;
@@ -269,17 +270,32 @@ export default function ReceiveScreen({ navigation, route }: Props) {
     const logoUrl = getTokenLogoUrl(item, customTokens);
     const walletAddress = getAddressForAsset(item);
 
+    const badgeChainId: any = item.chainId ?? null;
+    const numericChainId = typeof badgeChainId === "string" ? Number(badgeChainId) : (badgeChainId as number | null);
+    const isSolana = badgeChainId === 0 || badgeChainId === "solana" || item.chainType === "solana";
+    const isPolygon = numericChainId === 137;
+    const isBsc = numericChainId === 56;
+    const isArb = numericChainId === 42161;
+    const shouldShowBadge = !isSolana && (isPolygon || isBsc || isArb);
+
     return (
       <View style={[styles.tokenRow, { borderBottomColor: theme.border }]}>
         <View style={styles.tokenLeft}>
-          <View style={[styles.tokenIcon, { backgroundColor: theme.backgroundDefault }]}>
-            {logoUrl ? (
-              <Image source={{ uri: logoUrl }} style={styles.tokenLogo} />
-            ) : (
-              <ThemedText type="body" style={{ fontWeight: "700" }}>
-                {item.symbol.slice(0, 2)}
-              </ThemedText>
-            )}
+          <View style={styles.iconWrap}>
+            <View style={[styles.tokenIcon, { backgroundColor: theme.backgroundDefault }]}>
+              {logoUrl ? (
+                <Image source={{ uri: logoUrl }} style={styles.tokenLogo} />
+              ) : (
+                <ThemedText type="body" style={{ fontWeight: "700" }}>
+                  {item.symbol.slice(0, 2)}
+                </ThemedText>
+              )}
+            </View>
+            {shouldShowBadge ? (
+              <View style={styles.badgePos}>
+                <ChainBadge chainId={badgeChainId} size={14} />
+              </View>
+            ) : null}
           </View>
           <View style={styles.tokenInfo}>
             <View style={styles.tokenNameRow}>
@@ -540,6 +556,18 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flex: 1,
     gap: Spacing.md,
+  },
+  iconWrap: {
+    position: "relative",
+    width: 40,
+    height: 40,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  badgePos: {
+    position: "absolute",
+    right: -2,
+    bottom: -2,
   },
   tokenIcon: {
     width: 40,
