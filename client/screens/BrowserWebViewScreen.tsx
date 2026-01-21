@@ -24,42 +24,55 @@ import { getApiUrl } from "@/lib/query-client";
 import { BrowserConnectSheet } from "@/components/BrowserConnectSheet";
 import { BrowserSignSheet } from "@/components/BrowserSignSheet";
 
-function extractWalletConnectUri(inputUrl: string): string | null {
-  try {
-    if (!inputUrl) return null;
+function extractWalletConnectUri(input: string): string | null {
+  if (!input) return null;
+  let s = input.trim();
 
-    if (inputUrl.startsWith("wc:")) return inputUrl;
-
-    const u = new URL(inputUrl);
-
-    const uriParam = u.searchParams.get("uri");
-    if (uriParam) {
-      const decoded = decodeURIComponent(uriParam);
-      if (decoded.startsWith("wc:")) return decoded;
-      if (uriParam.startsWith("wc:")) return uriParam;
-    }
-
-    const raw = inputUrl;
-    const decodedAll = decodeURIComponent(raw);
-    const match1 = raw.match(/uri=(wc%3A[^&]+)/i);
-    if (match1?.[1]) {
-      const decoded = decodeURIComponent(match1[1]);
-      if (decoded.startsWith("wc:")) return decoded;
-    }
-    const match2 = decodedAll.match(/uri=(wc:[^&]+)/i);
-    if (match2?.[1]) return match2[1];
-
-    return null;
-  } catch {
-    try {
-      if (inputUrl.startsWith("wc:")) return inputUrl;
-      const decodedAll = decodeURIComponent(inputUrl);
-      const match = decodedAll.match(/uri=(wc:[^&]+)/i);
-      return match?.[1] || null;
-    } catch {
-      return null;
-    }
+  // Handle walletconnect: scheme - normalize to wc:
+  if (s.startsWith("walletconnect:")) {
+    return "wc:" + s.slice("walletconnect:".length);
   }
+
+  // Direct wc: URI
+  if (s.startsWith("wc:")) return s;
+
+  // If it's a URL like https://...?uri=wc%3A.... or wc?uri=...
+  try {
+    if (s.startsWith("http://") || s.startsWith("https://")) {
+      const u = new URL(s);
+      const uriParam = u.searchParams.get("uri") || u.searchParams.get("wc");
+      if (uriParam) s = uriParam;
+    }
+  } catch {}
+
+  // Handle "wc?uri=..." fragments or "uri=wc%3A..."
+  if (s.includes("uri=")) {
+    const idx = s.indexOf("uri=");
+    s = s.slice(idx + 4);
+    // cut off extra params
+    const amp = s.indexOf("&");
+    if (amp !== -1) s = s.slice(0, amp);
+  }
+
+  // Decode if encoded
+  try { s = decodeURIComponent(s); } catch {}
+
+  // Normalize walletconnect: to wc:
+  if (s.startsWith("walletconnect:")) {
+    s = "wc:" + s.slice("walletconnect:".length);
+  }
+
+  // Accept only wc:
+  if (s.startsWith("wc:")) return s;
+
+  // Sometimes the wc: appears inside a longer string
+  const wcIndex = s.indexOf("wc:");
+  if (wcIndex !== -1) {
+    const candidate = s.slice(wcIndex);
+    if (candidate.startsWith("wc:")) return candidate;
+  }
+
+  return null;
 }
 
 const GOOGLE_DISCOVERY = {
@@ -474,16 +487,31 @@ const WALLETCONNECT_CAPTURE_SCRIPT = `
 
   function postWc(uri) {
     try {
-      if (window.ReactNativeWebView && typeof uri === 'string' && (uri.startsWith('wc:') || uri.includes('walletconnect') || uri.includes('uri=wc'))) {
-        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'WALLETCONNECT_URI', uri: uri }));
+      if (window.ReactNativeWebView && typeof uri === 'string' && (uri.startsWith('wc:') || uri.startsWith('walletconnect:') || uri.includes('uri=wc'))) {
+        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'WC_URI', uri: uri }));
       }
     } catch (e) {}
   }
 
+  // Hook clipboard writeText - crucial for "Copy link" buttons
+  try {
+    var clip = navigator.clipboard;
+    if (clip && clip.writeText) {
+      var origWriteText = clip.writeText.bind(clip);
+      clip.writeText = function(text) {
+        if (typeof text === 'string' && (text.includes('wc:') || text.includes('walletconnect:'))) {
+          postWc(text);
+        }
+        return origWriteText(text);
+      };
+    }
+  } catch (e) {}
+
+  // Hook window.open
   var originalOpen = window.open;
   window.open = function(url) {
     try {
-      if (typeof url === 'string' && (url.startsWith('wc:') || url.includes('walletconnect') || url.includes('uri=wc'))) {
+      if (typeof url === 'string' && (url.startsWith('wc:') || url.startsWith('walletconnect:') || url.includes('uri=wc'))) {
         postWc(url);
         return null;
       }
@@ -491,10 +519,11 @@ const WALLETCONNECT_CAPTURE_SCRIPT = `
     return originalOpen.apply(window, arguments);
   };
 
+  // Hook location.assign
   var originalAssign = window.location.assign.bind(window.location);
   window.location.assign = function(url) {
     try {
-      if (typeof url === 'string' && (url.startsWith('wc:') || url.includes('walletconnect') || url.includes('uri=wc'))) {
+      if (typeof url === 'string' && (url.startsWith('wc:') || url.startsWith('walletconnect:') || url.includes('uri=wc'))) {
         postWc(url);
         return;
       }
@@ -502,10 +531,11 @@ const WALLETCONNECT_CAPTURE_SCRIPT = `
     return originalAssign(url);
   };
 
+  // Hook location.replace
   var originalReplace = window.location.replace.bind(window.location);
   window.location.replace = function(url) {
     try {
-      if (typeof url === 'string' && (url.startsWith('wc:') || url.includes('walletconnect') || url.includes('uri=wc'))) {
+      if (typeof url === 'string' && (url.startsWith('wc:') || url.startsWith('walletconnect:') || url.includes('uri=wc'))) {
         postWc(url);
         return;
       }
@@ -513,19 +543,20 @@ const WALLETCONNECT_CAPTURE_SCRIPT = `
     return originalReplace(url);
   };
 
+  // Hook anchor clicks
   document.addEventListener('click', function(e) {
     try {
       var a = e.target && e.target.closest ? e.target.closest('a') : null;
       if (!a) return;
       var href = a.getAttribute('href') || '';
-      if (href.startsWith('wc:') || href.includes('walletconnect') || href.includes('uri=wc')) {
+      if (href.startsWith('wc:') || href.startsWith('walletconnect:') || href.includes('uri=wc')) {
         e.preventDefault();
         postWc(href);
       }
     } catch (e) {}
   }, true);
 
-  console.log('[Cordon] WalletConnect capture injected');
+  console.log('[Cordon] WalletConnect capture v2 injected');
 })();
 true;
 `;
@@ -724,9 +755,10 @@ export default function BrowserWebViewScreen() {
       const data = JSON.parse(event.nativeEvent.data);
       console.log("[BrowserWebView] Message received:", data.type);
 
-      if (data.type === "WALLETCONNECT_URI") {
+      if (data.type === "WALLETCONNECT_URI" || data.type === "WC_URI") {
         const wcUri = extractWalletConnectUri(data.uri);
         if (wcUri) {
+          console.log("[BrowserWC] pairing", wcUri);
           handleWalletConnectUri(wcUri);
         }
         return;
