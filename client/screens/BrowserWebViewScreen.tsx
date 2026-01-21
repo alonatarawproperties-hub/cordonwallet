@@ -548,7 +548,27 @@ const WALLETCONNECT_CAPTURE_SCRIPT = `
       } catch (e) {}
       return origSetItem.apply(this, arguments);
     };
-  } catch (e) {}
+  } catch (e) {
+    try {
+      if (window.ReactNativeWebView) {
+        window.ReactNativeWebView.postMessage("WC_SELFTEST_SETITEM_HOOK_FAILED");
+      }
+    } catch (_) {}
+  }
+
+  // Self-test setItem hook
+  try {
+    localStorage.setItem("__cordon_wc_selftest", "wc:TEST@2?relay-protocol=irn&symKey=abc");
+    if (window.ReactNativeWebView) {
+      window.ReactNativeWebView.postMessage("WC_SELFTEST_SETITEM_CALLED");
+    }
+  } catch (e) {
+    try {
+      if (window.ReactNativeWebView) {
+        window.ReactNativeWebView.postMessage("WC_SELFTEST_SETITEM_CALL_FAILED");
+      }
+    } catch (_) {}
+  }
 
   // Listen for storage events from other tabs/contexts
   try {

@@ -1,0 +1,77 @@
+STRICT RULES:
+- Only change BrowserWebViewScreen.tsx
+- Do not refactor anything else
+- Add minimal code only
+- Keep existing behavior working
+
+FILE:
+client/screens/BrowserWebViewScreen.tsx
+
+========================================================
+1) WebView: inject scripts into ALL frames (critical)
+========================================================
+Find the <WebView ... /> block and ADD these props:
+
+injectedJavaScriptForMainFrameOnly={false}
+injectedJavaScriptBeforeContentLoadedForMainFrameOnly={false}
+
+Do not remove existing props.
+
+========================================================
+2) Injected script: add setItem hook self-test + message
+========================================================
+Inside WALLETCONNECT_CAPTURE_SCRIPT string:
+
+A) After you define postWc() and extractWcFromText(), ADD a safe setItem hook:
+
+try {
+  const __origSetItem = Storage.prototype.setItem;
+  Storage.prototype.setItem = function(k, v) {
+    try {
+      const sk = (k ?? '').toString();
+      const sv = (v ?? '').toString();
+      const found = (sv.includes('wc:') ? sv : (sk.includes('wc:') ? sk : null));
+      if (found) {
+        postWc(found);
+      }
+    } catch (e) {}
+    return __origSetItem.apply(this, arguments);
+  };
+} catch (e) {
+  try {
+    if (window.ReactNativeWebView) {
+      window.ReactNativeWebView.postMessage("WC_SELFTEST_SETITEM_HOOK_FAILED");
+    }
+  } catch (_) {}
+}
+
+B) Immediately after installing the hook, run a self-test:
+
+try {
+  localStorage.setItem("__cordon_wc_selftest", "wc:TEST@2?relay-protocol=irn&symKey=abc");
+  if (window.ReactNativeWebView) {
+    window.ReactNativeWebView.postMessage("WC_SELFTEST_SETITEM_CALLED");
+  }
+} catch (e) {
+  try {
+    if (window.ReactNativeWebView) {
+      window.ReactNativeWebView.postMessage("WC_SELFTEST_SETITEM_CALL_FAILED");
+    }
+  } catch (_) {}
+}
+
+C) DO NOT auto-click anything.
+If you have autoClickWalletConnect, make it return false immediately.
+
+========================================================
+3) Native onMessage: show these raw messages
+========================================================
+In the WebView onMessage handler (handleWebViewMessage or equivalent),
+ensure it logs RAW strings before JSON.parse, and specifically keep:
+
+- WC_SELFTEST_SETITEM_CALLED
+- WC_SELFTEST_SETITEM_CALL_FAILED
+- WC_SELFTEST_SETITEM_HOOK_FAILED
+- WC_URI JSON payloads
+
+No other changes.
