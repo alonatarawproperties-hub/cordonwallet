@@ -2062,9 +2062,27 @@ export default function BrowserWebViewScreen() {
       />
 
       {__DEV__ ? (
-        <View style={{ position:"absolute", top: 10, left: 10, right: 10, zIndex: 9999, padding: 8, borderRadius: 10, backgroundColor:"rgba(0,0,0,0.6)" }}>
-          <Text style={{ color:"#fff", fontSize: 12, fontWeight:"600" }}>WV MSG #{debugHud.count}</Text>
-          <Text style={{ color:"#fff", fontSize: 11 }} numberOfLines={2}>{debugHud.last}</Text>
+        <View
+          pointerEvents="none"
+          style={{
+            position: "absolute",
+            top: (insets?.top ?? 0) + 44,
+            left: 12,
+            right: 12,
+            zIndex: 999999,
+            elevation: 999999,
+            paddingVertical: 10,
+            paddingHorizontal: 12,
+            borderRadius: 12,
+            backgroundColor: "rgba(0,0,0,0.85)",
+          }}
+        >
+          <Text style={{ color: "#fff", fontSize: 12, fontWeight: "700" }}>
+            WV MSG #{debugHud.count}
+          </Text>
+          <Text style={{ color: "#fff", fontSize: 11 }} numberOfLines={3}>
+            {debugHud.last}
+          </Text>
         </View>
       ) : null}
 
