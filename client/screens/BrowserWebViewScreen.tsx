@@ -492,13 +492,12 @@ const WALLETCONNECT_CAPTURE_SCRIPT = `
       if (!window.ReactNativeWebView || typeof uri !== 'string') return;
       if (!uri.startsWith('wc:') && !uri.startsWith('walletconnect:') && !uri.includes('wc:')) return;
       
-      // Dedupe - don't post same URI within 2 seconds
       var now = Date.now();
       if (uri === lastPostedUri && now - lastPostTime < 2000) return;
       lastPostedUri = uri;
       lastPostTime = now;
       
-      console.log('[Cordon] Posting WC URI:', uri.substring(0, 60));
+      console.log('[Cordon] Posting WC URI:', uri.substring(0, 80));
       window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'WC_URI', uri: uri }));
     } catch (e) { console.log('[Cordon] postWc error:', e); }
   }
@@ -508,24 +507,39 @@ const WALLETCONNECT_CAPTURE_SCRIPT = `
     var idx = text.indexOf('wc:');
     if (idx === -1) idx = text.indexOf('walletconnect:');
     if (idx === -1) return null;
-    return text.substring(idx);
+    var result = text.substring(idx);
+    var end = result.indexOf(' ');
+    if (end !== -1) result = result.substring(0, end);
+    return result;
   }
 
-  // Scan element for WC URI in various attributes
-  function scanElement(el) {
-    if (!el || !el.getAttribute) return;
+  // Scan localStorage/sessionStorage for WC pairing URIs
+  function scanStorage() {
     try {
-      var attrs = ['data-uri', 'data-wc-uri', 'data-wcuri', 'data-clipboard', 'data-copy', 'value', 'href'];
-      for (var i = 0; i < attrs.length; i++) {
-        var val = el.getAttribute(attrs[i]);
-        var wc = extractWcFromText(val);
-        if (wc) { postWc(wc); return; }
-      }
-      // Check text content for copy buttons
-      if (el.textContent && el.textContent.includes('wc:')) {
-        var wc = extractWcFromText(el.textContent);
-        if (wc) postWc(wc);
-      }
+      [localStorage, sessionStorage].forEach(function(storage) {
+        if (!storage) return;
+        for (var i = 0; i < storage.length; i++) {
+          var key = storage.key(i);
+          if (!key) continue;
+          // Look for WalletConnect related keys
+          if (key.includes('wc@') || key.includes('walletconnect') || key.includes('w3m') || key.includes('WALLETCONNECT')) {
+            try {
+              var val = storage.getItem(key);
+              if (val) {
+                var wc = extractWcFromText(val);
+                if (wc) { postWc(wc); return; }
+                // Try parsing JSON
+                try {
+                  var obj = JSON.parse(val);
+                  var str = JSON.stringify(obj);
+                  wc = extractWcFromText(str);
+                  if (wc) { postWc(wc); return; }
+                } catch (e) {}
+              }
+            } catch (e) {}
+          }
+        }
+      });
     } catch (e) {}
   }
 
@@ -533,48 +547,44 @@ const WALLETCONNECT_CAPTURE_SCRIPT = `
   function scanContainer(container) {
     if (!container) return;
     try {
-      // Look for hidden inputs, data attributes
-      var inputs = container.querySelectorAll('input[type="hidden"], input[readonly]');
+      var inputs = container.querySelectorAll('input');
       inputs.forEach(function(inp) {
         var wc = extractWcFromText(inp.value);
         if (wc) postWc(wc);
       });
-      // Look for elements with data-uri attributes
-      var dataEls = container.querySelectorAll('[data-uri], [data-wc-uri], [data-wcuri]');
-      dataEls.forEach(function(el) { scanElement(el); });
-      // Look for copy buttons near QR codes
-      var copyBtns = container.querySelectorAll('[class*="copy"], [aria-label*="copy"], [title*="copy"], button');
-      copyBtns.forEach(function(btn) {
-        var dataUri = btn.getAttribute('data-clipboard-text') || btn.getAttribute('data-copy');
-        if (dataUri) {
-          var wc = extractWcFromText(dataUri);
-          if (wc) postWc(wc);
+      var allEls = container.querySelectorAll('*');
+      allEls.forEach(function(el) {
+        if (!el.getAttribute) return;
+        var attrs = el.attributes;
+        for (var i = 0; i < attrs.length; i++) {
+          var wc = extractWcFromText(attrs[i].value);
+          if (wc) { postWc(wc); return; }
         }
       });
     } catch (e) {}
+    scanStorage();
   }
 
-  // MutationObserver to detect WalletConnect modals
+  // MutationObserver for modal detection
   var observer = new MutationObserver(function(mutations) {
     mutations.forEach(function(mutation) {
       mutation.addedNodes.forEach(function(node) {
         if (!node || node.nodeType !== 1) return;
         try {
           var tagName = (node.tagName || '').toLowerCase();
-          // Web3Modal v2/v3 and WalletConnect modal elements
           if (tagName === 'w3m-modal' || tagName === 'wcm-modal' || tagName === 'appkit-modal' ||
-              (node.className && typeof node.className === 'string' && 
-               (node.className.includes('walletconnect') || node.className.includes('w3m') || node.className.includes('wcm')))) {
-            console.log('[Cordon] Detected WC modal element');
-            setTimeout(function() { scanContainer(node); }, 500);
-            setTimeout(function() { scanContainer(node); }, 1500);
+              tagName.includes('modal') || tagName.includes('dialog')) {
+            console.log('[Cordon] Modal detected:', tagName);
+            setTimeout(function() { scanContainer(node); scanStorage(); }, 300);
+            setTimeout(function() { scanContainer(node); scanStorage(); }, 1000);
+            setTimeout(function() { scanStorage(); }, 2000);
           }
-          // Generic modal detection
-          if (node.querySelector) {
-            var wcModals = node.querySelectorAll('w3m-modal, wcm-modal, appkit-modal, [class*="walletconnect"], [class*="w3m-"]');
-            wcModals.forEach(function(modal) {
-              setTimeout(function() { scanContainer(modal); }, 500);
-            });
+          if (node.className && typeof node.className === 'string') {
+            var cn = node.className.toLowerCase();
+            if (cn.includes('modal') || cn.includes('wallet') || cn.includes('connect') || cn.includes('w3m') || cn.includes('wcm')) {
+              setTimeout(function() { scanContainer(node); scanStorage(); }, 300);
+              setTimeout(function() { scanStorage(); }, 1500);
+            }
           }
         } catch (e) {}
       });
@@ -595,15 +605,50 @@ const WALLETCONNECT_CAPTURE_SCRIPT = `
     }
   } catch (e) {}
 
-  // Hook window.open
+  // Hook window.open - critical for deep links
   var originalOpen = window.open;
   window.open = function(url) {
     try {
-      var wc = extractWcFromText(url);
-      if (wc) { postWc(wc); return null; }
+      if (typeof url === 'string') {
+        console.log('[Cordon] window.open:', url.substring(0, 80));
+        var wc = extractWcFromText(url);
+        if (wc) { postWc(wc); return null; }
+        // Check for wallet deep links that might contain WC URI as param
+        if (url.includes('wc=') || url.includes('uri=')) {
+          try {
+            var u = new URL(url);
+            var wcParam = u.searchParams.get('wc') || u.searchParams.get('uri');
+            if (wcParam) {
+              var decoded = decodeURIComponent(wcParam);
+              wc = extractWcFromText(decoded);
+              if (wc) { postWc(wc); return null; }
+            }
+          } catch (e) {}
+        }
+      }
     } catch (e) {}
     return originalOpen.apply(window, arguments);
   };
+
+  // Hook Linking/deep link attempts via setting location
+  var locDesc = Object.getOwnPropertyDescriptor(window, 'location');
+  if (locDesc && locDesc.set) {
+    var origSet = locDesc.set;
+    Object.defineProperty(window, 'location', {
+      get: locDesc.get,
+      set: function(val) {
+        try {
+          if (typeof val === 'string') {
+            console.log('[Cordon] location set:', val.substring(0, 80));
+            var wc = extractWcFromText(val);
+            if (wc) { postWc(wc); return; }
+          }
+        } catch (e) {}
+        return origSet.call(window, val);
+      },
+      configurable: true
+    });
+  }
 
   // Hook location.assign
   var originalAssign = window.location.assign.bind(window.location);
@@ -648,23 +693,61 @@ const WALLETCONNECT_CAPTURE_SCRIPT = `
     } catch (e) {}
   }, true);
 
-  // Intercept Web3Modal/WalletConnect signaling
+  // Intercept Web3Modal/WalletConnect signaling via fetch
   try {
     var origFetch = window.fetch;
     window.fetch = function(url, options) {
       try {
-        if (typeof url === 'string' && url.includes('relay.walletconnect.')) {
-          // WC relay communication detected - try to find URI in page
-          setTimeout(function() {
-            scanContainer(document.body);
-          }, 200);
+        if (typeof url === 'string' && (url.includes('relay.walletconnect.') || url.includes('walletconnect.org') || url.includes('walletconnect.com'))) {
+          console.log('[Cordon] WC relay fetch detected');
+          setTimeout(function() { scanStorage(); }, 100);
+          setTimeout(function() { scanStorage(); }, 500);
         }
       } catch (e) {}
       return origFetch.apply(window, arguments);
     };
   } catch (e) {}
 
-  console.log('[Cordon] WalletConnect capture v3 injected');
+  // Aggressive click handler - scan storage after any wallet/connect button click
+  document.addEventListener('click', function(e) {
+    try {
+      var target = e.target;
+      if (!target) return;
+      var el = target.closest ? (target.closest('button, [role="button"], a, div[onclick]') || target) : target;
+      var text = (el.textContent || '').toLowerCase();
+      var className = ((el.className && typeof el.className === 'string') ? el.className : '').toLowerCase();
+      // Detect wallet-related button clicks
+      if (text.includes('wallet') || text.includes('connect') || text.includes('walletconnect') ||
+          className.includes('wallet') || className.includes('connect') || className.includes('w3m') || className.includes('wcm')) {
+        console.log('[Cordon] Wallet button clicked');
+        setTimeout(function() { scanStorage(); }, 200);
+        setTimeout(function() { scanStorage(); }, 800);
+        setTimeout(function() { scanStorage(); }, 1500);
+      }
+    } catch (e) {}
+  }, true);
+
+  // Intercept WebSocket for WC relay
+  try {
+    var OrigWS = window.WebSocket;
+    window.WebSocket = function(url, protocols) {
+      try {
+        if (typeof url === 'string' && (url.includes('relay.walletconnect') || url.includes('walletconnect.org'))) {
+          console.log('[Cordon] WC WebSocket detected');
+          setTimeout(function() { scanStorage(); }, 500);
+          setTimeout(function() { scanStorage(); }, 2000);
+        }
+      } catch (e) {}
+      return protocols ? new OrigWS(url, protocols) : new OrigWS(url);
+    };
+    window.WebSocket.prototype = OrigWS.prototype;
+    window.WebSocket.CONNECTING = OrigWS.CONNECTING;
+    window.WebSocket.OPEN = OrigWS.OPEN;
+    window.WebSocket.CLOSING = OrigWS.CLOSING;
+    window.WebSocket.CLOSED = OrigWS.CLOSED;
+  } catch (e) {}
+
+  console.log('[Cordon] WalletConnect capture v4 injected');
 })();
 true;
 `;
