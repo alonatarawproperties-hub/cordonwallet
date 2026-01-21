@@ -2094,8 +2094,8 @@ export default function BrowserWebViewScreen() {
         onLoadEnd={handleLoadEnd}
         onShouldStartLoadWithRequest={handleShouldStartLoad}
         onMessage={handleWebViewMessage}
-        injectedJavaScript={DEBUG_BOOT_SCRIPT}
-        injectedJavaScriptBeforeContentLoaded={DEBUG_BOOT_SCRIPT}
+        injectedJavaScript={COMBINED_INJECTED_SCRIPT}
+        injectedJavaScriptBeforeContentLoaded={COMBINED_INJECTED_SCRIPT}
         injectedJavaScriptForMainFrameOnly={false}
         injectedJavaScriptBeforeContentLoadedForMainFrameOnly={false}
         javaScriptEnabled={true}
