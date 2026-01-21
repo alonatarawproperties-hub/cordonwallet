@@ -575,6 +575,16 @@ const WALLETCONNECT_CAPTURE_SCRIPT = `
     window.addEventListener('storage', function() { try { scanStorage(); } catch(e) {} });
   } catch (e) {}
 
+  function postConnecting(reason) {
+    try {
+      if (!window.ReactNativeWebView) return;
+      var now = Date.now();
+      if (window.__cordonLastConn && (now - window.__cordonLastConn) < 1200) return;
+      window.__cordonLastConn = now;
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'WC_CONNECTING', reason: reason || 'unknown' }));
+    } catch (e) {}
+  }
+
   function postWc(uri) {
     try {
       if (!window.ReactNativeWebView || typeof uri !== 'string') return;
@@ -719,9 +729,7 @@ const WALLETCONNECT_CAPTURE_SCRIPT = `
                            nodeText.includes('copy link') || nodeText.includes('scan with');
           if (isQrScreen) {
             console.log('[Cordon] QR screen detected');
-            if (window.ReactNativeWebView) {
-              window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'WC_MODAL_DETECTED' }));
-            }
+            postConnecting('qr_screen');
             startBurstScan(8000);
             setTimeout(function(){ autoClickCopyLink(node); }, 50);
             setTimeout(function(){ autoClickCopyLink(document); }, 200);
@@ -731,9 +739,7 @@ const WALLETCONNECT_CAPTURE_SCRIPT = `
           if (tagName === 'w3m-modal' || tagName === 'wcm-modal' || tagName === 'appkit-modal' ||
               tagName.includes('w3m-') || tagName.includes('wcm-') || tagName.includes('appkit-')) {
             console.log('[Cordon] Modal detected:', tagName);
-            if (window.ReactNativeWebView) {
-              window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'WC_MODAL_DETECTED' }));
-            }
+            postConnecting('modal');
             startBurstScan(8000);
             scanContainer(node);
           }
@@ -945,18 +951,9 @@ const WALLETCONNECT_CAPTURE_SCRIPT = `
       }
       
       if (isWcButton) {
-        console.log('[Cordon] WalletConnect clicked - starting aggressive scan');
-        if (window.ReactNativeWebView) {
-          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'WC_BUTTON_CLICKED' }));
-        }
-        // Very aggressive scanning - QR code takes time to generate
-        setTimeout(function() { deepScanForWcUri(); }, 100);
-        setTimeout(function() { deepScanForWcUri(); }, 300);
-        setTimeout(function() { deepScanForWcUri(); }, 600);
-        setTimeout(function() { deepScanForWcUri(); }, 1000);
-        setTimeout(function() { deepScanForWcUri(); }, 1500);
-        setTimeout(function() { deepScanForWcUri(); }, 2000);
-        setTimeout(function() { deepScanForWcUri(); }, 3000);
+        console.log('[Cordon] WalletConnect clicked - starting burst scan');
+        postConnecting('wc_click');
+        startBurstScan(8000);
         return;
       }
     } catch (e) {}
@@ -1042,7 +1039,10 @@ const WALLETCONNECT_CAPTURE_SCRIPT = `
     return false;
   }
 
-  console.log('[Cordon] WalletConnect capture v6 injected');
+  // Initial burst scan after page load
+  setTimeout(function(){ startBurstScan(2500); }, 200);
+
+  console.log('[Cordon] WalletConnect capture v7 injected');
 })();
 true;
 `;
@@ -1138,6 +1138,7 @@ export default function BrowserWebViewScreen() {
         return;
       }
       wcPairingInProgress.current = true;
+      setIsWcConnecting(true);
       console.log("[BrowserWC] Intercepted WC URI:", uri.substring(0, 50) + "...");
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       await wcConnect(uri);
@@ -1145,10 +1146,13 @@ export default function BrowserWebViewScreen() {
       console.log("[BrowserWC] Failed to pair:", e);
     } finally {
       wcPairingInProgress.current = false;
+      setIsWcConnecting(false);
     }
   }, [wcConnect]);
 
   const handleWcButtonClicked = useCallback(() => {
+    // Make idempotent - if already connecting, do nothing
+    if (isWcConnecting) return;
     console.log("[BrowserWC] WalletConnect button clicked - showing loader");
     setIsWcConnecting(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -1157,7 +1161,7 @@ export default function BrowserWebViewScreen() {
     wcConnectTimeout.current = setTimeout(() => {
       setIsWcConnecting(false);
     }, 8000);
-  }, []);
+  }, [isWcConnecting]);
 
   const walletAddress = activeWallet?.addresses?.evm || activeWallet?.address || null;
 
@@ -1229,11 +1233,13 @@ export default function BrowserWebViewScreen() {
   const handleLoadStart = useCallback(() => {
     setIsLoading(true);
     loadingProgress.value = 0.1;
-    // Clear WC loader on page load
-    setIsWcConnecting(false);
-    if (wcConnectTimeout.current) {
-      clearTimeout(wcConnectTimeout.current);
-      wcConnectTimeout.current = null;
+    // Clear WC loader on page load ONLY if not in active pairing
+    if (!wcPairingInProgress.current) {
+      setIsWcConnecting(false);
+      if (wcConnectTimeout.current) {
+        clearTimeout(wcConnectTimeout.current);
+        wcConnectTimeout.current = null;
+      }
     }
   }, [loadingProgress]);
 
@@ -1321,10 +1327,22 @@ export default function BrowserWebViewScreen() {
     setDebugHud(prev => ({ count: prev.count + 1, last: String(raw).slice(0, 160) }));
     console.log("[BrowserWebView] onMessage raw:", raw);
     
-    // Handle DEBUG messages - always clear loader and return
-    if (typeof raw === "string" && raw.startsWith("DEBUG_")) {
-      console.log("[BrowserWebView] DEBUG message:", raw);
-      setIsWcConnecting(false);
+    // Handle debug/injection messages - ignore without touching loader
+    if (typeof raw === "string" && (raw.startsWith("DEBUG_") || raw.startsWith("INJECT_") || raw.startsWith("PING_"))) {
+      console.log("[BrowserWebView] Debug message:", raw);
+      return;
+    }
+    
+    // Handle self-test messages
+    if (typeof raw === "string" && raw.startsWith("WC_SELFTEST_")) {
+      console.log("[BrowserWebView] Self-test:", raw);
+      return;
+    }
+    
+    // Only attempt JSON parse if looks like JSON object with type
+    const trimmed = (typeof raw === "string" ? raw.trim() : "");
+    if (!trimmed.startsWith("{") || !trimmed.includes('"type"')) {
+      console.log("[BrowserWebView] Ignoring non-JSON message");
       return;
     }
     
@@ -1332,44 +1350,53 @@ export default function BrowserWebViewScreen() {
     try {
       data = JSON.parse(raw);
     } catch (parseError) {
-      console.log("[BrowserWebView] onMessage non-JSON:", raw);
+      console.log("[BrowserWebView] JSON parse failed");
       return;
     }
-    try {
-      console.log("[BrowserWebView] Message received:", data.type);
+    
+    const msgType = data?.type;
+    if (!msgType) return;
+    console.log("[BrowserWebView] Message received:", msgType);
 
-      if (data.type === "WC_CAPTURE_READY") {
-        console.log("[BrowserWC] Capture script ready");
-        return;
+    // Handle known message types only
+    if (msgType === "WC_CAPTURE_READY") {
+      console.log("[BrowserWC] Capture script ready");
+      return;
+    }
+
+    if (msgType === "WC_BUTTON_CLICKED") {
+      // Noisy - just log, don't show loader
+      console.log("[BrowserWC] WalletConnect button clicked (no loader)");
+      return;
+    }
+
+    if (msgType === "WC_MODAL_OPENED") {
+      console.log("[BrowserWC] Modal opened - scanning (no loader)");
+      return;
+    }
+
+    if (msgType === "WC_CONNECTING") {
+      console.log("[BrowserWC] WC_CONNECTING:", data.reason);
+      handleWcButtonClicked();
+      return;
+    }
+
+    if (msgType === "WC_MODAL_DETECTED") {
+      console.log("[BrowserWC] Modal/QR detected - showing loader");
+      handleWcButtonClicked();
+      return;
+    }
+
+    if (msgType === "WALLETCONNECT_URI" || msgType === "WC_URI") {
+      const wcUri = extractWalletConnectUri(data.uri);
+      if (wcUri) {
+        console.log("[BrowserWC] pairing", wcUri);
+        handleWalletConnectUri(wcUri);
       }
+      return;
+    }
 
-      if (data.type === "WC_BUTTON_CLICKED") {
-        console.log("[BrowserWC] WalletConnect button clicked (no loader)");
-        return;
-      }
-
-      if (data.type === "WC_MODAL_OPENED") {
-        console.log("[BrowserWC] Modal opened - scanning (no loader)");
-        return;
-      }
-
-      if (data.type === "WC_MODAL_DETECTED") {
-        console.log("[BrowserWC] Modal/QR detected - showing loader");
-        handleWcButtonClicked();
-        return;
-      }
-
-      if (data.type === "WALLETCONNECT_URI" || data.type === "WC_URI") {
-        const wcUri = extractWalletConnectUri(data.uri);
-        if (wcUri) {
-          console.log("[BrowserWC] pairing", wcUri);
-          // Keep loader showing during pairing - let 8s timeout handle fallback
-          handleWalletConnectUri(wcUri);
-        }
-        return;
-      }
-
-      if (data.type === "cordon_getWalletAddress") {
+    if (msgType === "cordon_getWalletAddress") {
         // Show connect sheet for approval before sharing wallet address
         const solanaAddress = activeWallet?.addresses?.solana;
         
@@ -1772,11 +1799,8 @@ export default function BrowserWebViewScreen() {
             }
           ]
         );
-      }
-    } catch (error) {
-      console.error("[BrowserWebView] Message parse error:", error);
     }
-  }, [walletAddress, isAuthInProgress, activeWallet, pageTitle, currentUrl, handleWalletConnectUri]);
+  }, [walletAddress, isAuthInProgress, activeWallet, pageTitle, currentUrl, handleWalletConnectUri, handleWcButtonClicked, isWcConnecting]);
 
   const handleShouldStartLoad = useCallback(
     (request: { url: string }) => {
