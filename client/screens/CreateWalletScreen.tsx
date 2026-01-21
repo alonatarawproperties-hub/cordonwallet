@@ -17,6 +17,7 @@ import { generateMnemonic, hasDevicePin, isUnlocked, addWalletToExistingVault } 
 import { useWallet } from "@/lib/wallet-context";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 import type { WalletType } from "@/lib/types";
+import { FEATURES } from "@/config/features";
 
 type Props = NativeStackScreenProps<RootStackParamList, "CreateWallet">;
 
@@ -51,7 +52,7 @@ export default function CreateWalletScreen({ navigation }: Props) {
   const { theme } = useTheme();
   const { addWallet } = useWallet();
   const [walletName, setWalletName] = useState("Main Wallet");
-  const [walletType, setWalletType] = useState<WalletType>("multi-chain");
+  const [walletType, setWalletType] = useState<WalletType>(FEATURES.EVM_ENABLED ? "multi-chain" : "solana-only");
   const [isCreating, setIsCreating] = useState(false);
 
   const handleSelectType = async (type: WalletType) => {
@@ -154,6 +155,7 @@ export default function CreateWalletScreen({ navigation }: Props) {
           <View style={styles.typeOptions}>
             {walletTypeOptions.map((option) => {
               const isSelected = walletType === option.id;
+              const isDisabled = option.id === "multi-chain" && !FEATURES.EVM_ENABLED;
               return (
                 <Pressable
                   key={option.id}
@@ -163,9 +165,11 @@ export default function CreateWalletScreen({ navigation }: Props) {
                       backgroundColor: theme.backgroundDefault,
                       borderColor: isSelected ? theme.accent : theme.border,
                       borderWidth: isSelected ? 2 : 1,
+                      opacity: isDisabled ? 0.6 : 1,
                     }
                   ]}
-                  onPress={() => handleSelectType(option.id)}
+                  onPress={() => !isDisabled && handleSelectType(option.id)}
+                  disabled={isDisabled}
                 >
                   <View style={styles.typeOptionHeader}>
                     <View style={[
@@ -179,9 +183,18 @@ export default function CreateWalletScreen({ navigation }: Props) {
                       />
                     </View>
                     <View style={styles.typeInfo}>
-                      <ThemedText type="body" style={{ fontWeight: "600" }}>
-                        {option.title}
-                      </ThemedText>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                        <ThemedText type="body" style={{ fontWeight: "600" }}>
+                          {option.title}
+                        </ThemedText>
+                        {isDisabled ? (
+                          <View style={{ backgroundColor: theme.warning + "30", paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
+                            <ThemedText type="caption" style={{ color: theme.warning, fontWeight: "600", fontSize: 9 }}>
+                              COMING SOON
+                            </ThemedText>
+                          </View>
+                        ) : null}
+                      </View>
                       <ThemedText type="caption" style={{ color: theme.textSecondary }}>
                         {option.description}
                       </ThemedText>
