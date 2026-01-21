@@ -544,9 +544,44 @@ const WALLETCONNECT_CAPTURE_SCRIPT = `
     } catch (e) {}
   }
 
-  // Auto-click WalletConnect option in wallet picker modals
+  // Scan for QR code URI in the page
+  function scanForQrUri() {
+    try {
+      // Look for QR code containers and extract URI
+      var qrContainers = document.querySelectorAll('w3m-qrcode, wcm-qrcode, [class*="qr"], [class*="QR"], canvas, svg');
+      qrContainers.forEach(function(el) {
+        // Check for data attributes containing WC URI
+        if (el.dataset) {
+          Object.values(el.dataset).forEach(function(val) {
+            var wc = extractWcFromText(val);
+            if (wc) postWc(wc);
+          });
+        }
+        // Check parent/sibling elements for URI
+        var parent = el.parentElement;
+        if (parent) {
+          var text = parent.textContent || '';
+          if (text.includes('wc:')) {
+            var wc = extractWcFromText(text);
+            if (wc) postWc(wc);
+          }
+        }
+      });
+      
+      // Also check for copy buttons near QR codes
+      var copyBtns = document.querySelectorAll('[aria-label*="copy" i], [title*="copy" i], button[class*="copy" i]');
+      copyBtns.forEach(function(btn) {
+        if (btn.dataset && btn.dataset.clipboardText) {
+          var wc = extractWcFromText(btn.dataset.clipboardText);
+          if (wc) postWc(wc);
+        }
+      });
+    } catch (e) {}
+  }
+
+  // Auto-click WalletConnect option in wallet picker modals  
   function autoClickWalletConnect(container) {
-    if (autoClickedWc) return;
+    if (autoClickedWc) return false;
     try {
       // Look for WalletConnect option in various modal formats
       var selectors = [
@@ -571,41 +606,40 @@ const WALLETCONNECT_CAPTURE_SCRIPT = `
             window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'WC_BUTTON_CLICKED' }));
           }
           el.click();
-          setTimeout(function() { scanStorage(); }, 300);
-          setTimeout(function() { scanStorage(); }, 800);
+          setTimeout(function() { scanStorage(); scanForQrUri(); }, 300);
+          setTimeout(function() { scanStorage(); scanForQrUri(); }, 800);
+          setTimeout(function() { scanStorage(); scanForQrUri(); }, 1500);
           return true;
         }
       }
       
       // Fallback: search by text content
-      var buttons = (container || document).querySelectorAll('button, [role="button"], a, div[onclick]');
+      var buttons = (container || document).querySelectorAll('button, [role="button"], a, li, div[onclick]');
       for (var j = 0; j < buttons.length; j++) {
         var btn = buttons[j];
         var text = (btn.textContent || '').toLowerCase().trim();
         var hasWcImg = btn.querySelector && btn.querySelector('img[alt*="WalletConnect" i], img[src*="walletconnect" i]');
-        if (text === 'walletconnect' || hasWcImg) {
+        if (text === 'walletconnect' || text.startsWith('walletconnect') || hasWcImg) {
           console.log('[Cordon] Found WalletConnect by text/img, auto-clicking');
           autoClickedWc = true;
           if (window.ReactNativeWebView) {
             window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'WC_BUTTON_CLICKED' }));
           }
           btn.click();
-          setTimeout(function() { scanStorage(); }, 300);
-          setTimeout(function() { scanStorage(); }, 800);
+          setTimeout(function() { scanStorage(); scanForQrUri(); }, 300);
+          setTimeout(function() { scanStorage(); scanForQrUri(); }, 800);
+          setTimeout(function() { scanStorage(); scanForQrUri(); }, 1500);
           return true;
         }
       }
       
-      // Look for QR code tab/button if WalletConnect not found
-      var qrSelectors = ['[data-testid="qr-code"]', '[aria-label*="QR"]', 'button:has(svg)', 'w3m-qrcode-view'];
-      for (var k = 0; k < qrSelectors.length; k++) {
-        try {
-          var qrEl = (container || document).querySelector(qrSelectors[k]);
-          if (qrEl && !autoClickedWc) {
-            console.log('[Cordon] Found QR option');
-            setTimeout(function() { scanStorage(); }, 500);
-          }
-        } catch (e) {}
+      // Check if QR code is already visible (skip auto-click, just scan)
+      var hasQr = (container || document).querySelector('w3m-qrcode, wcm-qrcode, [class*="qr-code"], canvas');
+      if (hasQr) {
+        console.log('[Cordon] QR code visible, scanning for URI');
+        setTimeout(function() { scanStorage(); scanForQrUri(); }, 200);
+        setTimeout(function() { scanStorage(); scanForQrUri(); }, 600);
+        setTimeout(function() { scanStorage(); scanForQrUri(); }, 1200);
       }
     } catch (e) { console.log('[Cordon] autoClickWalletConnect error:', e); }
     return false;
