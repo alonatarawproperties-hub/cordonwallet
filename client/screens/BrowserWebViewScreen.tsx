@@ -484,24 +484,112 @@ const WALLETCONNECT_CAPTURE_SCRIPT = `
 (function() {
   if (window.__cordonWcCapture) return;
   window.__cordonWcCapture = true;
+  var lastPostedUri = '';
+  var lastPostTime = 0;
 
   function postWc(uri) {
     try {
-      if (window.ReactNativeWebView && typeof uri === 'string' && (uri.startsWith('wc:') || uri.startsWith('walletconnect:') || uri.includes('uri=wc'))) {
-        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'WC_URI', uri: uri }));
+      if (!window.ReactNativeWebView || typeof uri !== 'string') return;
+      if (!uri.startsWith('wc:') && !uri.startsWith('walletconnect:') && !uri.includes('wc:')) return;
+      
+      // Dedupe - don't post same URI within 2 seconds
+      var now = Date.now();
+      if (uri === lastPostedUri && now - lastPostTime < 2000) return;
+      lastPostedUri = uri;
+      lastPostTime = now;
+      
+      console.log('[Cordon] Posting WC URI:', uri.substring(0, 60));
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'WC_URI', uri: uri }));
+    } catch (e) { console.log('[Cordon] postWc error:', e); }
+  }
+
+  function extractWcFromText(text) {
+    if (!text || typeof text !== 'string') return null;
+    var idx = text.indexOf('wc:');
+    if (idx === -1) idx = text.indexOf('walletconnect:');
+    if (idx === -1) return null;
+    return text.substring(idx);
+  }
+
+  // Scan element for WC URI in various attributes
+  function scanElement(el) {
+    if (!el || !el.getAttribute) return;
+    try {
+      var attrs = ['data-uri', 'data-wc-uri', 'data-wcuri', 'data-clipboard', 'data-copy', 'value', 'href'];
+      for (var i = 0; i < attrs.length; i++) {
+        var val = el.getAttribute(attrs[i]);
+        var wc = extractWcFromText(val);
+        if (wc) { postWc(wc); return; }
+      }
+      // Check text content for copy buttons
+      if (el.textContent && el.textContent.includes('wc:')) {
+        var wc = extractWcFromText(el.textContent);
+        if (wc) postWc(wc);
       }
     } catch (e) {}
   }
 
-  // Hook clipboard writeText - crucial for "Copy link" buttons
+  // Scan modal containers for WC URIs
+  function scanContainer(container) {
+    if (!container) return;
+    try {
+      // Look for hidden inputs, data attributes
+      var inputs = container.querySelectorAll('input[type="hidden"], input[readonly]');
+      inputs.forEach(function(inp) {
+        var wc = extractWcFromText(inp.value);
+        if (wc) postWc(wc);
+      });
+      // Look for elements with data-uri attributes
+      var dataEls = container.querySelectorAll('[data-uri], [data-wc-uri], [data-wcuri]');
+      dataEls.forEach(function(el) { scanElement(el); });
+      // Look for copy buttons near QR codes
+      var copyBtns = container.querySelectorAll('[class*="copy"], [aria-label*="copy"], [title*="copy"], button');
+      copyBtns.forEach(function(btn) {
+        var dataUri = btn.getAttribute('data-clipboard-text') || btn.getAttribute('data-copy');
+        if (dataUri) {
+          var wc = extractWcFromText(dataUri);
+          if (wc) postWc(wc);
+        }
+      });
+    } catch (e) {}
+  }
+
+  // MutationObserver to detect WalletConnect modals
+  var observer = new MutationObserver(function(mutations) {
+    mutations.forEach(function(mutation) {
+      mutation.addedNodes.forEach(function(node) {
+        if (!node || node.nodeType !== 1) return;
+        try {
+          var tagName = (node.tagName || '').toLowerCase();
+          // Web3Modal v2/v3 and WalletConnect modal elements
+          if (tagName === 'w3m-modal' || tagName === 'wcm-modal' || tagName === 'appkit-modal' ||
+              (node.className && typeof node.className === 'string' && 
+               (node.className.includes('walletconnect') || node.className.includes('w3m') || node.className.includes('wcm')))) {
+            console.log('[Cordon] Detected WC modal element');
+            setTimeout(function() { scanContainer(node); }, 500);
+            setTimeout(function() { scanContainer(node); }, 1500);
+          }
+          // Generic modal detection
+          if (node.querySelector) {
+            var wcModals = node.querySelectorAll('w3m-modal, wcm-modal, appkit-modal, [class*="walletconnect"], [class*="w3m-"]');
+            wcModals.forEach(function(modal) {
+              setTimeout(function() { scanContainer(modal); }, 500);
+            });
+          }
+        } catch (e) {}
+      });
+    });
+  });
+  observer.observe(document.body || document.documentElement, { childList: true, subtree: true });
+
+  // Hook clipboard writeText
   try {
     var clip = navigator.clipboard;
     if (clip && clip.writeText) {
       var origWriteText = clip.writeText.bind(clip);
       clip.writeText = function(text) {
-        if (typeof text === 'string' && (text.includes('wc:') || text.includes('walletconnect:'))) {
-          postWc(text);
-        }
+        var wc = extractWcFromText(text);
+        if (wc) postWc(wc);
         return origWriteText(text);
       };
     }
@@ -511,10 +599,8 @@ const WALLETCONNECT_CAPTURE_SCRIPT = `
   var originalOpen = window.open;
   window.open = function(url) {
     try {
-      if (typeof url === 'string' && (url.startsWith('wc:') || url.startsWith('walletconnect:') || url.includes('uri=wc'))) {
-        postWc(url);
-        return null;
-      }
+      var wc = extractWcFromText(url);
+      if (wc) { postWc(wc); return null; }
     } catch (e) {}
     return originalOpen.apply(window, arguments);
   };
@@ -523,10 +609,8 @@ const WALLETCONNECT_CAPTURE_SCRIPT = `
   var originalAssign = window.location.assign.bind(window.location);
   window.location.assign = function(url) {
     try {
-      if (typeof url === 'string' && (url.startsWith('wc:') || url.startsWith('walletconnect:') || url.includes('uri=wc'))) {
-        postWc(url);
-        return;
-      }
+      var wc = extractWcFromText(url);
+      if (wc) { postWc(wc); return; }
     } catch (e) {}
     return originalAssign(url);
   };
@@ -535,10 +619,8 @@ const WALLETCONNECT_CAPTURE_SCRIPT = `
   var originalReplace = window.location.replace.bind(window.location);
   window.location.replace = function(url) {
     try {
-      if (typeof url === 'string' && (url.startsWith('wc:') || url.startsWith('walletconnect:') || url.includes('uri=wc'))) {
-        postWc(url);
-        return;
-      }
+      var wc = extractWcFromText(url);
+      if (wc) { postWc(wc); return; }
     } catch (e) {}
     return originalReplace(url);
   };
@@ -546,17 +628,43 @@ const WALLETCONNECT_CAPTURE_SCRIPT = `
   // Hook anchor clicks
   document.addEventListener('click', function(e) {
     try {
-      var a = e.target && e.target.closest ? e.target.closest('a') : null;
-      if (!a) return;
-      var href = a.getAttribute('href') || '';
-      if (href.startsWith('wc:') || href.startsWith('walletconnect:') || href.includes('uri=wc')) {
-        e.preventDefault();
-        postWc(href);
+      var target = e.target;
+      if (!target) return;
+      
+      // Check if clicked element or parent has WC data
+      var el = target.closest ? target.closest('a, button, [role="button"]') : target;
+      if (el) scanElement(el);
+      
+      // Check anchor hrefs
+      var a = target.closest ? target.closest('a') : null;
+      if (a) {
+        var href = a.getAttribute('href') || '';
+        var wc = extractWcFromText(href);
+        if (wc) {
+          e.preventDefault();
+          postWc(wc);
+        }
       }
     } catch (e) {}
   }, true);
 
-  console.log('[Cordon] WalletConnect capture v2 injected');
+  // Intercept Web3Modal/WalletConnect signaling
+  try {
+    var origFetch = window.fetch;
+    window.fetch = function(url, options) {
+      try {
+        if (typeof url === 'string' && url.includes('relay.walletconnect.')) {
+          // WC relay communication detected - try to find URI in page
+          setTimeout(function() {
+            scanContainer(document.body);
+          }, 200);
+        }
+      } catch (e) {}
+      return origFetch.apply(window, arguments);
+    };
+  } catch (e) {}
+
+  console.log('[Cordon] WalletConnect capture v3 injected');
 })();
 true;
 `;
