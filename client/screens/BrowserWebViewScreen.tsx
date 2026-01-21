@@ -2109,45 +2109,6 @@ export default function BrowserWebViewScreen() {
         sharedCookiesEnabled
       />
 
-      {__DEV__ ? (
-        <View
-          pointerEvents="none"
-          style={{
-            position: "absolute",
-            top: (insets?.top ?? 0) + 44,
-            left: 12,
-            right: 12,
-            zIndex: 999999,
-            elevation: 999999,
-            paddingVertical: 10,
-            paddingHorizontal: 12,
-            borderRadius: 12,
-            backgroundColor: "rgba(0,0,0,0.85)",
-          }}
-        >
-          <Text style={{ color: "#fff", fontSize: 12, fontWeight: "700" }}>
-            WV MSG #{debugHud.count}
-          </Text>
-          <Text style={{ color: "#fff", fontSize: 11 }} numberOfLines={3}>
-            {debugHud.last}
-          </Text>
-        </View>
-      ) : null}
-
-      {isWcConnecting ? (
-        <View style={wcOverlayStyles.overlay}>
-          <View style={[wcOverlayStyles.card, { backgroundColor: theme.backgroundSecondary }]}>
-            <ActivityIndicator size="large" color={theme.accent} />
-            <ThemedText type="h4" style={{ marginTop: Spacing.md, textAlign: "center" }}>
-              Connecting to dApp...
-            </ThemedText>
-            <ThemedText type="caption" style={{ color: theme.textSecondary, marginTop: Spacing.xs, textAlign: "center" }}>
-              Please wait
-            </ThemedText>
-          </View>
-        </View>
-      ) : null}
-
       <View style={[styles.toolbar, { paddingBottom: insets.bottom, backgroundColor: theme.backgroundDefault }]}>
         <Pressable
           onPress={handleGoBack}
