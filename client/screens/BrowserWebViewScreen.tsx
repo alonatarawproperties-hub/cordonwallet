@@ -484,6 +484,13 @@ const WALLETCONNECT_CAPTURE_SCRIPT = `
 (function() {
   if (window.__cordonWcCapture) return;
   window.__cordonWcCapture = true;
+
+  try {
+    if (window.ReactNativeWebView) {
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type: "WC_CAPTURE_READY" }));
+    }
+  } catch (e) {}
+
   var lastPostedUri = '';
   var lastPostTime = 0;
   var autoClickedWc = false;
@@ -509,13 +516,22 @@ const WALLETCONNECT_CAPTURE_SCRIPT = `
       if (!window.ReactNativeWebView || typeof uri !== 'string') return;
       if (!uri.startsWith('wc:') && !uri.startsWith('walletconnect:') && !uri.includes('wc:')) return;
       
+      // Sanitize walletconnect: scheme to wc:
+      var cleanUri = uri;
+      if (uri.startsWith('walletconnect:')) {
+        var wcIdx = uri.indexOf('wc:');
+        if (wcIdx !== -1) {
+          cleanUri = uri.substring(wcIdx);
+        }
+      }
+      
       var now = Date.now();
-      if (uri === lastPostedUri && now - lastPostTime < 2000) return;
-      lastPostedUri = uri;
+      if (cleanUri === lastPostedUri && now - lastPostTime < 2000) return;
+      lastPostedUri = cleanUri;
       lastPostTime = now;
       
-      console.log('[Cordon] Posting WC URI:', uri.substring(0, 80));
-      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'WC_URI', uri: uri }));
+      console.log('[Cordon] Posting WC URI:', cleanUri.substring(0, 80));
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'WC_URI', uri: cleanUri }));
     } catch (e) { console.log('[Cordon] postWc error:', e); }
   }
 
@@ -706,6 +722,9 @@ const WALLETCONNECT_CAPTURE_SCRIPT = `
             setTimeout(function() { scanStorage(); scanForQrUri(); }, 300);
             setTimeout(function() { scanStorage(); scanForQrUri(); }, 600);
             setTimeout(function() { scanStorage(); scanForQrUri(); }, 1000);
+            // Try to auto-click Copy link button
+            setTimeout(function(){ autoClickCopyLink(node); }, 50);
+            setTimeout(function(){ autoClickCopyLink(document); }, 200);
           }
           
           // Detect Web3Modal/AppKit/Reown modals
@@ -979,7 +998,55 @@ const WALLETCONNECT_CAPTURE_SCRIPT = `
     });
   } catch (e) {}
 
-  console.log('[Cordon] WalletConnect capture v5 injected');
+  // Helper to extract WC from any object/string
+  function tryExtractAny(obj) {
+    try {
+      if (!obj) return null;
+      if (typeof obj === "string") return extractWcFromText(obj);
+      return extractWcFromText(JSON.stringify(obj));
+    } catch (e) { return null; }
+  }
+
+  // Capture from window message events (Web3Modal frequently posts the uri)
+  try {
+    window.addEventListener("message", function(ev) {
+      try {
+        var wc = tryExtractAny(ev && ev.data);
+        if (wc) postWc(wc);
+      } catch (e) {}
+    }, true);
+  } catch (e) {}
+
+  // Hook postMessage itself (some libs call window.postMessage directly)
+  try {
+    var origPm = window.postMessage;
+    window.postMessage = function(data) {
+      try {
+        var wc = tryExtractAny(data);
+        if (wc) postWc(wc);
+      } catch (e) {}
+      return origPm.apply(this, arguments);
+    };
+  } catch (e) {}
+
+  // Auto-click "Copy link" button when QR screen shows
+  function autoClickCopyLink(root) {
+    try {
+      var r = root || document;
+      var els = r.querySelectorAll("button, [role='button'], a, div");
+      for (var i=0;i<els.length;i++){
+        var t = (els[i].textContent || "").toLowerCase().trim();
+        if (t === "copy link" || t === "copy" || t.includes("copy link")) {
+          console.log("[Cordon] Auto-clicking Copy link");
+          els[i].click();
+          return true;
+        }
+      }
+    } catch(e) {}
+    return false;
+  }
+
+  console.log('[Cordon] WalletConnect capture v6 injected');
 })();
 true;
 `;
@@ -1199,9 +1266,21 @@ export default function BrowserWebViewScreen() {
   }, [urlInput]);
 
   const handleWebViewMessage = useCallback(async (event: WebViewMessageEvent) => {
+    console.log("[BrowserWebView] onMessage raw:", event?.nativeEvent?.data);
+    let data: any;
     try {
-      const data = JSON.parse(event.nativeEvent.data);
+      data = JSON.parse(event.nativeEvent.data);
+    } catch (parseError) {
+      console.log("[BrowserWebView] onMessage non-JSON:", event.nativeEvent.data);
+      return;
+    }
+    try {
       console.log("[BrowserWebView] Message received:", data.type);
+
+      if (data.type === "WC_CAPTURE_READY") {
+        console.log("[BrowserWC] Capture script ready");
+        return;
+      }
 
       if (data.type === "WC_BUTTON_CLICKED") {
         handleWcButtonClicked();
@@ -1905,6 +1984,8 @@ export default function BrowserWebViewScreen() {
         onMessage={handleWebViewMessage}
         injectedJavaScript={COMBINED_INJECTED_SCRIPT}
         injectedJavaScriptBeforeContentLoaded={COMBINED_INJECTED_SCRIPT}
+        injectedJavaScriptForMainFrameOnly={false}
+        injectedJavaScriptBeforeContentLoadedForMainFrameOnly={false}
         javaScriptEnabled
         domStorageEnabled
         startInLoadingState

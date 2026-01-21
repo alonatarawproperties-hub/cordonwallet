@@ -1,0 +1,155 @@
+REPLIT AGENT — FIX WALLETCONNECT AUTO DETECT (OPENSEA/WEB3MODAL)
+
+STRICT RULES:
+- Only edit: client/screens/BrowserWebViewScreen.tsx
+- Do NOT refactor. Do NOT touch other files.
+- Make smallest diff possible.
+
+GOAL:
+1) Ensure injected script runs in iframes (critical for Web3Modal/OpenSea).
+2) Add telemetry so we can SEE if injection and RN messaging works.
+3) Capture wc: uri from window.postMessage events (Web3Modal often uses this).
+4) Optional: when QR modal shows, try to auto-click “Copy link” (best-effort).
+5) Fix loader behavior: show loader ONLY after WC_BUTTON_CLICKED, hide on navigation + on WC_URI.
+
+────────────────────────────────────────────────────────────
+A) WebView: Inject into ALL FRAMES (IFRAMES) on iOS
+In the <WebView .../> props block in BrowserWebViewScreen.tsx, ADD these props:
+
+injectedJavaScriptForMainFrameOnly={false}
+injectedJavaScriptBeforeContentLoadedForMainFrameOnly={false}
+
+(Keep your existing injectedJavaScript/injectedJavaScriptBeforeContentLoaded lines.)
+
+This is the #1 reason OpenSea “does nothing”: the wc uri lives in an iframe, your script never runs there.
+
+────────────────────────────────────────────────────────────
+B) Native telemetry: log EVERY message from WebView
+In handleWebViewMessage (the function passed to onMessage),
+before JSON.parse, add a raw log:
+
+console.log("[BrowserWebView] onMessage raw:", event?.nativeEvent?.data);
+
+Then wrap JSON.parse with try/catch and if parse fails:
+console.log("[BrowserWebView] onMessage non-JSON:", event.nativeEvent.data);
+
+Do NOT crash.
+
+────────────────────────────────────────────────────────────
+C) Injected script: send a READY ping + better capture routes
+Inside WALLETCONNECT_CAPTURE_SCRIPT, at the very top after setting __cordonWcCapture, ADD:
+
+try {
+  if (window.ReactNativeWebView) {
+    window.ReactNativeWebView.postMessage(JSON.stringify({ type: "WC_CAPTURE_READY" }));
+  }
+} catch (e) {}
+
+Also, in postWc(uri), sanitize walletconnect: scheme:
+- If uri starts with "walletconnect:" convert to "wc:" by extracting substring from "wc:" if present.
+- Keep posting { type:"WC_URI", uri }
+
+────────────────────────────────────────────────────────────
+D) Capture from window message events (Web3Modal frequently posts the uri)
+Inside WALLETCONNECT_CAPTURE_SCRIPT, ADD:
+
+function tryExtractAny(obj) {
+  try {
+    if (!obj) return null;
+    if (typeof obj === "string") return extractWcFromText(obj);
+    return extractWcFromText(JSON.stringify(obj));
+  } catch (e) { return null; }
+}
+
+try {
+  window.addEventListener("message", function(ev) {
+    try {
+      var wc = tryExtractAny(ev && ev.data);
+      if (wc) postWc(wc);
+    } catch (e) {}
+  }, true);
+} catch (e) {}
+
+Also hook postMessage itself (some libs call window.postMessage directly):
+try {
+  var origPm = window.postMessage;
+  window.postMessage = function(data) {
+    try {
+      var wc = tryExtractAny(data);
+      if (wc) postWc(wc);
+    } catch (e) {}
+    return origPm.apply(this, arguments);
+  };
+} catch (e) {}
+
+────────────────────────────────────────────────────────────
+E) Storage hook (keep yours if already added, but ensure it exists in this file)
+Add (or keep) Storage.prototype.setItem interception:
+
+try {
+  var origSetItem = Storage.prototype.setItem;
+  Storage.prototype.setItem = function(k, v) {
+    try {
+      if (typeof v === "string") {
+        var wc = extractWcFromText(v);
+        if (wc) postWc(wc);
+      }
+    } catch (e) {}
+    return origSetItem.apply(this, arguments);
+  };
+} catch (e) {}
+
+────────────────────────────────────────────────────────────
+F) Best-effort: when QR screen is visible, try auto-click “Copy link”
+Add a function:
+
+function autoClickCopyLink(root) {
+  try {
+    var r = root || document;
+    var els = r.querySelectorAll("button, [role='button'], a, div");
+    for (var i=0;i<els.length;i++){
+      var t = (els[i].textContent || "").toLowerCase().trim();
+      if (t === "copy link" || t === "copy" || t.includes("copy link")) {
+        console.log("[Cordon] Auto-clicking Copy link");
+        els[i].click();
+        return true;
+      }
+    }
+  } catch(e) {}
+  return false;
+}
+
+Then, in your MutationObserver block where you detect QR screen:
+after console.log('[Cordon] QR screen detected');
+call:
+setTimeout(function(){ autoClickCopyLink(node); }, 50);
+setTimeout(function(){ autoClickCopyLink(document); }, 200);
+
+(This helps because clipboard hook may capture the uri immediately.)
+
+────────────────────────────────────────────────────────────
+G) Native side behavior changes
+1) In handleWebViewMessage switch/case:
+- If type === "WC_CAPTURE_READY": console.log it, DO NOTHING else.
+- If type === "WC_BUTTON_CLICKED": show loader (existing behavior).
+- If type === "WC_URI": setIsWcConnecting(false) immediately, clear timeout, then call handleWalletConnectUri(uri).
+
+2) On navigation changes:
+In handleNavigationStateChange OR onLoadStart:
+- setIsWcConnecting(false)
+- clear wcConnectTimeout.current if set
+
+This prevents “Connecting to dApp…” sticking.
+
+────────────────────────────────────────────────────────────
+H) Test checklist (print logs)
+1) Open opensea.io in in-app browser
+2) Confirm you see: [BrowserWebView] onMessage raw: ... WC_CAPTURE_READY
+   If not, injection still not running.
+3) Tap Connect -> WalletConnect -> QR appears
+4) Confirm logs show either:
+   - WC_BUTTON_CLICKED (if your script detects it), then
+   - WC_URI within 0-2s
+5) If no WC_URI but READY exists, we’re still not reaching where uri is generated; iframe injection should fix most cases.
+
+Make ONLY these edits and stop.
