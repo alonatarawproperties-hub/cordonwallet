@@ -23,6 +23,7 @@ import { useWalletConnect } from "@/lib/walletconnect/context";
 import { getApiUrl } from "@/lib/query-client";
 import { BrowserConnectSheet } from "@/components/BrowserConnectSheet";
 import { BrowserSignSheet } from "@/components/BrowserSignSheet";
+import { ComingSoonSheet } from "@/components/ComingSoonSheet";
 
 function extractWalletConnectUri(input: string): string | null {
   if (!input) return null;
@@ -1122,7 +1123,7 @@ export default function BrowserWebViewScreen() {
   const webViewRef = useRef<WebView>(null);
   const externalAuth = useExternalAuth();
   const { activeWallet } = useWallet();
-  const { connect: wcConnect } = useWalletConnect();
+  const { connect: wcConnect, evmRejectionReason, clearEvmRejection } = useWalletConnect();
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [isAuthInProgress, setIsAuthInProgress] = useState(false);
   const [isWcConnecting, setIsWcConnecting] = useState(false);
@@ -2236,6 +2237,13 @@ export default function BrowserWebViewScreen() {
         drainerType={signSheet?.drainerType}
         onSign={handleSignApprove}
         onReject={handleSignReject}
+      />
+
+      <ComingSoonSheet
+        visible={evmRejectionReason !== null}
+        title="EVM Coming Soon"
+        description="Support for Ethereum and other EVM chains is coming soon. For now, Cordon supports Solana dApps only."
+        onClose={clearEvmRejection}
       />
     </View>
   );
