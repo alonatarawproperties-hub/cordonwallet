@@ -488,6 +488,76 @@ const WALLETCONNECT_CAPTURE_SCRIPT = `
   var lastPostTime = 0;
   var autoClickedWc = false;
 
+  function postConnecting(reason) {
+    try {
+      if (!window.ReactNativeWebView) return;
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'WC_CONNECTING', reason: reason || 'unknown' }));
+    } catch (e) {}
+  }
+
+  function maybeCaptureFromString(key, raw) {
+    try {
+      if (!raw) return;
+      var str = (typeof raw === 'string') ? raw : String(raw);
+      // Fast path: direct wc: in value
+      if (str.includes('wc:') || str.includes('walletconnect:')) {
+        var wc = extractWcFromText(str);
+        if (wc) { postWc(wc); return true; }
+      }
+
+      // If value is JSON-ish and key looks related, try parse and search
+      if (key && (key.includes('wc@') || key.toLowerCase().includes('walletconnect') || key.toLowerCase().includes('w3m') || key.toLowerCase().includes('wagmi') || key.toLowerCase().includes('reown'))) {
+        // Try parse JSON for nested uri fields
+        try {
+          var obj = JSON.parse(str);
+          // common shapes: { uri: "wc:..." } or deep nested
+          var jsonStr = JSON.stringify(obj);
+          var wc2 = extractWcFromText(jsonStr);
+          if (wc2) { postWc(wc2); return true; }
+        } catch (e) {}
+      }
+    } catch (e) {}
+    return false;
+  }
+
+  (function hookStorageSetItem() {
+    try {
+      if (window.__cordonStorageHooked) return;
+      window.__cordonStorageHooked = true;
+
+      var proto = (window.Storage && Storage.prototype) ? Storage.prototype : null;
+      if (!proto || !proto.setItem) return;
+
+      var origSetItem = proto.setItem;
+      proto.setItem = function(key, value) {
+        try {
+          // User intent: storage writes usually happen right after tapping "WalletConnect"
+          // Trigger loader immediately (native will debounce)
+          if (key && (String(key).includes('wc@') || String(key).toLowerCase().includes('walletconnect') || String(key).toLowerCase().includes('w3m') || String(key).toLowerCase().includes('wagmi') || String(key).toLowerCase().includes('reown'))) {
+            postConnecting('storage_setItem:' + String(key));
+          }
+          // Capture WC URI at the exact moment it's written
+          var captured = maybeCaptureFromString(String(key || ''), value);
+          if (!captured) {
+            // Safety: sometimes the URI is written in a separate key a few ms later
+            setTimeout(function(){ try { scanStorage(); scanForQrUri(); } catch(e){} }, 0);
+          }
+        } catch (e) {}
+        return origSetItem.apply(this, arguments);
+      };
+
+      // Also hook removeItem to allow native UI to clear loader if desired later
+      var origRemoveItem = proto.removeItem;
+      proto.removeItem = function(key) {
+        return origRemoveItem.apply(this, arguments);
+      };
+
+      console.log('[Cordon] Storage.setItem hooked');
+    } catch (e) {
+      console.log('[Cordon] Storage hook error:', e);
+    }
+  })();
+
   function postWc(uri) {
     try {
       if (!window.ReactNativeWebView || typeof uri !== 'string') return;
@@ -908,6 +978,7 @@ const WALLETCONNECT_CAPTURE_SCRIPT = `
       
       if (isWcButton) {
         console.log('[Cordon] WalletConnect clicked - starting aggressive scan');
+        postConnecting('user_click_walletconnect');
         if (window.ReactNativeWebView) {
           window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'WC_BUTTON_CLICKED' }));
         }
@@ -1010,8 +1081,8 @@ export default function BrowserWebViewScreen() {
       wcPairingInProgress.current = true;
       console.log("[BrowserWC] Intercepted WC URI:", uri.substring(0, 50) + "...");
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      // Clear loading state since we have the URI
-      setIsWcConnecting(false);
+      // Keep loader on while pairing
+      setIsWcConnecting(true);
       if (wcConnectTimeout.current) {
         clearTimeout(wcConnectTimeout.current);
         wcConnectTimeout.current = null;
@@ -1019,9 +1090,9 @@ export default function BrowserWebViewScreen() {
       await wcConnect(uri);
     } catch (e) {
       console.log("[BrowserWC] Failed to pair:", e);
-      setIsWcConnecting(false);
     } finally {
       wcPairingInProgress.current = false;
+      setIsWcConnecting(false);
     }
   }, [wcConnect]);
 
@@ -1172,7 +1243,7 @@ export default function BrowserWebViewScreen() {
       const data = JSON.parse(event.nativeEvent.data);
       console.log("[BrowserWebView] Message received:", data.type);
 
-      if (data.type === "WC_BUTTON_CLICKED") {
+      if (data.type === "WC_BUTTON_CLICKED" || data.type === "WC_CONNECTING") {
         handleWcButtonClicked();
         return;
       }
