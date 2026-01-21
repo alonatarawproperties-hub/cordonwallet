@@ -486,6 +486,7 @@ const WALLETCONNECT_CAPTURE_SCRIPT = `
   window.__cordonWcCapture = true;
   var lastPostedUri = '';
   var lastPostTime = 0;
+  var autoClickedWc = false;
 
   function postWc(uri) {
     try {
@@ -522,7 +523,7 @@ const WALLETCONNECT_CAPTURE_SCRIPT = `
           var key = storage.key(i);
           if (!key) continue;
           // Look for WalletConnect related keys
-          if (key.includes('wc@') || key.includes('walletconnect') || key.includes('w3m') || key.includes('WALLETCONNECT')) {
+          if (key.includes('wc@') || key.includes('walletconnect') || key.includes('w3m') || key.includes('WALLETCONNECT') || key.includes('reown')) {
             try {
               var val = storage.getItem(key);
               if (val) {
@@ -543,10 +544,80 @@ const WALLETCONNECT_CAPTURE_SCRIPT = `
     } catch (e) {}
   }
 
+  // Auto-click WalletConnect option in wallet picker modals
+  function autoClickWalletConnect(container) {
+    if (autoClickedWc) return;
+    try {
+      // Look for WalletConnect option in various modal formats
+      var selectors = [
+        'button[data-testid*="wallet-connect"]',
+        'button[data-testid*="walletconnect"]',
+        '[data-wallet-id="walletConnect"]',
+        '[data-wallet-id="wc"]',
+        'wui-list-wallet[name*="WalletConnect"]',
+        'wui-list-wallet[name*="walletconnect"]',
+        'w3m-wallet-button[name*="WalletConnect"]',
+        'wcm-wallet-button[name*="WalletConnect"]',
+        '[aria-label*="WalletConnect"]',
+        '[title*="WalletConnect"]',
+      ];
+      
+      for (var i = 0; i < selectors.length; i++) {
+        var el = (container || document).querySelector(selectors[i]);
+        if (el) {
+          console.log('[Cordon] Found WalletConnect option, auto-clicking');
+          autoClickedWc = true;
+          if (window.ReactNativeWebView) {
+            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'WC_BUTTON_CLICKED' }));
+          }
+          el.click();
+          setTimeout(function() { scanStorage(); }, 300);
+          setTimeout(function() { scanStorage(); }, 800);
+          return true;
+        }
+      }
+      
+      // Fallback: search by text content
+      var buttons = (container || document).querySelectorAll('button, [role="button"], a, div[onclick]');
+      for (var j = 0; j < buttons.length; j++) {
+        var btn = buttons[j];
+        var text = (btn.textContent || '').toLowerCase().trim();
+        var hasWcImg = btn.querySelector && btn.querySelector('img[alt*="WalletConnect" i], img[src*="walletconnect" i]');
+        if (text === 'walletconnect' || hasWcImg) {
+          console.log('[Cordon] Found WalletConnect by text/img, auto-clicking');
+          autoClickedWc = true;
+          if (window.ReactNativeWebView) {
+            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'WC_BUTTON_CLICKED' }));
+          }
+          btn.click();
+          setTimeout(function() { scanStorage(); }, 300);
+          setTimeout(function() { scanStorage(); }, 800);
+          return true;
+        }
+      }
+      
+      // Look for QR code tab/button if WalletConnect not found
+      var qrSelectors = ['[data-testid="qr-code"]', '[aria-label*="QR"]', 'button:has(svg)', 'w3m-qrcode-view'];
+      for (var k = 0; k < qrSelectors.length; k++) {
+        try {
+          var qrEl = (container || document).querySelector(qrSelectors[k]);
+          if (qrEl && !autoClickedWc) {
+            console.log('[Cordon] Found QR option');
+            setTimeout(function() { scanStorage(); }, 500);
+          }
+        } catch (e) {}
+      }
+    } catch (e) { console.log('[Cordon] autoClickWalletConnect error:', e); }
+    return false;
+  }
+
   // Scan modal containers for WC URIs
   function scanContainer(container) {
     if (!container) return;
     try {
+      // First try to auto-click WalletConnect
+      autoClickWalletConnect(container);
+      
       var inputs = container.querySelectorAll('input');
       inputs.forEach(function(inp) {
         var wc = extractWcFromText(inp.value);
@@ -572,18 +643,23 @@ const WALLETCONNECT_CAPTURE_SCRIPT = `
         if (!node || node.nodeType !== 1) return;
         try {
           var tagName = (node.tagName || '').toLowerCase();
+          // Detect Web3Modal/AppKit/Reown modals
           if (tagName === 'w3m-modal' || tagName === 'wcm-modal' || tagName === 'appkit-modal' ||
+              tagName.includes('w3m-') || tagName.includes('wcm-') || tagName.includes('appkit-') ||
               tagName.includes('modal') || tagName.includes('dialog')) {
             console.log('[Cordon] Modal detected:', tagName);
-            setTimeout(function() { scanContainer(node); scanStorage(); }, 300);
-            setTimeout(function() { scanContainer(node); scanStorage(); }, 1000);
-            setTimeout(function() { scanStorage(); }, 2000);
+            // Reset auto-click flag for new modals
+            autoClickedWc = false;
+            setTimeout(function() { autoClickWalletConnect(node); scanContainer(node); scanStorage(); }, 200);
+            setTimeout(function() { autoClickWalletConnect(node); scanContainer(node); scanStorage(); }, 600);
+            setTimeout(function() { scanStorage(); }, 1500);
           }
           if (node.className && typeof node.className === 'string') {
             var cn = node.className.toLowerCase();
-            if (cn.includes('modal') || cn.includes('wallet') || cn.includes('connect') || cn.includes('w3m') || cn.includes('wcm')) {
-              setTimeout(function() { scanContainer(node); scanStorage(); }, 300);
-              setTimeout(function() { scanStorage(); }, 1500);
+            if (cn.includes('modal') || cn.includes('wallet') || cn.includes('connect') || cn.includes('w3m') || cn.includes('wcm') || cn.includes('appkit')) {
+              autoClickedWc = false;
+              setTimeout(function() { autoClickWalletConnect(node); scanContainer(node); scanStorage(); }, 200);
+              setTimeout(function() { scanStorage(); }, 1200);
             }
           }
         } catch (e) {}
