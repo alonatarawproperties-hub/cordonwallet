@@ -670,19 +670,6 @@ const WALLETCONNECT_CAPTURE_SCRIPT = `
     scanStorage();
   }
 
-  // Detect QR code screen and scan immediately
-  function isQrScreen(node) {
-    if (!node) return false;
-    var text = (node.textContent || '').toLowerCase();
-    return text.includes('qr code') || text.includes('scan this') || text.includes('copy link') || 
-           text.includes('scan with') || text.includes('walletconnect');
-  }
-  
-  function rapidScan() {
-    scanStorage();
-    scanForQrUri();
-  }
-
   // MutationObserver for modal detection
   var observer = new MutationObserver(function(mutations) {
     mutations.forEach(function(mutation) {
@@ -690,16 +677,19 @@ const WALLETCONNECT_CAPTURE_SCRIPT = `
         if (!node || node.nodeType !== 1) return;
         try {
           var tagName = (node.tagName || '').toLowerCase();
+          var nodeText = (node.textContent || '').toLowerCase();
           
-          // Quick check for QR code screen - scan immediately with ultra-fast intervals
-          if (isQrScreen(node)) {
-            console.log('[Cordon] QR screen detected - rapid scanning');
-            rapidScan();
-            setTimeout(rapidScan, 50);
-            setTimeout(rapidScan, 100);
-            setTimeout(rapidScan, 200);
-            setTimeout(rapidScan, 400);
-            setTimeout(rapidScan, 700);
+          // Detect QR code screen specifically - ultra fast scanning
+          var isQrScreen = nodeText.includes('qr code') || nodeText.includes('scan this') || 
+                           nodeText.includes('copy link') || nodeText.includes('scan with');
+          if (isQrScreen) {
+            console.log('[Cordon] QR screen detected');
+            scanStorage();
+            setTimeout(function() { scanStorage(); scanForQrUri(); }, 50);
+            setTimeout(function() { scanStorage(); scanForQrUri(); }, 150);
+            setTimeout(function() { scanStorage(); scanForQrUri(); }, 300);
+            setTimeout(function() { scanStorage(); scanForQrUri(); }, 600);
+            setTimeout(function() { scanStorage(); scanForQrUri(); }, 1000);
           }
           
           // Detect Web3Modal/AppKit/Reown modals
@@ -709,16 +699,16 @@ const WALLETCONNECT_CAPTURE_SCRIPT = `
             console.log('[Cordon] Modal detected:', tagName);
             // Reset auto-click flag for new modals
             autoClickedWc = false;
-            setTimeout(function() { autoClickWalletConnect(node); scanContainer(node); scanStorage(); }, 100);
-            setTimeout(function() { autoClickWalletConnect(node); scanContainer(node); scanStorage(); }, 300);
-            setTimeout(function() { scanStorage(); }, 800);
+            setTimeout(function() { autoClickWalletConnect(node); scanContainer(node); scanStorage(); }, 200);
+            setTimeout(function() { autoClickWalletConnect(node); scanContainer(node); scanStorage(); }, 600);
+            setTimeout(function() { scanStorage(); }, 1500);
           }
           if (node.className && typeof node.className === 'string') {
             var cn = node.className.toLowerCase();
             if (cn.includes('modal') || cn.includes('wallet') || cn.includes('connect') || cn.includes('w3m') || cn.includes('wcm') || cn.includes('appkit')) {
               autoClickedWc = false;
-              setTimeout(function() { autoClickWalletConnect(node); scanContainer(node); scanStorage(); }, 100);
-              setTimeout(function() { scanStorage(); }, 600);
+              setTimeout(function() { autoClickWalletConnect(node); scanContainer(node); scanStorage(); }, 200);
+              setTimeout(function() { scanStorage(); }, 1200);
             }
           }
         } catch (e) {}
