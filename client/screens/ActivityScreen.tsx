@@ -26,6 +26,7 @@ import { supportedChains, getChainById, getExplorerAddressUrl } from "@/lib/bloc
 import { NetworkId } from "@/lib/types";
 import { getApiUrl } from "@/lib/query-client";
 import { getCustomTokens, CustomToken, buildCustomTokenMap } from "@/lib/token-preferences";
+import { FEATURES } from "@/config/features";
 
 const NETWORK_TO_CHAIN_ID: Record<NetworkId, number> = {
   ethereum: 1,
@@ -429,10 +430,15 @@ export default function ActivityScreen() {
     setRefreshing(false);
   }, [loadTransactions]);
 
+  // Filter out EVM transactions when EVM is disabled
+  const chainFilteredTransactions = FEATURES.EVM_ENABLED 
+    ? transactions 
+    : transactions.filter((tx) => tx.chainId === 0);
+  
   const filteredTransactions =
     networkFilter === "all"
-      ? transactions
-      : transactions.filter((tx) => tx.chainId === networkFilter);
+      ? chainFilteredTransactions
+      : chainFilteredTransactions.filter((tx) => tx.chainId === networkFilter);
 
   const groupedData = groupTransactionsByDate(filteredTransactions);
 
@@ -669,7 +675,9 @@ export default function ActivityScreen() {
                 <Feather name="check" size={16} color={theme.accent} />
               ) : null}
             </Pressable>
-            {supportedChains.map((chain) => (
+            {supportedChains
+              .filter((chain) => FEATURES.EVM_ENABLED || chain.chainId === 0)
+              .map((chain) => (
               <Pressable
                 key={chain.chainId}
                 style={styles.networkOption}
