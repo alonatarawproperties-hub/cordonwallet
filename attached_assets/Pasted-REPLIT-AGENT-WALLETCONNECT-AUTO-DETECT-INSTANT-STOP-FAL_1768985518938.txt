@@ -1,0 +1,110 @@
+REPLIT AGENT — WALLETCONNECT AUTO-DETECT (INSTANT) + STOP FALSE “CONNECTING” LOADER
+
+STRICT:
+- Only edit: client/screens/BrowserWebViewScreen.tsx
+- Do NOT change WalletConnect native client logic.
+- Only modify WALLETCONNECT_CAPTURE_SCRIPT + the native onMessage handler logic that toggles loader.
+- Do NOT break existing messages: "WC_URI" and "WC_BUTTON_CLICKED".
+
+GOAL:
+1) Capture WalletConnect URI immediately when dApp writes it to localStorage/sessionStorage.
+2) Only show “Connecting to dApp…” when we detect WalletConnect modal/QR/copy-link activity — NOT on random page clicks.
+
+A) PATCH WALLETCONNECT_CAPTURE_SCRIPT
+Inside the injected script, add a new function:
+
+function maybePostFromValue(val) {
+  try {
+    if (!val) return;
+    if (typeof val !== 'string') val = JSON.stringify(val);
+    var wc = extractWcFromText(val);
+    if (wc) postWc(wc);
+  } catch (e) {}
+}
+
+Then HOOK Storage writes BEFORE your observers:
+
+1) Hook Storage.prototype.setItem:
+
+try {
+  var origSetItem = Storage.prototype.setItem;
+  Storage.prototype.setItem = function(k, v) {
+    try {
+      // only inspect likely WC keys OR any string containing wc:
+      if (
+        (typeof k === 'string' && (
+          k.includes('wc@') || k.includes('walletconnect') || k.includes('w3m') || k.includes('wagmi') || k.includes('reown')
+        )) ||
+        (typeof v === 'string' && (v.includes('wc:') || v.includes('walletconnect:')))
+      ) {
+        maybePostFromValue(v);
+      }
+    } catch (e) {}
+    return origSetItem.apply(this, arguments);
+  };
+} catch (e) {}
+
+2) Also hook localStorage.setItem and sessionStorage.setItem (some sites call them directly):
+
+try {
+  var lsOrig = localStorage.setItem.bind(localStorage);
+  localStorage.setItem = function(k, v) {
+    try {
+      if (
+        (typeof k === 'string' && (
+          k.includes('wc@') || k.includes('walletconnect') || k.includes('w3m') || k.includes('wagmi') || k.includes('reown')
+        )) ||
+        (typeof v === 'string' && (v.includes('wc:') || v.includes('walletconnect:')))
+      ) {
+        maybePostFromValue(v);
+      }
+    } catch (e) {}
+    return lsOrig(k, v);
+  };
+} catch (e) {}
+
+try {
+  var ssOrig = sessionStorage.setItem.bind(sessionStorage);
+  sessionStorage.setItem = function(k, v) {
+    try {
+      if (
+        (typeof k === 'string' && (
+          k.includes('wc@') || k.includes('walletconnect') || k.includes('w3m') || k.includes('wagmi') || k.includes('reown')
+        )) ||
+        (typeof v === 'string' && (v.includes('wc:') || v.includes('walletconnect:')))
+      ) {
+        maybePostFromValue(v);
+      }
+    } catch (e) {}
+    return ssOrig(k, v);
+  };
+} catch (e) {}
+
+3) Add a new message type when we detect a WC modal/QR screen (NOT generic clicks):
+- When MutationObserver detects:
+  - tagName contains 'w3m-' or 'wcm-' or 'appkit-'
+  - OR nodeText includes 'scan this qr code' OR 'copy link'
+Send:
+window.ReactNativeWebView.postMessage("WC_MODAL_DETECTED");
+
+IMPORTANT: remove/disable the broad click handler that triggers “Wallet button clicked” for any text that includes 'wallet' or 'connect'.
+Keep ONLY the specific isWcButton detection branch (WalletConnect text/img) and QR-screen detection branch.
+
+So:
+- Delete the “Other wallet-related button clicks” block entirely.
+- Keep the “isWcButton” block.
+- Keep QR-screen detection.
+
+B) NATIVE SIDE: FIX LOADER CONDITIONS
+In BrowserWebViewScreen.tsx onMessage handler:
+- Currently you show loader on WC_BUTTON_CLICKED.
+Change logic:
+1) On "WC_MODAL_DETECTED" -> setIsWcConnecting(true) + start 8s timeout (same as before).
+2) On "WC_BUTTON_CLICKED" -> DO NOT show loader (just log). It’s too noisy.
+3) On "WC_URI" -> immediately setIsWcConnecting(false) then call handleWalletConnectUri.
+
+C) ADD MINIMAL RAW LOGGING
+Keep:
+console.log("[BrowserWebView] onMessage raw:", event.nativeEvent.data);
+
+DONE.

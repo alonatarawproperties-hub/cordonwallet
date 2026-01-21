@@ -495,21 +495,68 @@ const WALLETCONNECT_CAPTURE_SCRIPT = `
   var lastPostTime = 0;
   var autoClickedWc = false;
 
-  function hookStorageSetItem() {
+  function maybePostFromValue(val) {
     try {
-      var orig = Storage.prototype.setItem;
-      Storage.prototype.setItem = function(k, v) {
-        try {
-          if (typeof v === 'string') {
-            var wc = extractWcFromText(v);
-            if (wc) postWc(wc);
-          }
-        } catch (e) {}
-        return orig.apply(this, arguments);
-      };
+      if (!val) return;
+      if (typeof val !== 'string') val = JSON.stringify(val);
+      var wc = extractWcFromText(val);
+      if (wc) postWc(wc);
     } catch (e) {}
   }
-  hookStorageSetItem();
+
+  // Hook Storage.prototype.setItem
+  try {
+    var origSetItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = function(k, v) {
+      try {
+        if (
+          (typeof k === 'string' && (
+            k.includes('wc@') || k.includes('walletconnect') || k.includes('w3m') || k.includes('wagmi') || k.includes('reown')
+          )) ||
+          (typeof v === 'string' && (v.includes('wc:') || v.includes('walletconnect:')))
+        ) {
+          maybePostFromValue(v);
+        }
+      } catch (e) {}
+      return origSetItem.apply(this, arguments);
+    };
+  } catch (e) {}
+
+  // Hook localStorage.setItem directly
+  try {
+    var lsOrig = localStorage.setItem.bind(localStorage);
+    localStorage.setItem = function(k, v) {
+      try {
+        if (
+          (typeof k === 'string' && (
+            k.includes('wc@') || k.includes('walletconnect') || k.includes('w3m') || k.includes('wagmi') || k.includes('reown')
+          )) ||
+          (typeof v === 'string' && (v.includes('wc:') || v.includes('walletconnect:')))
+        ) {
+          maybePostFromValue(v);
+        }
+      } catch (e) {}
+      return lsOrig(k, v);
+    };
+  } catch (e) {}
+
+  // Hook sessionStorage.setItem directly
+  try {
+    var ssOrig = sessionStorage.setItem.bind(sessionStorage);
+    sessionStorage.setItem = function(k, v) {
+      try {
+        if (
+          (typeof k === 'string' && (
+            k.includes('wc@') || k.includes('walletconnect') || k.includes('w3m') || k.includes('wagmi') || k.includes('reown')
+          )) ||
+          (typeof v === 'string' && (v.includes('wc:') || v.includes('walletconnect:')))
+        ) {
+          maybePostFromValue(v);
+        }
+      } catch (e) {}
+      return ssOrig(k, v);
+    };
+  } catch (e) {}
 
   function postWc(uri) {
     try {
@@ -716,6 +763,9 @@ const WALLETCONNECT_CAPTURE_SCRIPT = `
                            nodeText.includes('copy link') || nodeText.includes('scan with');
           if (isQrScreen) {
             console.log('[Cordon] QR screen detected');
+            if (window.ReactNativeWebView) {
+              window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'WC_MODAL_DETECTED' }));
+            }
             scanStorage();
             setTimeout(function() { scanStorage(); scanForQrUri(); }, 50);
             setTimeout(function() { scanStorage(); scanForQrUri(); }, 150);
@@ -729,11 +779,10 @@ const WALLETCONNECT_CAPTURE_SCRIPT = `
           
           // Detect Web3Modal/AppKit/Reown modals
           if (tagName === 'w3m-modal' || tagName === 'wcm-modal' || tagName === 'appkit-modal' ||
-              tagName.includes('w3m-') || tagName.includes('wcm-') || tagName.includes('appkit-') ||
-              tagName.includes('modal') || tagName.includes('dialog')) {
+              tagName.includes('w3m-') || tagName.includes('wcm-') || tagName.includes('appkit-')) {
             console.log('[Cordon] Modal detected:', tagName);
             if (window.ReactNativeWebView) {
-              window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'WC_MODAL_OPENED' }));
+              window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'WC_MODAL_DETECTED' }));
             }
             // Reset auto-click flag for new modals
             autoClickedWc = false;
@@ -741,9 +790,10 @@ const WALLETCONNECT_CAPTURE_SCRIPT = `
             setTimeout(function() { autoClickWalletConnect(node); scanContainer(node); scanStorage(); }, 600);
             setTimeout(function() { scanStorage(); }, 1500);
           }
+          // Only trigger for specific WC modal class names (not generic 'wallet' or 'connect')
           if (node.className && typeof node.className === 'string') {
             var cn = node.className.toLowerCase();
-            if (cn.includes('modal') || cn.includes('wallet') || cn.includes('connect') || cn.includes('w3m') || cn.includes('wcm') || cn.includes('appkit')) {
+            if (cn.includes('w3m') || cn.includes('wcm') || cn.includes('appkit')) {
               autoClickedWc = false;
               setTimeout(function() { autoClickWalletConnect(node); scanContainer(node); scanStorage(); }, 200);
               setTimeout(function() { scanStorage(); }, 1200);
@@ -1348,12 +1398,18 @@ export default function BrowserWebViewScreen() {
       }
 
       if (data.type === "WC_BUTTON_CLICKED") {
-        handleWcButtonClicked();
+        console.log("[BrowserWC] WalletConnect button clicked (no loader)");
         return;
       }
 
       if (data.type === "WC_MODAL_OPENED") {
         console.log("[BrowserWC] Modal opened - scanning (no loader)");
+        return;
+      }
+
+      if (data.type === "WC_MODAL_DETECTED") {
+        console.log("[BrowserWC] Modal/QR detected - showing loader");
+        handleWcButtonClicked();
         return;
       }
 
