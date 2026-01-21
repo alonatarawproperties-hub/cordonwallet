@@ -15,6 +15,7 @@ import { ThemedText } from "@/components/ThemedText";
 import { useWallet } from "@/lib/wallet-context";
 import { useAllChainsPortfolio, MultiChainAsset } from "@/hooks/useAllChainsPortfolio";
 import { useSolanaPortfolio, SolanaAsset } from "@/hooks/useSolanaPortfolio";
+import { FEATURES } from "@/config/features";
 import { formatTimeSince } from "@/hooks/usePortfolio";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { getTokenLogoUrl } from "@/lib/token-logos";
@@ -273,11 +274,12 @@ export default function PortfolioScreen() {
   const customTokenMap = buildCustomTokenMap(customTokens);
 
   const { assets, isLoading, isRefreshing, error, lastUpdated, totalValue } = useMemo(() => {
-    const evmAssets: UnifiedAsset[] = walletType === "solana-only" ? [] : evmPortfolio.assets.map((a) => ({
+    const showEvmAssets = FEATURES.EVM_ENABLED && walletType !== "solana-only";
+    const evmAssets: UnifiedAsset[] = showEvmAssets ? evmPortfolio.assets.map((a) => ({
       ...a,
       chainType: "evm" as ChainType,
       logoUrl: a.logoURI,
-    }));
+    })) : [];
     
     const solAssets: UnifiedAsset[] = solanaPortfolio.assets.map((a) => {
       const customToken = a.mint ? customTokenMap.get(a.mint.toLowerCase()) : undefined;
@@ -291,8 +293,8 @@ export default function PortfolioScreen() {
       };
     });
 
-    const isRefreshingAny = (walletType === "solana-only" ? false : evmPortfolio.isRefreshing) || solanaPortfolio.isRefreshing;
-    const isLoadingAny = (walletType === "solana-only" ? false : evmPortfolio.isLoading) || solanaPortfolio.isLoading;
+    const isRefreshingAny = (showEvmAssets ? evmPortfolio.isRefreshing : false) || solanaPortfolio.isRefreshing;
+    const isLoadingAny = (showEvmAssets ? evmPortfolio.isLoading : false) || solanaPortfolio.isLoading;
 
     const combined = [...evmAssets, ...solAssets];
     
@@ -339,9 +341,9 @@ export default function PortfolioScreen() {
     });
 
     const total = visibleAssets.reduce((sum, asset) => sum + (asset.valueUsd || 0), 0);
-    const errorAny = (walletType === "solana-only" ? null : evmPortfolio.error) || solanaPortfolio.error;
+    const errorAny = (showEvmAssets ? evmPortfolio.error : null) || solanaPortfolio.error;
     const latestUpdate = Math.max(
-      walletType === "solana-only" ? 0 : (evmPortfolio.lastUpdated || 0), 
+      showEvmAssets ? (evmPortfolio.lastUpdated || 0) : 0, 
       solanaPortfolio.lastUpdated || 0
     );
 

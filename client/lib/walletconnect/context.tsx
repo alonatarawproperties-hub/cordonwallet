@@ -11,6 +11,7 @@ import {
   rejectRequest,
   parseChainId,
   isSolanaChain,
+  shouldRejectProposalForDisabledChains,
   WCSession,
   SessionProposal,
   SessionRequest,
@@ -25,6 +26,7 @@ interface WalletConnectContextType {
   sessions: WCSession[];
   currentProposal: SessionProposal | null;
   currentRequest: { request: SessionRequest; parsed: ParsedRequest; isSolana: boolean } | null;
+  evmRejectionReason: string | null;
   connect: (uri: string) => Promise<void>;
   approve: (addresses: MultiChainAddresses) => Promise<WCSession>;
   reject: () => Promise<void>;
@@ -33,6 +35,7 @@ interface WalletConnectContextType {
   respondError: (message?: string) => Promise<void>;
   refreshSessions: () => void;
   clearCurrentRequest: () => void;
+  clearEvmRejection: () => void;
 }
 
 const WalletConnectContext = createContext<WalletConnectContextType | null>(null);
@@ -48,6 +51,7 @@ export function WalletConnectProvider({ children }: { children: React.ReactNode 
     parsed: ParsedRequest;
     isSolana: boolean;
   } | null>(null);
+  const [evmRejectionReason, setEvmRejectionReason] = useState<string | null>(null);
 
   const initializeWC = useCallback(async () => {
     if (isInitialized || isInitializing) return;
@@ -58,11 +62,25 @@ export function WalletConnectProvider({ children }: { children: React.ReactNode 
     try {
       const wallet = await initWalletConnect();
 
-      wallet.on("session_proposal", (proposal) => {
-        setCurrentProposal({
+      wallet.on("session_proposal", async (proposal) => {
+        const sessionProposal: SessionProposal = {
           id: proposal.id,
           params: proposal.params,
-        });
+        };
+        
+        const rejection = shouldRejectProposalForDisabledChains(sessionProposal);
+        if (rejection) {
+          console.log("[WalletConnect] Rejecting proposal:", rejection.reason);
+          try {
+            await rejectSession(proposal.id);
+          } catch (err) {
+            console.warn("[WalletConnect] Error rejecting session:", err);
+          }
+          setEvmRejectionReason(rejection.reason);
+          return;
+        }
+        
+        setCurrentProposal(sessionProposal);
       });
 
       wallet.on("session_request", (event) => {
@@ -198,6 +216,10 @@ export function WalletConnectProvider({ children }: { children: React.ReactNode 
     setCurrentRequest(null);
   }, []);
 
+  const clearEvmRejection = useCallback(() => {
+    setEvmRejectionReason(null);
+  }, []);
+
   return (
     <WalletConnectContext.Provider
       value={{
@@ -207,6 +229,7 @@ export function WalletConnectProvider({ children }: { children: React.ReactNode 
         sessions,
         currentProposal,
         currentRequest,
+        evmRejectionReason,
         connect,
         approve,
         reject,
@@ -215,6 +238,7 @@ export function WalletConnectProvider({ children }: { children: React.ReactNode 
         respondError,
         refreshSessions,
         clearCurrentRequest,
+        clearEvmRejection,
       }}
     >
       {children}

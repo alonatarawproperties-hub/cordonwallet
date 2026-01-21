@@ -1,3 +1,5 @@
+import { FEATURES } from "@/config/features";
+
 export interface DApp {
   id: string;
   name: string;
@@ -139,14 +141,25 @@ export const DAPP_CATEGORIES = [
   { id: "Other", label: "Other" },
 ] as const;
 
+function filterByEnabledChains(dapps: DApp[]): DApp[] {
+  return dapps.filter((dapp) => {
+    if (FEATURES.EVM_ENABLED && FEATURES.SOLANA_ENABLED) return true;
+    if (!FEATURES.EVM_ENABLED && dapp.chains.every((c) => c === "evm")) return false;
+    if (!FEATURES.SOLANA_ENABLED && dapp.chains.every((c) => c === "solana")) return false;
+    return true;
+  });
+}
+
 export function getDAppsByCategory(category: string): DApp[] {
-  if (category === "all") return POPULAR_DAPPS;
-  return POPULAR_DAPPS.filter((dapp) => dapp.category === category);
+  const filtered = filterByEnabledChains(POPULAR_DAPPS);
+  if (category === "all") return filtered;
+  return filtered.filter((dapp) => dapp.category === category);
 }
 
 export function searchDApps(query: string): DApp[] {
   const lowerQuery = query.toLowerCase();
-  return POPULAR_DAPPS.filter(
+  const filtered = filterByEnabledChains(POPULAR_DAPPS);
+  return filtered.filter(
     (dapp) =>
       dapp.name.toLowerCase().includes(lowerQuery) ||
       dapp.url.toLowerCase().includes(lowerQuery) ||

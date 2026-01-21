@@ -2,6 +2,7 @@ import { Core } from "@walletconnect/core";
 import { Web3Wallet, Web3WalletTypes, IWeb3Wallet } from "@walletconnect/web3wallet";
 import { getSdkError, buildApprovedNamespaces } from "@walletconnect/utils";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { FEATURES } from "@/config/features";
 
 const WC_PROJECT_ID = process.env.EXPO_PUBLIC_WC_PROJECT_ID || "";
 
@@ -317,6 +318,47 @@ export function parseChainId(wcChainId: string): number {
 
 export function isSolanaChain(wcChainId: string): boolean {
   return wcChainId.startsWith("solana:");
+}
+
+export function proposalRequiresEvm(proposal: SessionProposal): boolean {
+  const requiredNamespaces = proposal.params.requiredNamespaces || {};
+  const optionalNamespaces = proposal.params.optionalNamespaces || {};
+  
+  const needsEvm = 
+    "eip155" in requiredNamespaces || 
+    "eip155" in optionalNamespaces ||
+    Object.values(requiredNamespaces).some(ns => ns.chains?.some(c => c.startsWith("eip155:"))) ||
+    Object.values(optionalNamespaces).some(ns => ns.chains?.some(c => c.startsWith("eip155:"))) ||
+    Object.keys(requiredNamespaces).length === 0;
+  
+  return needsEvm;
+}
+
+export function proposalRequiresSolana(proposal: SessionProposal): boolean {
+  const requiredNamespaces = proposal.params.requiredNamespaces || {};
+  const optionalNamespaces = proposal.params.optionalNamespaces || {};
+  
+  return (
+    "solana" in requiredNamespaces || 
+    "solana" in optionalNamespaces ||
+    Object.values(requiredNamespaces).some(ns => ns.chains?.some(c => c.startsWith("solana:"))) ||
+    Object.values(optionalNamespaces).some(ns => ns.chains?.some(c => c.startsWith("solana:")))
+  );
+}
+
+export function shouldRejectProposalForDisabledChains(proposal: SessionProposal): { reject: boolean; reason: string } | null {
+  const needsEvm = proposalRequiresEvm(proposal);
+  const needsSolana = proposalRequiresSolana(proposal);
+  
+  if (!FEATURES.EVM_ENABLED && needsEvm && !needsSolana) {
+    return { reject: true, reason: "EVM chains coming soon" };
+  }
+  
+  if (!FEATURES.SOLANA_ENABLED && needsSolana && !needsEvm) {
+    return { reject: true, reason: "Solana coming soon" };
+  }
+  
+  return null;
 }
 
 export function formatChainNamespace(chainId: number): string {
