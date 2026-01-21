@@ -1,0 +1,102 @@
+REPLIT AGENT — WebView Message Bridge HARD ISOLATION + Fix “Connecting…” stuck overlay
+
+STRICT RULES:
+- Only edit: client/screens/BrowserWebViewScreen.tsx
+- No refactors, no formatting changes outside touched blocks
+- Do not touch WalletConnect client/context files
+- Goal: prove onMessage works by showing a visible on-screen debug line + stop loader from showing forever
+
+────────────────────────────────────────
+A) Add a visible debug HUD (so we don’t rely on logs)
+
+1) At top of BrowserWebViewScreen.tsx component, add state:
+const [debugHud, setDebugHud] = useState<{count:number; last:string}>({count:0, last:"(none)"});
+
+2) Create a small overlay view ABOVE the WebView (absolute positioned) that shows:
+- “WV MSG #<count>”
+- last message (truncate to 80 chars)
+Add it only in __DEV__ to avoid shipping UI:
+{__DEV__ && (
+  <View style={{ position:"absolute", top: 10, left: 10, right: 10, zIndex: 9999, padding: 8, borderRadius: 10, backgroundColor:"rgba(0,0,0,0.6)" }}>
+    <Text style={{ color:"#fff", fontSize: 12, fontWeight:"600" }}>WV MSG #{debugHud.count}</Text>
+    <Text style={{ color:"#fff", fontSize: 11 }} numberOfLines={2}>{debugHud.last}</Text>
+  </View>
+)}
+
+Make sure Text/View are imported from react-native.
+
+────────────────────────────────────────
+B) Force a guaranteed message on EVERY page load (no dependency on your big script)
+
+1) Define a minimal inject script constant (very small):
+const DEBUG_BOOT_SCRIPT = `
+  (function(){
+    try {
+      if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+        window.ReactNativeWebView.postMessage("DEBUG_BOOT: " + location.href);
+      }
+    } catch(e) {}
+  })();
+  true;
+`;
+
+2) Temporarily set BOTH injected props to this minimal script ONLY (do not use COMBINED here yet):
+injectedJavaScriptBeforeContentLoaded={DEBUG_BOOT_SCRIPT}
+injectedJavaScript={DEBUG_BOOT_SCRIPT}
+
+(Leave COMBINED_INJECTED_SCRIPT defined but not used for this test.)
+
+3) In onLoadEnd, ALSO inject a second guaranteed ping:
+onLoadEnd={(e) => {
+  try { if (typeof handleLoadEnd === "function") handleLoadEnd(e); } catch {}
+  try {
+    webViewRef.current?.injectJavaScript(`
+      (function(){
+        try {
+          if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+            window.ReactNativeWebView.postMessage("DEBUG_PING_onLoadEnd: " + location.href);
+          }
+        } catch(e) {}
+      })();
+      true;
+    `);
+  } catch (err) {
+    console.log("[BrowserWebView] injectJavaScript failed:", err);
+  }
+}}
+
+────────────────────────────────────────
+C) Make onMessage update the HUD BEFORE doing anything else
+
+In your onMessage handler (handleWebViewMessage / handleWebViewMessage wrapper):
+1) read raw string:
+const raw = event?.nativeEvent?.data ?? "";
+2) Immediately:
+setDebugHud(prev => ({ count: prev.count + 1, last: String(raw).slice(0, 160) }));
+3) ALSO console.log raw (keep existing)
+4) Only then try JSON.parse and existing routing.
+
+DO NOT early-return before updating HUD.
+
+────────────────────────────────────────
+D) Fix “Connecting to dApp…” showing on every page
+
+Right now you are turning on the loader too aggressively.
+Make the loader ONLY turn on when a message type is EXACTLY "WC_BUTTON_CLICKED".
+Do NOT turn it on for generic “wallet/connect” matches.
+
+So in message routing:
+- If raw === "WC_BUTTON_CLICKED" or parsed.type === "WC_BUTTON_CLICKED" => setIsWcConnecting(true) and start timeout
+- Otherwise DO NOT set it true.
+
+Also: whenever you get a DEBUG_* message, force setIsWcConnecting(false) so debug mode never gets stuck.
+
+────────────────────────────────────────
+E) After applying, run and test
+
+Expected:
+- You should SEE the debug HUD increment on EVERY page load
+- You should see “DEBUG_BOOT …” then “DEBUG_PING_onLoadEnd …”
+If you see nothing, then onMessage is not wired or WebView is not the screen you think.
+
+STOP after changes.

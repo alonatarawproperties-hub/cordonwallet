@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { View, StyleSheet, Pressable, TextInput, Share, Alert, Platform, Linking, Modal, ActivityIndicator } from "react-native";
+import { View, StyleSheet, Pressable, TextInput, Share, Alert, Platform, Linking, Modal, ActivityIndicator, Text } from "react-native";
 import { WebView, WebViewNavigation, WebViewMessageEvent } from "react-native-webview";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
@@ -1082,6 +1082,17 @@ const COMBINED_INJECTED_SCRIPT = `
 true;
 `;
 
+const DEBUG_BOOT_SCRIPT = `
+  (function(){
+    try {
+      if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+        window.ReactNativeWebView.postMessage("DEBUG_BOOT: " + location.href);
+      }
+    } catch(e) {}
+  })();
+  true;
+`;
+
 const IGNORED_URL_PATTERNS = [
   /google\.com\/s2\/favicons/,
   /favicon\.ico$/,
@@ -1119,6 +1130,7 @@ export default function BrowserWebViewScreen() {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [isAuthInProgress, setIsAuthInProgress] = useState(false);
   const [isWcConnecting, setIsWcConnecting] = useState(false);
+  const [debugHud, setDebugHud] = useState<{count:number; last:string}>({count:0, last:"(none)"});
   const wcPairingInProgress = useRef(false);
   const wcConnectTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -1241,11 +1253,13 @@ export default function BrowserWebViewScreen() {
     loadingProgress.value = 1;
     try {
       webViewRef.current?.injectJavaScript(`
-        try {
-          if (window.ReactNativeWebView) {
-            window.ReactNativeWebView.postMessage("PING_FROM_onLoadEnd");
-          }
-        } catch (e) {}
+        (function(){
+          try {
+            if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+              window.ReactNativeWebView.postMessage("DEBUG_PING_onLoadEnd: " + location.href);
+            }
+          } catch(e) {}
+        })();
         true;
       `);
     } catch (err) {
@@ -1307,12 +1321,22 @@ export default function BrowserWebViewScreen() {
   }, [urlInput]);
 
   const handleWebViewMessage = useCallback(async (event: WebViewMessageEvent) => {
-    console.log("[BrowserWebView] onMessage raw:", event?.nativeEvent?.data);
+    const raw = event?.nativeEvent?.data ?? "";
+    setDebugHud(prev => ({ count: prev.count + 1, last: String(raw).slice(0, 160) }));
+    console.log("[BrowserWebView] onMessage raw:", raw);
+    
+    // Handle DEBUG messages - always clear loader and return
+    if (typeof raw === "string" && raw.startsWith("DEBUG_")) {
+      console.log("[BrowserWebView] DEBUG message:", raw);
+      setIsWcConnecting(false);
+      return;
+    }
+    
     let data: any;
     try {
-      data = JSON.parse(event.nativeEvent.data);
+      data = JSON.parse(raw);
     } catch (parseError) {
-      console.log("[BrowserWebView] onMessage non-JSON:", event.nativeEvent.data);
+      console.log("[BrowserWebView] onMessage non-JSON:", raw);
       return;
     }
     try {
@@ -2023,8 +2047,8 @@ export default function BrowserWebViewScreen() {
         onLoadEnd={handleLoadEnd}
         onShouldStartLoadWithRequest={handleShouldStartLoad}
         onMessage={handleWebViewMessage}
-        injectedJavaScript={COMBINED_INJECTED_SCRIPT}
-        injectedJavaScriptBeforeContentLoaded={COMBINED_INJECTED_SCRIPT}
+        injectedJavaScript={DEBUG_BOOT_SCRIPT}
+        injectedJavaScriptBeforeContentLoaded={DEBUG_BOOT_SCRIPT}
         injectedJavaScriptForMainFrameOnly={false}
         injectedJavaScriptBeforeContentLoadedForMainFrameOnly={false}
         javaScriptEnabled={true}
@@ -2036,6 +2060,13 @@ export default function BrowserWebViewScreen() {
         mediaPlaybackRequiresUserAction={false}
         sharedCookiesEnabled
       />
+
+      {__DEV__ ? (
+        <View style={{ position:"absolute", top: 10, left: 10, right: 10, zIndex: 9999, padding: 8, borderRadius: 10, backgroundColor:"rgba(0,0,0,0.6)" }}>
+          <Text style={{ color:"#fff", fontSize: 12, fontWeight:"600" }}>WV MSG #{debugHud.count}</Text>
+          <Text style={{ color:"#fff", fontSize: 11 }} numberOfLines={2}>{debugHud.last}</Text>
+        </View>
+      ) : null}
 
       {isWcConnecting ? (
         <View style={wcOverlayStyles.overlay}>
