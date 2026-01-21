@@ -818,31 +818,92 @@ const WALLETCONNECT_CAPTURE_SCRIPT = `
     };
   } catch (e) {}
 
+  // Deep scan for WC URI - check all storage keys and DOM
+  function deepScanForWcUri() {
+    scanStorage();
+    scanForQrUri();
+    
+    // Scan ALL localStorage keys for any wc: URI
+    try {
+      for (var i = 0; i < localStorage.length; i++) {
+        var key = localStorage.key(i);
+        var val = localStorage.getItem(key);
+        if (val && val.includes('wc:')) {
+          var wc = extractWcFromText(val);
+          if (wc) { postWc(wc); return; }
+        }
+      }
+    } catch (e) {}
+    
+    // Scan sessionStorage too
+    try {
+      for (var j = 0; j < sessionStorage.length; j++) {
+        var skey = sessionStorage.key(j);
+        var sval = sessionStorage.getItem(skey);
+        if (sval && sval.includes('wc:')) {
+          var swc = extractWcFromText(sval);
+          if (swc) { postWc(swc); return; }
+        }
+      }
+    } catch (e) {}
+    
+    // Check for any element with wc: in attributes
+    try {
+      var allEls = document.querySelectorAll('*');
+      for (var k = 0; k < Math.min(allEls.length, 500); k++) {
+        var elem = allEls[k];
+        if (!elem.attributes) continue;
+        for (var m = 0; m < elem.attributes.length; m++) {
+          var attrVal = elem.attributes[m].value;
+          if (attrVal && attrVal.includes('wc:')) {
+            var awc = extractWcFromText(attrVal);
+            if (awc) { postWc(awc); return; }
+          }
+        }
+      }
+    } catch (e) {}
+  }
+
   // Aggressive click handler - scan storage after any wallet/connect button click
   document.addEventListener('click', function(e) {
     try {
       var target = e.target;
       if (!target) return;
-      var el = target.closest ? (target.closest('button, [role="button"], a, div[onclick]') || target) : target;
+      
+      // Get clicked element and check parents
+      var el = target.closest ? (target.closest('button, [role="button"], a, li, div[onclick], span') || target) : target;
       var text = (el.textContent || '').toLowerCase().trim();
       var className = ((el.className && typeof el.className === 'string') ? el.className : '').toLowerCase();
       
-      // Detect WalletConnect button specifically - notify native immediately
-      var isWcButton = (text === 'walletconnect' || text.includes('walletconnect')) ||
-                       className.includes('walletconnect') || 
-                       (el.querySelector && el.querySelector('[alt*="WalletConnect"], [src*="walletconnect"]'));
+      // Check if any parent has WalletConnect text/image
+      var parent = el;
+      var isWcButton = false;
+      for (var depth = 0; depth < 5 && parent; depth++) {
+        var pText = (parent.textContent || '').toLowerCase();
+        var pClass = ((parent.className && typeof parent.className === 'string') ? parent.className : '').toLowerCase();
+        var hasWcImg = parent.querySelector && parent.querySelector('img[alt*="WalletConnect" i], img[src*="walletconnect" i], [src*="walletconnect" i]');
+        
+        if (pText === 'walletconnect' || (pText.includes('walletconnect') && pText.length < 50) ||
+            pClass.includes('walletconnect') || hasWcImg) {
+          isWcButton = true;
+          break;
+        }
+        parent = parent.parentElement;
+      }
       
       if (isWcButton) {
-        console.log('[Cordon] WalletConnect button clicked - notifying native');
+        console.log('[Cordon] WalletConnect clicked - starting aggressive scan');
         if (window.ReactNativeWebView) {
           window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'WC_BUTTON_CLICKED' }));
         }
-        // Aggressive scanning at very short intervals
-        setTimeout(function() { scanStorage(); }, 50);
-        setTimeout(function() { scanStorage(); }, 150);
-        setTimeout(function() { scanStorage(); }, 300);
-        setTimeout(function() { scanStorage(); }, 500);
-        setTimeout(function() { scanStorage(); }, 1000);
+        // Very aggressive scanning - QR code takes time to generate
+        setTimeout(function() { deepScanForWcUri(); }, 100);
+        setTimeout(function() { deepScanForWcUri(); }, 300);
+        setTimeout(function() { deepScanForWcUri(); }, 600);
+        setTimeout(function() { deepScanForWcUri(); }, 1000);
+        setTimeout(function() { deepScanForWcUri(); }, 1500);
+        setTimeout(function() { deepScanForWcUri(); }, 2000);
+        setTimeout(function() { deepScanForWcUri(); }, 3000);
         return;
       }
       
@@ -850,9 +911,9 @@ const WALLETCONNECT_CAPTURE_SCRIPT = `
       if (text.includes('wallet') || text.includes('connect') ||
           className.includes('wallet') || className.includes('connect') || className.includes('w3m') || className.includes('wcm')) {
         console.log('[Cordon] Wallet button clicked');
-        setTimeout(function() { scanStorage(); }, 200);
-        setTimeout(function() { scanStorage(); }, 800);
-        setTimeout(function() { scanStorage(); }, 1500);
+        setTimeout(function() { deepScanForWcUri(); }, 200);
+        setTimeout(function() { deepScanForWcUri(); }, 800);
+        setTimeout(function() { deepScanForWcUri(); }, 1500);
       }
     } catch (e) {}
   }, true);
