@@ -714,10 +714,30 @@ const WALLETCONNECT_CAPTURE_SCRIPT = `
       var target = e.target;
       if (!target) return;
       var el = target.closest ? (target.closest('button, [role="button"], a, div[onclick]') || target) : target;
-      var text = (el.textContent || '').toLowerCase();
+      var text = (el.textContent || '').toLowerCase().trim();
       var className = ((el.className && typeof el.className === 'string') ? el.className : '').toLowerCase();
-      // Detect wallet-related button clicks
-      if (text.includes('wallet') || text.includes('connect') || text.includes('walletconnect') ||
+      
+      // Detect WalletConnect button specifically - notify native immediately
+      var isWcButton = (text === 'walletconnect' || text.includes('walletconnect')) ||
+                       className.includes('walletconnect') || 
+                       (el.querySelector && el.querySelector('[alt*="WalletConnect"], [src*="walletconnect"]'));
+      
+      if (isWcButton) {
+        console.log('[Cordon] WalletConnect button clicked - notifying native');
+        if (window.ReactNativeWebView) {
+          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'WC_BUTTON_CLICKED' }));
+        }
+        // Aggressive scanning at very short intervals
+        setTimeout(function() { scanStorage(); }, 50);
+        setTimeout(function() { scanStorage(); }, 150);
+        setTimeout(function() { scanStorage(); }, 300);
+        setTimeout(function() { scanStorage(); }, 500);
+        setTimeout(function() { scanStorage(); }, 1000);
+        return;
+      }
+      
+      // Other wallet-related button clicks
+      if (text.includes('wallet') || text.includes('connect') ||
           className.includes('wallet') || className.includes('connect') || className.includes('w3m') || className.includes('wcm')) {
         console.log('[Cordon] Wallet button clicked');
         setTimeout(function() { scanStorage(); }, 200);
@@ -790,7 +810,9 @@ export default function BrowserWebViewScreen() {
   const { connect: wcConnect } = useWalletConnect();
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [isAuthInProgress, setIsAuthInProgress] = useState(false);
+  const [isWcConnecting, setIsWcConnecting] = useState(false);
   const wcPairingInProgress = useRef(false);
+  const wcConnectTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleWalletConnectUri = useCallback(async (uri: string) => {
     try {
@@ -802,13 +824,31 @@ export default function BrowserWebViewScreen() {
       wcPairingInProgress.current = true;
       console.log("[BrowserWC] Intercepted WC URI:", uri.substring(0, 50) + "...");
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      // Clear loading state since we have the URI
+      setIsWcConnecting(false);
+      if (wcConnectTimeout.current) {
+        clearTimeout(wcConnectTimeout.current);
+        wcConnectTimeout.current = null;
+      }
       await wcConnect(uri);
     } catch (e) {
       console.log("[BrowserWC] Failed to pair:", e);
+      setIsWcConnecting(false);
     } finally {
       wcPairingInProgress.current = false;
     }
   }, [wcConnect]);
+
+  const handleWcButtonClicked = useCallback(() => {
+    console.log("[BrowserWC] WalletConnect button clicked - showing loader");
+    setIsWcConnecting(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    // Auto-hide loading after 8 seconds if no URI captured
+    if (wcConnectTimeout.current) clearTimeout(wcConnectTimeout.current);
+    wcConnectTimeout.current = setTimeout(() => {
+      setIsWcConnecting(false);
+    }, 8000);
+  }, []);
 
   const walletAddress = activeWallet?.addresses?.evm || activeWallet?.address || null;
 
@@ -945,6 +985,11 @@ export default function BrowserWebViewScreen() {
     try {
       const data = JSON.parse(event.nativeEvent.data);
       console.log("[BrowserWebView] Message received:", data.type);
+
+      if (data.type === "WC_BUTTON_CLICKED") {
+        handleWcButtonClicked();
+        return;
+      }
 
       if (data.type === "WALLETCONNECT_URI" || data.type === "WC_URI") {
         const wcUri = extractWalletConnectUri(data.uri);
@@ -1648,6 +1693,20 @@ export default function BrowserWebViewScreen() {
         sharedCookiesEnabled
       />
 
+      {isWcConnecting ? (
+        <View style={wcOverlayStyles.overlay}>
+          <View style={[wcOverlayStyles.card, { backgroundColor: theme.backgroundSecondary }]}>
+            <ActivityIndicator size="large" color={theme.accent} />
+            <ThemedText type="h4" style={{ marginTop: Spacing.md, textAlign: "center" }}>
+              Connecting to dApp...
+            </ThemedText>
+            <ThemedText type="caption" style={{ color: theme.textSecondary, marginTop: Spacing.xs, textAlign: "center" }}>
+              Please wait
+            </ThemedText>
+          </View>
+        </View>
+      ) : null}
+
       <View style={[styles.toolbar, { paddingBottom: insets.bottom, backgroundColor: theme.backgroundDefault }]}>
         <Pressable
           onPress={handleGoBack}
@@ -1741,6 +1800,22 @@ export default function BrowserWebViewScreen() {
     </View>
   );
 }
+
+const wcOverlayStyles = StyleSheet.create({
+  overlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 100,
+  },
+  card: {
+    padding: Spacing.xl,
+    borderRadius: BorderRadius.xl,
+    alignItems: "center",
+    minWidth: 200,
+  },
+});
 
 const styles = StyleSheet.create({
   container: {
