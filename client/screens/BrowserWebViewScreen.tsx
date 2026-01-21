@@ -84,17 +84,7 @@ const GOOGLE_DISCOVERY = {
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 type RouteProps = RouteProp<RootStackParamList, "BrowserWebView">;
 
-const BLOCKED_SCHEMES = ["file:", "data:", "about:"];
-
-// Safe javascript: patterns used by dApps for navigation prevention
-const SAFE_JS_PATTERNS = [
-  "javascript:void(0)",
-  "javascript:void 0",
-  "javascript:;",
-  "javascript:",
-  "javascript:false",
-  "javascript:true",
-];
+// URL blocking disabled - all dApps are trusted in the curated browser
 
 const CORDON_INJECTED_SCRIPT = `
 (function() {
@@ -1421,28 +1411,6 @@ export default function BrowserWebViewScreen() {
 
   const handleShouldStartLoad = useCallback(
     (request: { url: string }) => {
-      const urlLower = request.url.toLowerCase().trim();
-      
-      // Check for blocked schemes (file:, data:, about:)
-      for (const scheme of BLOCKED_SCHEMES) {
-        if (urlLower.startsWith(scheme)) {
-          Alert.alert("Blocked", "This type of URL is not allowed for security reasons.");
-          return false;
-        }
-      }
-      
-      // Allow safe javascript: patterns (used by dApps for buttons)
-      if (urlLower.startsWith("javascript:")) {
-        const isSafe = SAFE_JS_PATTERNS.some(p => urlLower === p || urlLower.startsWith(p + ")") || urlLower.startsWith(p + ";"));
-        if (!isSafe) {
-          // Block potentially dangerous javascript: URLs
-          console.warn("[BrowserWebView] Blocked javascript URL:", request.url.substring(0, 100));
-          return false;
-        }
-        // Safe javascript: URLs - let them through but they won't navigate
-        return true;
-      }
-
       const wcUri = extractWalletConnectUri(request.url);
       if (wcUri) {
         handleWalletConnectUri(wcUri);
