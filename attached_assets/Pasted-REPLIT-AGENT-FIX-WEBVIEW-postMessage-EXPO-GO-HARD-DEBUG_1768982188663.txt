@@ -1,0 +1,100 @@
+REPLIT AGENT — FIX WEBVIEW postMessage (EXPO GO) + HARD DEBUG
+
+STRICT:
+- Only edit: client/screens/BrowserWebViewScreen.tsx
+- Do NOT refactor other logic
+- Keep diffs minimal
+- Goal is to make WebView -> RN onMessage ALWAYS fire (PING), and make injection errors visible.
+
+────────────────────────────────────────
+1) Ensure we are importing the correct WebView
+At the top, verify it is:
+import { WebView } from "react-native-webview";
+If it is imported from anywhere else, change it to react-native-webview.
+
+────────────────────────────────────────
+2) Add an absolute smoke-test injection on every page load end
+In the <WebView .../> props, add an onLoadEnd handler (or extend existing one) that injects a PING:
+
+onLoadEnd={(e) => {
+  try {
+    // keep existing handleLoadEnd if it exists
+    if (typeof handleLoadEnd === "function") handleLoadEnd(e);
+  } catch {}
+  try {
+    webViewRef.current?.injectJavaScript(`
+      try {
+        if (window.ReactNativeWebView) {
+          window.ReactNativeWebView.postMessage("PING_FROM_onLoadEnd");
+        }
+      } catch (e) {}
+      true;
+    `);
+  } catch (err) {
+    console.log("[BrowserWebView] injectJavaScript failed:", err);
+  }
+}}
+
+(If you already have onLoadEnd={handleLoadEnd}, replace it with the block above.)
+
+────────────────────────────────────────
+3) Log every raw message BEFORE JSON parsing
+In handleWebViewMessage (the function passed to onMessage):
+- First line:
+  console.log("[BrowserWebView] onMessage raw:", event?.nativeEvent?.data);
+
+- Then parse JSON safely:
+  let data: any = null;
+  try { data = JSON.parse(event.nativeEvent.data); } catch {}
+  If data is null, just return (do not crash).
+
+This guarantees you will see "PING_FROM_onLoadEnd" even if JSON parsing expects objects.
+
+────────────────────────────────────────
+4) Wrap COMBINED_INJECTED_SCRIPT with error reporting
+Where COMBINED_INJECTED_SCRIPT is defined, DO NOT change its contents.
+Just wrap it like this:
+
+const COMBINED_INJECTED_SCRIPT = `
+(function(){
+  try {
+    if (window.ReactNativeWebView) {
+      window.ReactNativeWebView.postMessage("INJECT_BEFORE_START");
+    }
+  } catch(e) {}
+  try {
+    ${YOUR_EXISTING_COMBINED_SCRIPT_BODY_HERE}
+  } catch (e) {
+    try {
+      if (window.ReactNativeWebView) {
+        window.ReactNativeWebView.postMessage(JSON.stringify({
+          type: "INJECT_ERROR",
+          message: String(e),
+          stack: e && e.stack ? String(e.stack) : ""
+        }));
+      }
+    } catch(_) {}
+  }
+  try {
+    if (window.ReactNativeWebView) {
+      window.ReactNativeWebView.postMessage("INJECT_AFTER_END");
+    }
+  } catch(e) {}
+})();
+true;
+`;
+
+IMPORTANT:
+- Replace ${YOUR_EXISTING_COMBINED_SCRIPT_BODY_HERE} by placing the existing script string content inside that try block.
+- Do NOT duplicate “true;” inside the embedded script; keep only the final true; at end.
+
+────────────────────────────────────────
+5) Add these WebView props (safe) to reduce weird behavior
+Add:
+javaScriptEnabled={true}
+originWhitelist={["*"]}
+
+Keep your other props.
+
+────────────────────────────────────────
+STOP after changes.

@@ -1051,7 +1051,36 @@ const WALLETCONNECT_CAPTURE_SCRIPT = `
 true;
 `;
 
-const COMBINED_INJECTED_SCRIPT = CORDON_INJECTED_SCRIPT + WALLETCONNECT_CAPTURE_SCRIPT;
+const COMBINED_INJECTED_SCRIPT_BODY = CORDON_INJECTED_SCRIPT + WALLETCONNECT_CAPTURE_SCRIPT;
+
+const COMBINED_INJECTED_SCRIPT = `
+(function(){
+  try {
+    if (window.ReactNativeWebView) {
+      window.ReactNativeWebView.postMessage("INJECT_BEFORE_START");
+    }
+  } catch(e) {}
+  try {
+    ${COMBINED_INJECTED_SCRIPT_BODY}
+  } catch (e) {
+    try {
+      if (window.ReactNativeWebView) {
+        window.ReactNativeWebView.postMessage(JSON.stringify({
+          type: "INJECT_ERROR",
+          message: String(e),
+          stack: e && e.stack ? String(e.stack) : ""
+        }));
+      }
+    } catch(_) {}
+  }
+  try {
+    if (window.ReactNativeWebView) {
+      window.ReactNativeWebView.postMessage("INJECT_AFTER_END");
+    }
+  } catch(e) {}
+})();
+true;
+`;
 
 const IGNORED_URL_PATTERNS = [
   /google\.com\/s2\/favicons/,
@@ -1210,6 +1239,18 @@ export default function BrowserWebViewScreen() {
   const handleLoadEnd = useCallback(() => {
     setIsLoading(false);
     loadingProgress.value = 1;
+    try {
+      webViewRef.current?.injectJavaScript(`
+        try {
+          if (window.ReactNativeWebView) {
+            window.ReactNativeWebView.postMessage("PING_FROM_onLoadEnd");
+          }
+        } catch (e) {}
+        true;
+      `);
+    } catch (err) {
+      console.log("[BrowserWebView] injectJavaScript failed:", err);
+    }
   }, [loadingProgress]);
 
   const handleGoBack = useCallback(() => {
@@ -1986,7 +2027,8 @@ export default function BrowserWebViewScreen() {
         injectedJavaScriptBeforeContentLoaded={COMBINED_INJECTED_SCRIPT}
         injectedJavaScriptForMainFrameOnly={false}
         injectedJavaScriptBeforeContentLoadedForMainFrameOnly={false}
-        javaScriptEnabled
+        javaScriptEnabled={true}
+        originWhitelist={["*"]}
         domStorageEnabled
         startInLoadingState
         allowsBackForwardNavigationGestures
