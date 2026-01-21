@@ -28,18 +28,23 @@ import { supportedChains, ChainConfig } from "@/lib/blockchain/chains";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { getTokenLogoUrl } from "@/lib/token-logos";
 import { ChainBadge } from "@/components/ChainBadge";
+import { FEATURES } from "@/config/features";
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
-const chainFilters = [
-  { id: "all", name: "All", icon: "globe", color: "#6366F1" },
-  { id: "1", name: "ETH", color: "#627EEA", logoUrl: "https://assets.coingecko.com/coins/images/279/small/ethereum.png" },
-  { id: "137", name: "POL", color: "#8247E5", logoUrl: "https://coin-images.coingecko.com/coins/images/32440/small/polygon.png" },
-  { id: "56", name: "BNB", color: "#F3BA2F", logoUrl: "https://assets.coingecko.com/coins/images/825/small/bnb-icon2_2x.png" },
-  { id: "42161", name: "ARB", color: "#12AAFF", logoUrl: "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/arbitrum/info/logo.png" },
-  { id: "8453", name: "BASE", color: "#0052FF", logoUrl: "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/base/info/logo.png" },
-  { id: "solana", name: "SOL", color: "#9945FF", logoUrl: "https://assets.coingecko.com/coins/images/4128/small/solana.png" },
+const allChainFilters = [
+  { id: "all", name: "All", icon: "globe", color: "#6366F1", isEvm: null },
+  { id: "1", name: "ETH", color: "#627EEA", logoUrl: "https://assets.coingecko.com/coins/images/279/small/ethereum.png", isEvm: true },
+  { id: "137", name: "POL", color: "#8247E5", logoUrl: "https://coin-images.coingecko.com/coins/images/32440/small/polygon.png", isEvm: true },
+  { id: "56", name: "BNB", color: "#F3BA2F", logoUrl: "https://assets.coingecko.com/coins/images/825/small/bnb-icon2_2x.png", isEvm: true },
+  { id: "42161", name: "ARB", color: "#12AAFF", logoUrl: "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/arbitrum/info/logo.png", isEvm: true },
+  { id: "8453", name: "BASE", color: "#0052FF", logoUrl: "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/base/info/logo.png", isEvm: true },
+  { id: "solana", name: "SOL", color: "#9945FF", logoUrl: "https://assets.coingecko.com/coins/images/4128/small/solana.png", isEvm: false },
 ];
+
+const chainFilters = allChainFilters.filter(f => 
+  f.isEvm === null || (FEATURES.EVM_ENABLED && f.isEvm) || (FEATURES.SOLANA_ENABLED && !f.isEvm)
+);
 
 export default function ManageCryptoScreen() {
   const { theme } = useTheme();
@@ -65,8 +70,9 @@ export default function ManageCryptoScreen() {
   
   const customTokenMap = buildCustomTokenMap(customTokens);
   
+  const showEvmAssets = FEATURES.EVM_ENABLED && walletType !== "solana-only";
   const assets: MultiChainAsset[] = [
-    ...(walletType === "solana-only" ? [] : evmAssets),
+    ...(showEvmAssets ? evmAssets : []),
     ...solanaAssets.map(a => {
       const customToken = a.mint ? customTokenMap.get(a.mint.toLowerCase()) : undefined;
       return {
@@ -85,7 +91,7 @@ export default function ManageCryptoScreen() {
       };
     }),
   ];
-  const isLoading = (walletType === "solana-only" ? false : evmLoading) || solanaLoading;
+  const isLoading = (showEvmAssets ? evmLoading : false) || solanaLoading;
 
   useLayoutEffect(() => {
     navigation.setOptions({

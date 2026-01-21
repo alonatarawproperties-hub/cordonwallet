@@ -18,6 +18,7 @@ import { useDemo } from "@/lib/demo/context";
 import { useDevSettings } from "@/context/DevSettingsContext";
 import { NETWORKS } from "@/lib/types";
 import { getChainById } from "@/lib/blockchain/chains";
+import { FEATURES } from "@/config/features";
 import { hasBiometricPinEnabled, isBiometricAvailable, savePinForBiometrics, disableBiometrics, verifyPin, changePin } from "@/lib/wallet-engine";
 import * as WebBrowser from "expo-web-browser";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
@@ -46,14 +47,18 @@ export default function SettingsScreen() {
   const tapCountRef = useRef(0);
   const lastTapRef = useRef(0);
 
-  const supportedNetworks = [
-    { name: "Ethereum", symbol: "ETH", color: "#627EEA", logoUrl: "https://assets.coingecko.com/coins/images/279/small/ethereum.png" },
-    { name: "Polygon", symbol: "POL", color: "#8247E5", logoUrl: "https://coin-images.coingecko.com/coins/images/32440/small/polygon.png" },
-    { name: "BNB Chain", symbol: "BNB", color: "#F3BA2F", logoUrl: "https://assets.coingecko.com/coins/images/825/small/bnb-icon2_2x.png" },
-    { name: "Arbitrum", symbol: "ETH", color: "#12AAFF", logoUrl: "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/arbitrum/info/logo.png" },
-    { name: "Base", symbol: "ETH", color: "#0052FF", logoUrl: "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/base/info/logo.png" },
-    { name: "Solana", symbol: "SOL", color: "#9945FF", logoUrl: "https://assets.coingecko.com/coins/images/4128/small/solana.png" },
+  const allNetworks = [
+    { name: "Ethereum", symbol: "ETH", color: "#627EEA", logoUrl: "https://assets.coingecko.com/coins/images/279/small/ethereum.png", isEvm: true },
+    { name: "Polygon", symbol: "POL", color: "#8247E5", logoUrl: "https://coin-images.coingecko.com/coins/images/32440/small/polygon.png", isEvm: true },
+    { name: "BNB Chain", symbol: "BNB", color: "#F3BA2F", logoUrl: "https://assets.coingecko.com/coins/images/825/small/bnb-icon2_2x.png", isEvm: true },
+    { name: "Arbitrum", symbol: "ETH", color: "#12AAFF", logoUrl: "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/arbitrum/info/logo.png", isEvm: true },
+    { name: "Base", symbol: "ETH", color: "#0052FF", logoUrl: "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/base/info/logo.png", isEvm: true },
+    { name: "Solana", symbol: "SOL", color: "#9945FF", logoUrl: "https://assets.coingecko.com/coins/images/4128/small/solana.png", isEvm: false },
   ];
+  
+  const supportedNetworks = allNetworks.filter(n => 
+    (FEATURES.EVM_ENABLED || !n.isEvm) && (FEATURES.SOLANA_ENABLED || n.isEvm)
+  );
 
   useEffect(() => {
     loadSettings();
@@ -261,7 +266,7 @@ export default function SettingsScreen() {
     { title: "Manage Wallets", subtitle: `${activeWallet?.name || "No wallet"}`, icon: "credit-card", onPress: () => navigation.navigate("WalletManager") },
     { title: "Token Approvals", subtitle: "Manage contract approvals", icon: "check-circle", onPress: () => navigation.navigate("Approvals") },
     { title: "WalletConnect", subtitle: "Connect to dApps", icon: "link", onPress: () => navigation.navigate("WalletConnect") },
-    { title: "Networks", subtitle: "ETH, Polygon, BSC, ARB, Base, SOL", icon: "globe", onPress: () => setShowNetworks(!showNetworks), expandable: true },
+    { title: "Networks", subtitle: supportedNetworks.map(n => n.symbol === "ETH" && n.name !== "Ethereum" ? n.name : n.symbol).join(", "), icon: "globe", onPress: () => setShowNetworks(!showNetworks), expandable: true },
   ];
 
   const aboutItems = [
