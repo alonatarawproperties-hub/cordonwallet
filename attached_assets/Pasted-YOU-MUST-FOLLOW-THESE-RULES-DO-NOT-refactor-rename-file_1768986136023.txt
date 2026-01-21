@@ -1,0 +1,205 @@
+YOU MUST FOLLOW THESE RULES:
+- DO NOT refactor, rename files, or reformat unrelated code.
+- ONLY make the specific edits described below.
+- DO NOT introduce new libraries.
+- Keep existing functionality working.
+- Add minimal logs only where requested.
+
+GOAL:
+1) Fix false “Connecting to dApp…” loader showing on random pages.
+2) Make WalletConnect URI capture fast + reliable on Web3Modal/Reown sites by intercepting storage writes and stopping aggressive auto-click behavior.
+
+FILES TO EDIT:
+- client/screens/BrowserWebViewScreen.tsx  (WebView + injected script + onMessage handler)
+- The string constant WALLETCONNECT_CAPTURE_SCRIPT inside this file (or wherever it is defined in this screen)
+
+========================================================
+A) STOP THE BAD BEHAVIOR: REMOVE AUTO-CLICKING
+========================================================
+In WALLETCONNECT_CAPTURE_SCRIPT:
+1) Completely disable autoClickWalletConnect(container) behavior.
+   - Keep the function but make it immediately return false.
+   - DO NOT click anything automatically.
+   - DO NOT post WC_BUTTON_CLICKED from autoClickWalletConnect.
+
+Reason: auto-click causes random modals to be clicked and triggers the loader everywhere.
+
+Implement:
+function autoClickWalletConnect(container) { return false; }
+
+========================================================
+B) ADD INSTANT URI CAPTURE: INTERCEPT STORAGE setItem
+========================================================
+In WALLETCONNECT_CAPTURE_SCRIPT, add a robust interception of storage writes:
+
+1) Wrap Storage.prototype.setItem so whenever any key/value is set,
+   we check both:
+   - the value
+   - the key
+   for a wc: URI inside (including encoded forms)
+
+2) If found, call postWc(uri) immediately.
+
+3) Also intercept Storage.prototype.getItem? NOT needed.
+4) Also intercept StorageEvent:
+   window.addEventListener('storage', ...) so we scanStorage().
+
+IMPORTANT:
+- Keep it safe with try/catch.
+- Avoid infinite loops.
+- Do not spam postMessage (reuse existing lastPostedUri / time throttling).
+
+Add near the top after postWc/extract helpers:
+
+- helper decodeMaybe(str):
+  - try decodeURIComponent once
+  - return original if fails
+- helper extractFromAny(val):
+  - if string -> check direct and decoded
+  - if object -> JSON.stringify and check
+  - return uri or null
+
+Then implement:
+
+const origSetItem = Storage.prototype.setItem;
+Storage.prototype.setItem = function(k, v) {
+  try {
+    const sKey = (k ?? '').toString();
+    const sVal = (v ?? '').toString();
+    // check raw
+    let uri = extractWcFromText(sVal) || extractWcFromText(sKey);
+    // check decoded
+    if (!uri) {
+      const dv = decodeMaybe(sVal);
+      uri = extractWcFromText(dv);
+    }
+    // check JSON-ish decoded again
+    if (!uri && (sVal.startsWith('{') || sVal.startsWith('['))) {
+      try {
+        const obj = JSON.parse(sVal);
+        const str = JSON.stringify(obj);
+        uri = extractWcFromText(str) || extractWcFromText(decodeMaybe(str));
+      } catch (e) {}
+    }
+    if (uri) postWc(uri);
+  } catch (e) {}
+  return origSetItem.apply(this, arguments);
+};
+
+Also add:
+window.addEventListener('storage', function() { try { scanStorage(); } catch(e) {} });
+
+========================================================
+C) FIX LOADER: ONLY TRIGGER ON REAL WALLETCONNECT INTENT
+========================================================
+Right now you post WC_BUTTON_CLICKED too broadly (wallet/connect keywords).
+This causes loader even on non-WC interactions.
+
+Change behavior:
+
+1) In the click listener, ONLY post WC_BUTTON_CLICKED when:
+   - The clicked element/parents contain exact “walletconnect” text
+     OR it contains an image/src/alt with “walletconnect”
+     OR href/data contains “wc:” or “walletconnect:”
+   NOT when the text includes generic “connect” or “wallet”.
+
+2) For generic “connect wallet” clicks, do NOT show loader.
+   Instead, just do a very light scan (one scan after 250ms) without posting WC_BUTTON_CLICKED.
+
+Implementation detail:
+- Keep existing logic but remove the “Other wallet-related button clicks” branch that posts WC_BUTTON_CLICKED.
+- Replace it with:
+  if (text includes 'connect' or 'wallet') { setTimeout(deepScanForWcUri, 250); } (no postMessage)
+
+3) When QR screen detected by MutationObserver:
+   - DO NOT post WC_BUTTON_CLICKED
+   - DO start a short burst scan (see section D)
+
+========================================================
+D) BURST SCAN WITH STOP CONDITION (NO 1-MIN DELAY)
+========================================================
+Add a controlled burst scanner that runs for a short time and stops:
+
+In WALLETCONNECT_CAPTURE_SCRIPT:
+- Add globals:
+  var burstTimer = null;
+  var burstEndsAt = 0;
+
+- Add function startBurstScan(ms):
+  - set burstEndsAt = Date.now() + ms
+  - if burstTimer already running, return
+  - burstTimer = setInterval(() => { deepScanForWcUri(); if (Date.now() > burstEndsAt) stop }, 250)
+  - stop clears interval and sets burstTimer=null
+
+When to call startBurstScan(8000):
+- When WC_BUTTON_CLICKED is posted (real walletconnect intent)
+- When QR screen is detected (nodeText includes “scan this qr code” etc)
+
+This ensures capture continues while modal is active, but never runs forever.
+
+========================================================
+E) NATIVE SIDE: DON’T TURN OFF LOADER TOO EARLY
+========================================================
+In BrowserWebViewScreen.tsx native handler:
+
+1) In handleWcButtonClicked:
+   keep as-is (setIsWcConnecting(true), timeout 8s)
+
+2) In handleWalletConnectUri:
+   DO NOT call setIsWcConnecting(false) before wcConnect(uri).
+   Instead:
+   - setIsWcConnecting(true) (keep showing loader)
+   - clear timeout only AFTER wcConnect succeeds OR after pairing attempt starts? keep existing timeout logic but do not hide loader here.
+   - Hide loader when session proposal sheet is shown (wherever you set currentProposal / open connect sheet).
+If you don’t have a single place, simplest:
+   - After wcConnect(uri) resolves, keep loader until proposal arrives; do not set false here.
+   - Ensure loader is set false in the code path that displays BrowserConnectSheet / after proposal is set.
+
+If that’s hard, minimal safe patch:
+- Remove setIsWcConnecting(false) from handleWalletConnectUri.
+- Keep 8s timeout fallback to auto-hide.
+
+========================================================
+F) ADD URL-LEVEL INTERCEPT (FAST PATH)
+========================================================
+In BrowserWebViewScreen.tsx, inside onShouldStartLoadWithRequest handler (handleShouldStartLoad):
+Add detection for WalletConnect URIs in request.url:
+
+If url starts with:
+- "wc:"
+- "walletconnect:"
+- "walletconnect://"
+OR includes:
+- "link.walletconnect.org/wc?uri="
+- "walletconnect.com/wc?uri="
+- "wc?uri=" and contains encoded "wc%3A"
+
+Then:
+- Extract the real wc: URI (decodeURIComponent if needed)
+- Call handleWalletConnectUri(uri)
+- Return false to stop navigation
+
+This gives instant capture for dApps that try to deep-link instead of showing QR.
+
+========================================================
+G) LOGS (MINIMAL)
+========================================================
+Add only these logs:
+- When Storage.setItem hook finds a wc uri:
+  console.log('[Cordon] setItem captured wc uri');
+- When startBurstScan begins + ends:
+  console.log('[Cordon] burst scan start');
+  console.log('[Cordon] burst scan stop');
+- When native handleShouldStartLoad intercepts a wc uri:
+  console.log('[BrowserWC] Intercepted WC nav url');
+
+DO NOT add spammy logs.
+
+========================================================
+DONE CONDITIONS:
+- Loader no longer shows on random pages without user tapping WalletConnect.
+- On Uniswap/OpenSea:
+  when user taps WalletConnect option and QR appears, loader shows immediately,
+  and session proposal appears quickly without waiting 1 minute (storage hook + burst scan).
+- No auto-clicking WalletConnect.
+- Debug ping still works.
