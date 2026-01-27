@@ -29,6 +29,7 @@ const config = ({ config }: ConfigContext): ExpoConfig => ({
     edgeToEdgeEnabled: true,
     predictiveBackGestureEnabled: false,
     package: "com.cordon.app",
+    versionCode: 6,
     permissions: [
       "android.permission.USE_BIOMETRIC",
       "android.permission.USE_FINGERPRINT",
