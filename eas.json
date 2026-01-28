@@ -31,9 +31,7 @@
       },
       "android": {
         "distribution": "store",
-        "autoIncrement": true,
-        "credentialsSource": "remote",
-        "buildCredentials": "cordonKS"
+        "autoIncrement": true
       },
       "channel": "production",
       "env": {
