@@ -69,6 +69,16 @@ async function cleanupExpiredMobileSessions() {
     .where(lt(mobileAuthSessionsTable.createdAt, expiryTime));
 }
 
+// Security: HTML escape to prevent XSS in server-rendered HTML
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 const CODE_EXPIRY_MS = 5 * 60 * 1000;
 const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
 const RATE_LIMIT_WINDOW_MS = 60 * 1000;
@@ -78,11 +88,18 @@ function generateCode(): string {
   return crypto.randomBytes(3).toString("hex").toUpperCase();
 }
 
+// Security fix: Generate fallback secret ONCE at startup, not per-call
+const _devFallbackSecret = crypto.randomBytes(32).toString("hex");
+
 function getSessionSecret(): string {
   const secret = process.env.SESSION_SECRET;
   if (!secret) {
+    if (process.env.NODE_ENV === "production") {
+      console.error("[Cordon Auth] FATAL: SESSION_SECRET not set in production!");
+      throw new Error("SESSION_SECRET must be set in production");
+    }
     console.warn("[Cordon Auth] WARNING: SESSION_SECRET not set, using development fallback");
-    return crypto.randomBytes(32).toString("hex");
+    return _devFallbackSecret;
   }
   return secret;
 }
@@ -106,17 +123,20 @@ function verifyJWT(token: string): { valid: boolean; payload?: any } {
     const [header, body, signature] = token.split(".");
     const secret = getSessionSecret();
     const expectedSig = crypto.createHmac("sha256", secret).update(`${header}.${body}`).digest("base64url");
-    
-    if (signature !== expectedSig) {
+
+    // Security fix: Use timing-safe comparison to prevent timing attacks
+    const sigBuffer = Buffer.from(signature || "", "base64url");
+    const expectedBuffer = Buffer.from(expectedSig, "base64url");
+    if (sigBuffer.length !== expectedBuffer.length || !crypto.timingSafeEqual(sigBuffer, expectedBuffer)) {
       return { valid: false };
     }
-    
+
     const payload = JSON.parse(Buffer.from(body, "base64url").toString());
-    
+
     if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) {
       return { valid: false };
     }
-    
+
     return { valid: true, payload };
   } catch {
     return { valid: false };
@@ -216,7 +236,7 @@ export function registerCordonAuthRoutes(app: Express) {
           <head><title>Authentication Failed</title></head>
           <body style="font-family: system-ui; padding: 40px; text-align: center;">
             <h1>Authentication Failed</h1>
-            <p>${error}</p>
+            <p>${escapeHtml(String(error))}</p>
             <button onclick="window.close()">Close</button>
           </body>
         </html>
@@ -405,7 +425,7 @@ export function registerCordonAuthRoutes(app: Express) {
             <div class="container">
               <div class="success-icon">&#10003;</div>
               <h1>Login Successful!</h1>
-              <p class="email">${userEmail}</p>
+              <p class="email">${escapeHtml(userEmail)}</p>
               
               <div class="code-container">
                 <div class="code-label">Your verification code</div>
@@ -485,7 +505,7 @@ export function registerCordonAuthRoutes(app: Express) {
           <head><title>Error</title></head>
           <body style="font-family: system-ui; padding: 40px; text-align: center;">
             <h1>Authentication Error</h1>
-            <p>${err.message}</p>
+            <p>${escapeHtml(err.message)}</p>
           </body>
         </html>
       `);
@@ -794,7 +814,7 @@ export function registerCordonAuthRoutes(app: Express) {
           </head>
           <body>
             <h1>Authentication Failed</h1>
-            <p>${error}</p>
+            <p>${escapeHtml(String(error))}</p>
             <p>You can close this window and try again.</p>
           </body>
         </html>
@@ -935,6 +955,11 @@ export function registerCordonAuthRoutes(app: Express) {
   });
 
   app.get("/api/auth/cordon/debug", async (req: Request, res: Response) => {
+    // Security: Debug endpoint must never be available in production
+    if (process.env.NODE_ENV === "production") {
+      return res.status(404).json({ error: "Not found" });
+    }
+
     const activeCodes = Array.from(authCodes.entries())
       .filter(([, c]) => !c.used && Date.now() - c.createdAt < CODE_EXPIRY_MS)
       .map(([code, c]) => ({
