@@ -4,6 +4,23 @@ import Constants from "expo-constants";
 const PRODUCTION_FALLBACK_DOMAIN = "app.cordonwallet.com";
 
 /**
+ * Returns common headers that should be included in every API request.
+ * Includes the API key for server authentication.
+ */
+export function getApiHeaders(extra?: Record<string, string>): Record<string, string> {
+  const headers: Record<string, string> = {};
+  const apiKey = process.env.EXPO_PUBLIC_CORDON_API_KEY
+    || (Constants.expoConfig as any)?.extra?.cordonApiKey;
+  if (apiKey) {
+    headers["X-API-Key"] = apiKey;
+  }
+  if (extra) {
+    Object.assign(headers, extra);
+  }
+  return headers;
+}
+
+/**
  * Gets the base URL for the Express API server.
  * Priority: process.env.EXPO_PUBLIC_DOMAIN > Constants.expoConfig.extra.apiDomain > fallback
  * In development on Replit (.replit.dev), Express runs on port 5000.
@@ -57,7 +74,7 @@ export async function apiRequest(
 
   const res = await fetch(url, {
     method,
-    headers: data ? { "Content-Type": "application/json" } : {},
+    headers: getApiHeaders(data ? { "Content-Type": "application/json" } : undefined),
     body: data ? JSON.stringify(data) : undefined,
     credentials: "include",
   });
@@ -76,6 +93,7 @@ export const getQueryFn: <T>(options: {
     const url = new URL(queryKey.join("/") as string, baseUrl);
 
     const res = await fetch(url, {
+      headers: getApiHeaders(),
       credentials: "include",
     });
 

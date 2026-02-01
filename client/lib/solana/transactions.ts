@@ -1,4 +1,4 @@
-import { getApiUrl } from "@/lib/query-client";
+import { getApiUrl, getApiHeaders } from "@/lib/query-client";
 import { deriveSolanaKeypair } from "./keys";
 import { getSolanaExplorerTxUrl } from "./client";
 import * as nacl from "tweetnacl";
@@ -87,7 +87,7 @@ export async function sendSol(
 
     const prepareResponse = await fetch(prepareUrl.toString(), {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: getApiHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({
         fromAddress: publicKey,
         toAddress,
@@ -112,7 +112,7 @@ export async function sendSol(
     const sendUrl = new URL("/api/solana/send-signed-transaction", apiUrl);
     const sendResponse = await fetch(sendUrl.toString(), {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: getApiHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({
         transactionBase64,
         signatureBase64: uint8ArrayToBase64(signature),
@@ -157,7 +157,7 @@ export async function checkRecipientAtaExists(
   url.searchParams.set("mint", mintAddress);
   url.searchParams.set("owner", recipientAddress);
   
-  const response = await fetch(url.toString());
+  const response = await fetch(url.toString(), { headers: getApiHeaders() });
   if (!response.ok) {
     throw new Error("Failed to check token account");
   }
@@ -177,7 +177,7 @@ export async function sendSplToken(options: SendSplOptions): Promise<SendSplResu
 
     const prepareResponse = await fetch(prepareUrl.toString(), {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: getApiHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({
         fromAddress: publicKey,
         toAddress,
@@ -205,7 +205,7 @@ export async function sendSplToken(options: SendSplOptions): Promise<SendSplResu
     const sendUrl = new URL("/api/solana/send-signed-transaction", apiUrl);
     const sendResponse = await fetch(sendUrl.toString(), {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: getApiHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({
         transactionBase64,
         signatureBase64: uint8ArrayToBase64(signature),
