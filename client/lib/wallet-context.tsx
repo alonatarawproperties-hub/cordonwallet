@@ -104,8 +104,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
       const walletRecords = await listWallets();
       const loadedWallets = walletRecords.map(walletRecordToWallet);
-      const loadedBundles: Bundle[] = bundlesJson ? JSON.parse(bundlesJson) : [];
-      const loadedPolicy: PolicySettings = policyJson ? JSON.parse(policyJson) : defaultPolicySettings;
+      let loadedBundles: Bundle[] = [];
+      let loadedPolicy: PolicySettings = defaultPolicySettings;
+      try { if (bundlesJson) loadedBundles = JSON.parse(bundlesJson); } catch { /* corrupted data, use default */ }
+      try { if (policyJson) loadedPolicy = JSON.parse(policyJson); } catch { /* corrupted data, use default */ }
 
       setWallets(loadedWallets);
       setBundles(loadedBundles);

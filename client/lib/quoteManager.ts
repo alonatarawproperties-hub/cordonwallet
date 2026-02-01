@@ -1,5 +1,5 @@
 import { swapLogger, isRetryableError, getUserFriendlyErrorMessage } from "./swapLogger";
-import { getApiUrl } from "@/lib/query-client";
+import { getApiUrl, getApiHeaders } from "@/lib/query-client";
 import type { QuoteRequest, QuoteResponse } from "@/services/jupiter";
 
 const DEBOUNCE_MS = 450;
@@ -81,7 +81,7 @@ async function fetchQuoteWithRetry(
       
       const response = await fetch(url, {
         method: "GET",
-        headers: { "Accept": "application/json" },
+        headers: getApiHeaders({ "Accept": "application/json" }),
         signal: controller.signal,
       });
       

@@ -4,7 +4,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { getNativeBalance, getERC20Balance, isBalanceError, BalanceResult } from "@/lib/blockchain/balances";
 import { getTokensForChain } from "@/lib/blockchain/tokens";
 import { supportedChains, getChainById } from "@/lib/blockchain/chains";
-import { getApiUrl } from "@/lib/query-client";
+import { getApiUrl, getApiHeaders } from "@/lib/query-client";
 import { getPreloadedCache, clearPreloadedCache, savePortfolioDisplayCache, getDefaultNativeTokens } from "@/lib/portfolio-cache";
 import { useWallet } from "@/lib/wallet-context";
 
@@ -184,6 +184,7 @@ export function useAllChainsPortfolio(address: string | undefined) {
           const discoveryUrl = new URL(`/api/evm/${chain.chainId}/${address}/tokens`, apiUrl);
           const discoveryResponse = await fetch(discoveryUrl.toString(), {
             signal: timeoutSignal,
+            headers: getApiHeaders(),
           });
           cleanupTimeout();
 
@@ -286,7 +287,7 @@ export function useAllChainsPortfolio(address: string | undefined) {
       try {
         const apiUrl = getApiUrl();
         const priceUrl = new URL("/api/prices", apiUrl);
-        const priceResponse = await fetch(priceUrl.toString());
+        const priceResponse = await fetch(priceUrl.toString(), { headers: getApiHeaders() });
         if (priceResponse.ok) {
           const priceData = await priceResponse.json();
           prices = priceData.prices || {};
@@ -336,7 +337,7 @@ export function useAllChainsPortfolio(address: string | undefined) {
           const dexUrl = new URL("/api/dexscreener/tokens", apiUrl);
           const dexResponse = await fetch(dexUrl.toString(), {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: getApiHeaders({ "Content-Type": "application/json" }),
             body: JSON.stringify({
               tokens: tokensWithoutPrice.map((t) => ({
                 chainId: t.chainId,

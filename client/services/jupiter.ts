@@ -1,5 +1,5 @@
 import { SwapSpeed, SPEED_CONFIGS, LAMPORTS_PER_SOL } from "@/constants/solanaSwap";
-import { getApiUrl } from "@/lib/query-client";
+import { getApiUrl, getApiHeaders } from "@/lib/query-client";
 
 export interface QuoteRequest {
   inputMint: string;
@@ -87,7 +87,7 @@ export async function getQuote(request: QuoteRequest): Promise<QuoteResponse> {
       
       const response = await fetch(url, {
         method: "GET",
-        headers: { "Accept": "application/json" },
+        headers: getApiHeaders({ "Accept": "application/json" }),
         signal: controller.signal,
       });
       
@@ -169,10 +169,10 @@ export async function buildSwapTransaction(
     try {
       const response = await fetch(url, {
         method: "POST",
-        headers: {
+        headers: getApiHeaders({
           "Accept": "application/json",
           "Content-Type": "application/json",
-        },
+        }),
         body: JSON.stringify(request),
         signal: controller.signal,
       });

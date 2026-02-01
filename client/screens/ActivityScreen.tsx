@@ -24,7 +24,7 @@ import {
 } from "@/lib/blockchain/explorer-api";
 import { supportedChains, getChainById, getExplorerAddressUrl } from "@/lib/blockchain/chains";
 import { NetworkId } from "@/lib/types";
-import { getApiUrl } from "@/lib/query-client";
+import { getApiUrl, getApiHeaders } from "@/lib/query-client";
 import { getCustomTokens, CustomToken, buildCustomTokenMap } from "@/lib/token-preferences";
 import { FEATURES } from "@/config/features";
 
@@ -132,7 +132,7 @@ async function fetchSolanaHistory(
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 20000);
     
-    const response = await fetch(url.toString(), { signal: controller.signal });
+    const response = await fetch(url.toString(), { signal: controller.signal, headers: getApiHeaders() });
     clearTimeout(timeout);
     
     if (!response.ok) return [];
@@ -193,7 +193,7 @@ async function fetchPrices(): Promise<Record<string, number>> {
   try {
     const apiUrl = getApiUrl();
     const priceUrl = new URL("/api/prices", apiUrl);
-    const response = await fetch(priceUrl.toString());
+    const response = await fetch(priceUrl.toString(), { headers: getApiHeaders() });
     if (!response.ok) return {};
     
     const data = await response.json();
@@ -224,7 +224,7 @@ async function fetchTokenPrices(
   for (const mint of mintAddresses) {
     try {
       const url = new URL(`/api/dexscreener/token/solana/${mint}`, apiUrl);
-      const response = await fetch(url.toString());
+      const response = await fetch(url.toString(), { headers: getApiHeaders() });
       if (!response.ok) continue;
       
       const data = await response.json();

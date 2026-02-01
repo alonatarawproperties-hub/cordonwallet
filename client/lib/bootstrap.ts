@@ -5,7 +5,7 @@ import { hasVault, isUnlocked, getActiveWallet } from "./wallet-engine";
 import { initWalletConnect, getActiveSessions } from "./walletconnect/client";
 import { supportedChains, getDefaultChain } from "./blockchain/chains";
 import { createPublicClient, http } from "viem";
-import { getApiUrl } from "./query-client";
+import { getApiUrl, getApiHeaders } from "./query-client";
 import { prefetchPortfolioCache } from "./portfolio-cache";
 
 const STORAGE_KEYS = {
@@ -226,7 +226,7 @@ async function pingLastSelectedRPC(
     const healthUrl = new URL("/api/solana/health", apiUrl);
     
     const healthResponse = await withTimeout(
-      fetch(healthUrl.toString()),
+      fetch(healthUrl.toString(), { headers: getApiHeaders() }),
       STEP_TIMEOUTS.pingRPC,
       null
     );

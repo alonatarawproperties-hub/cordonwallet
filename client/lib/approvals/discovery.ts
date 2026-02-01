@@ -5,7 +5,7 @@ import { defaultTokens } from "@/lib/blockchain/tokens";
 import { getSpenderLabel, isKnownSpender, isTrustedSpender } from "./spenders";
 import { ApprovalRecord, generateApprovalId, isUnlimitedAllowance } from "./types";
 import { listApprovals, upsertApproval } from "./store";
-import { getApiUrl } from "@/lib/query-client";
+import { getApiUrl, getApiHeaders } from "@/lib/query-client";
 
 export type RiskLevel = "high" | "medium" | "low";
 
@@ -158,7 +158,7 @@ export async function fetchApprovalsFromExplorer(
     const url = new URL(`/api/approvals/${owner}`, apiUrl);
     url.searchParams.set("chainId", chainId.toString());
     
-    const response = await fetch(url.toString());
+    const response = await fetch(url.toString(), { headers: getApiHeaders() });
     if (!response.ok) {
       console.log(`[Discovery] Explorer API returned ${response.status}`);
       return [];

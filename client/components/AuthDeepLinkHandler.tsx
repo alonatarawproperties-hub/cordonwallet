@@ -3,7 +3,7 @@ import { Alert, Platform } from "react-native";
 import * as Linking from "expo-linking";
 import * as SecureStore from "expo-secure-store";
 import * as Haptics from "expo-haptics";
-import { getApiUrl } from "@/lib/query-client";
+import { getApiUrl, getApiHeaders } from "@/lib/query-client";
 
 const AUTH_JWT_KEY = "cordon_external_auth_jwt";
 const AUTH_USER_KEY = "cordon_external_auth_user";
@@ -15,9 +15,7 @@ export function AuthDeepLinkHandler() {
     try {
       const response = await fetch(`${getApiUrl()}/api/auth/cordon/exchange-code`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: getApiHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({ code }),
       });
 

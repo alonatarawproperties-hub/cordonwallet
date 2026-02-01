@@ -1,6 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { POPULAR_TOKENS } from "@/constants/solanaSwap";
-import { getApiUrl } from "@/lib/query-client";
+import { getApiUrl, getApiHeaders } from "@/lib/query-client";
 import { swapLogger } from "@/lib/swapLogger";
 
 const TOKEN_LIST_KEY = "solana_token_list_v3";
@@ -95,7 +95,7 @@ export async function fetchTokenList(): Promise<TokenInfo[]> {
     
     const response = await fetch(`${baseUrl}/api/jupiter/tokens`, {
       signal: controller.signal,
-      headers: { "Accept": "application/json" },
+      headers: getApiHeaders({ "Accept": "application/json" }),
     });
     
     clearTimeout(timeout);
@@ -163,7 +163,7 @@ export async function getTokenByMint(mint: string): Promise<TokenInfo | null> {
   try {
     const baseUrl = getApiUrl();
     const response = await fetch(`${baseUrl}/api/solana/token-metadata/${mint}`, {
-      headers: { "Accept": "application/json" },
+      headers: getApiHeaders({ "Accept": "application/json" }),
     });
     
     if (response.ok) {

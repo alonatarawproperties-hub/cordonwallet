@@ -1,4 +1,4 @@
-import { getApiUrl } from "@/lib/query-client";
+import { getApiUrl, getApiHeaders } from "@/lib/query-client";
 
 export type SpeedMode = "standard" | "fast" | "turbo";
 
@@ -112,10 +112,10 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   
   const response = await fetch(url, {
     ...options,
-    headers: {
+    headers: getApiHeaders({
       "Content-Type": "application/json",
-      ...options?.headers,
-    },
+      ...(options?.headers as Record<string, string>),
+    }),
   });
   
   const data = await response.json();

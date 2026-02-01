@@ -126,6 +126,21 @@ const PRICE_CACHE_DURATION = 60000;
 
 let historicalPriceCache: HistoricalPriceCache = {};
 const HISTORICAL_CACHE_DURATION = 3600000;
+const HISTORICAL_CACHE_MAX_ENTRIES = 500;
+
+// Evict oldest entries when cache grows too large to prevent memory leak
+function evictHistoricalCache(): void {
+  const keys = Object.keys(historicalPriceCache);
+  if (keys.length <= HISTORICAL_CACHE_MAX_ENTRIES) return;
+  const sorted = keys.sort((a, b) => (historicalPriceCache[a].timestamp || 0) - (historicalPriceCache[b].timestamp || 0));
+  const toRemove = sorted.slice(0, keys.length - HISTORICAL_CACHE_MAX_ENTRIES);
+  for (const key of toRemove) {
+    delete historicalPriceCache[key];
+  }
+}
+
+// Periodically evict stale cache entries every 5 minutes
+setInterval(evictHistoricalCache, 5 * 60 * 1000);
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Health check endpoint for Solana RPC - used by mobile app to verify connectivity

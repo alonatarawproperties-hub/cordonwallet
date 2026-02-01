@@ -1,4 +1,4 @@
-import { getApiUrl } from "@/lib/query-client";
+import { getApiUrl, getApiHeaders } from "@/lib/query-client";
 
 export interface SolBalance {
   lamports: number;
@@ -24,8 +24,8 @@ export interface SolanaPortfolio {
 export async function getSolBalance(address: string): Promise<SolBalance> {
   const apiUrl = getApiUrl();
   const url = new URL(`/api/solana/balance/${address}`, apiUrl);
-  const response = await fetch(url.toString());
-  
+  const response = await fetch(url.toString(), { headers: getApiHeaders() });
+
   if (!response.ok) {
     throw new Error("Failed to fetch Solana balance");
   }
@@ -41,8 +41,8 @@ export async function getSplTokenBalances(address: string): Promise<SplTokenBala
 export async function getSolanaPortfolio(address: string): Promise<SolanaPortfolio> {
   const apiUrl = getApiUrl();
   const url = new URL(`/api/solana/portfolio/${address}`, apiUrl);
-  const response = await fetch(url.toString());
-  
+  const response = await fetch(url.toString(), { headers: getApiHeaders() });
+
   if (!response.ok) {
     throw new Error("Failed to fetch Solana portfolio");
   }
