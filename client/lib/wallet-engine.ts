@@ -17,6 +17,73 @@ import bs58 from "bs58";
 // Check if native crypto is available (Web Crypto API)
 const hasNativeCrypto = typeof globalThis.crypto?.subtle?.deriveBits === "function";
 
+// --- Security: Zero out a Uint8Array after use ---
+function wipeBytes(arr: Uint8Array): void {
+  arr.fill(0);
+}
+
+// --- Security: PIN attempt rate limiting ---
+const PIN_MAX_ATTEMPTS = 10;
+const PIN_LOCKOUT_MS = 5 * 60 * 1000; // 5 minute lockout after max attempts
+let pinAttemptCount = 0;
+let pinLockoutUntil = 0;
+
+async function loadPinAttemptState(): Promise<void> {
+  try {
+    const state = await getSecureItem("cordon_pin_attempts");
+    if (state) {
+      const parsed = JSON.parse(state);
+      pinAttemptCount = parsed.count || 0;
+      pinLockoutUntil = parsed.lockoutUntil || 0;
+    }
+  } catch {
+    // ignore
+  }
+}
+
+async function savePinAttemptState(): Promise<void> {
+  try {
+    await setSecureItem("cordon_pin_attempts", JSON.stringify({
+      count: pinAttemptCount,
+      lockoutUntil: pinLockoutUntil,
+    }));
+  } catch {
+    // ignore
+  }
+}
+
+async function recordPinFailure(): Promise<void> {
+  pinAttemptCount++;
+  if (pinAttemptCount >= PIN_MAX_ATTEMPTS) {
+    pinLockoutUntil = Date.now() + PIN_LOCKOUT_MS;
+  }
+  await savePinAttemptState();
+}
+
+async function resetPinAttempts(): Promise<void> {
+  pinAttemptCount = 0;
+  pinLockoutUntil = 0;
+  await savePinAttemptState();
+}
+
+function isPinLocked(): boolean {
+  if (pinLockoutUntil > 0 && Date.now() < pinLockoutUntil) {
+    return true;
+  }
+  // Lockout expired, reset
+  if (pinLockoutUntil > 0 && Date.now() >= pinLockoutUntil) {
+    pinAttemptCount = 0;
+    pinLockoutUntil = 0;
+  }
+  return false;
+}
+
+export function getPinLockoutRemainingMs(): number {
+  if (pinLockoutUntil <= 0) return 0;
+  const remaining = pinLockoutUntil - Date.now();
+  return remaining > 0 ? remaining : 0;
+}
+
 export interface MultiChainAddresses {
   evm: `0x${string}`;
   solana: string;
@@ -47,7 +114,7 @@ interface DecryptedSecrets {
 
 const STORAGE_KEYS = {
   VAULT: "cordon_vault",
-  PIN_HASH: "cordon_pin_hash",
+  PIN_HASH: "cordon_pin_hash", // Legacy - kept for migration/cleanup only
   VAULT_META: "@cordon/vault_meta",
   BIOMETRIC_PIN: "cordon_biometric_pin",
   BIOMETRIC_ENABLED: "cordon_biometric_enabled",
@@ -60,7 +127,11 @@ let cachedSecrets: DecryptedSecrets | null = null;
 let isVaultUnlocked = false;
 
 // Cache the vault key in SecureStore for fast subsequent unlocks
+// Security: NEVER cache raw keys on web (localStorage is not secure)
 async function cacheVaultKey(key: Uint8Array): Promise<void> {
+  if (Platform.OS === "web") {
+    return; // Do not cache vault key in localStorage
+  }
   try {
     await setSecureItem(STORAGE_KEYS.CACHED_VAULT_KEY, bytesToHex(key));
   } catch (err) {
@@ -161,39 +232,49 @@ async function deriveKeyFromPin(pin: string, salt: Uint8Array): Promise<Uint8Arr
 async function encryptSecrets(secrets: DecryptedSecrets, pin: string): Promise<EncryptedVault> {
   const salt = randomBytes(16);
   const iv = randomBytes(12);
-  
+
   const key = await deriveKeyFromPin(pin, salt);
-  
+
   const plaintext = new TextEncoder().encode(JSON.stringify(secrets));
   const cipher = gcm(key, iv);
   const ciphertext = cipher.encrypt(plaintext);
-  
-  // Cache the new key for fast unlocks
+
+  // Cache the new key for fast unlocks (skipped on web)
   await cacheVaultKey(key);
-  
-  return {
+
+  const result: EncryptedVault = {
     version: 1,
     salt: bytesToHex(salt),
     iv: bytesToHex(iv),
     ciphertext: bytesToHex(ciphertext),
   };
+
+  // Wipe key material from memory
+  wipeBytes(key);
+  wipeBytes(plaintext);
+
+  return result;
 }
 
 async function decryptSecrets(vault: EncryptedVault, pin: string): Promise<DecryptedSecrets | null> {
+  let key: Uint8Array | null = null;
   try {
     const salt = hexToBytes(vault.salt);
     const iv = hexToBytes(vault.iv);
     const ciphertext = hexToBytes(vault.ciphertext);
-    
-    const key = await deriveKeyFromPin(pin, salt);
-    
+
+    key = await deriveKeyFromPin(pin, salt);
+
     const cipher = gcm(key, iv);
     const plaintext = cipher.decrypt(ciphertext);
     const json = new TextDecoder().decode(plaintext);
-    
+    wipeBytes(plaintext);
+
     return JSON.parse(json);
   } catch {
     return null;
+  } finally {
+    if (key) wipeBytes(key);
   }
 }
 
@@ -460,8 +541,8 @@ export async function createWallet(
   }
   
   const addresses = deriveMultiChainAddresses(mnemonic);
-  const walletId = `wallet_${Date.now()}`;
-  
+  const walletId = `wallet_${bytesToHex(randomBytes(8))}`;
+
   const wallet: WalletRecord = {
     id: walletId,
     name,
@@ -470,41 +551,42 @@ export async function createWallet(
     walletType,
     createdAt: Date.now(),
   };
-  
+
   const existingVault = await getSecureItem(STORAGE_KEYS.VAULT);
   let secrets: DecryptedSecrets;
   let wallets: WalletRecord[];
-  
+
   if (existingVault && cachedSecrets) {
     secrets = { ...cachedSecrets, mnemonics: { ...cachedSecrets.mnemonics, [walletId]: mnemonic } };
     const meta = await loadVaultMeta();
-    
+
     // Check for duplicate wallets (same EVM or Solana address)
-    const isDuplicate = meta.wallets.some(w => 
+    const isDuplicate = meta.wallets.some(w =>
       (w.addresses?.evm && w.addresses.evm === addresses.evm) ||
       (w.addresses?.solana && w.addresses.solana === addresses.solana)
     );
-    
+
     if (isDuplicate) {
       throw new Error("This wallet already exists. The same seed phrase was previously imported.");
     }
-    
+
     wallets = [...meta.wallets, wallet];
   } else {
     secrets = { mnemonics: { [walletId]: mnemonic } };
     wallets = [wallet];
   }
-  
+
   const encryptedVault = await encryptSecrets(secrets, pin);
   await setSecureItem(STORAGE_KEYS.VAULT, JSON.stringify(encryptedVault));
   await saveVaultMeta(wallets, walletId);
-  
-  const pinHash = bytesToHex(sha256(new TextEncoder().encode(pin)));
-  await setSecureItem(STORAGE_KEYS.PIN_HASH, pinHash);
-  
+
+  // Clean up legacy PIN hash if it exists
+  await deleteSecureItem(STORAGE_KEYS.PIN_HASH);
+
   cachedSecrets = secrets;
   isVaultUnlocked = true;
-  
+  await resetPinAttempts();
+
   return wallet;
 }
 
@@ -531,16 +613,23 @@ export class VaultCorruptedError extends Error {
   }
 }
 
-export async function unlockWithPin(pin: string): Promise<boolean> {
-  // Step 1: Verify PIN hash first (fast - just SHA-256)
-  const pinValid = await verifyPin(pin);
-  if (!pinValid) {
-    if (__DEV__) {
-      console.log("[WalletEngine] unlockWithPin: PIN verification failed");
-    }
-    return false;
+export class PinLockedError extends Error {
+  code = "PIN_LOCKED";
+  remainingMs: number;
+  constructor(remainingMs: number) {
+    super(`Too many failed attempts. Try again in ${Math.ceil(remainingMs / 1000)} seconds.`);
+    this.name = "PinLockedError";
+    this.remainingMs = remainingMs;
   }
-  
+}
+
+export async function unlockWithPin(pin: string): Promise<boolean> {
+  // Security: Check PIN attempt lockout
+  await loadPinAttemptState();
+  if (isPinLocked()) {
+    throw new PinLockedError(getPinLockoutRemainingMs());
+  }
+
   const vaultJson = await getSecureItem(STORAGE_KEYS.VAULT);
   if (!vaultJson) {
     if (__DEV__) {
@@ -548,7 +637,7 @@ export async function unlockWithPin(pin: string): Promise<boolean> {
     }
     return false;
   }
-  
+
   let vault: unknown;
   try {
     vault = JSON.parse(vaultJson);
@@ -558,55 +647,68 @@ export async function unlockWithPin(pin: string): Promise<boolean> {
     }
     throw new VaultCorruptedError();
   }
-  
+
   if (!isValidVaultFormat(vault)) {
     if (__DEV__) {
       console.log("[WalletEngine] unlockWithPin: Vault has invalid format", vault);
     }
     throw new VaultCorruptedError();
   }
-  
-  // Step 2: Try fast path with cached vault key
+
+  // Try fast path with cached vault key (native platforms only)
+  // Security: The cached key is only available on native platforms (iOS Keychain / Android KeyStore)
+  // and is used purely as an optimization. The PIN is still validated via PBKDF2 decryption.
   const cachedKey = await getCachedVaultKey();
   if (cachedKey) {
-    const secrets = await decryptSecretsWithKey(vault, cachedKey);
+    // Even with cached key, we must verify the PIN is correct by attempting PBKDF2 decryption
+    const salt = hexToBytes(vault.salt);
+    const derivedKey = await deriveKeyFromPin(pin, salt);
+    const secrets = await decryptSecretsWithKey(vault, derivedKey);
+    wipeBytes(derivedKey);
+
     if (secrets) {
       if (__DEV__) {
-        console.log("[WalletEngine] unlockWithPin: Fast unlock with cached key", {
+        console.log("[WalletEngine] unlockWithPin: Verified PIN and unlocked", {
           walletCount: Object.keys(secrets.mnemonics).length,
         });
       }
       cachedSecrets = secrets;
       isVaultUnlocked = true;
+      await resetPinAttempts();
       return true;
     }
-    // Cached key didn't work (maybe vault was re-encrypted), clear it
+    // PIN was wrong - fall through to record failure
     await clearCachedVaultKey();
-  }
-  
-  // Step 3: Slow path - derive key with PBKDF2
-  if (__DEV__) {
-    console.log("[WalletEngine] unlockWithPin: Slow path - deriving key with PBKDF2");
-  }
-  const salt = hexToBytes(vault.salt);
-  const key = await deriveKeyFromPin(pin, salt);
-  const secrets = await decryptSecretsWithKey(vault, key);
-  
-  if (secrets) {
+  } else {
+    // No cached key - derive and decrypt (standard path)
     if (__DEV__) {
-      console.log("[WalletEngine] unlockWithPin: Successfully decrypted vault", {
-        walletCount: Object.keys(secrets.mnemonics).length,
-      });
+      console.log("[WalletEngine] unlockWithPin: Deriving key with PBKDF2");
     }
-    cachedSecrets = secrets;
-    isVaultUnlocked = true;
-    // Cache the key for fast unlocks next time
-    await cacheVaultKey(key);
-    return true;
+    const salt = hexToBytes(vault.salt);
+    const key = await deriveKeyFromPin(pin, salt);
+    const secrets = await decryptSecretsWithKey(vault, key);
+
+    if (secrets) {
+      if (__DEV__) {
+        console.log("[WalletEngine] unlockWithPin: Successfully decrypted vault", {
+          walletCount: Object.keys(secrets.mnemonics).length,
+        });
+      }
+      cachedSecrets = secrets;
+      isVaultUnlocked = true;
+      // Cache the key for fast unlocks next time (native only)
+      await cacheVaultKey(key);
+      wipeBytes(key);
+      await resetPinAttempts();
+      return true;
+    }
+    wipeBytes(key);
   }
-  
+
+  // PIN was incorrect
+  await recordPinFailure();
   if (__DEV__) {
-    console.log("[WalletEngine] unlockWithPin: Failed to decrypt");
+    console.log("[WalletEngine] unlockWithPin: Failed to decrypt, attempts:", pinAttemptCount);
   }
   return false;
 }
@@ -730,12 +832,25 @@ export async function deleteVault(): Promise<void> {
 }
 
 export async function verifyPin(pin: string): Promise<boolean> {
-  const storedHash = await getSecureItem(STORAGE_KEYS.PIN_HASH);
-  if (!storedHash) {
+  // Security: Verify PIN by attempting to decrypt the vault (AES-GCM authenticated decryption).
+  // This is the only reliable way to verify the PIN - the decryption itself is the verification.
+  const vaultJson = await getSecureItem(STORAGE_KEYS.VAULT);
+  if (!vaultJson) {
     return false;
   }
-  const inputHash = bytesToHex(sha256(new TextEncoder().encode(pin)));
-  return inputHash === storedHash;
+
+  try {
+    const vault = JSON.parse(vaultJson);
+    if (!isValidVaultFormat(vault)) return false;
+
+    const salt = hexToBytes(vault.salt);
+    const key = await deriveKeyFromPin(pin, salt);
+    const result = await decryptSecretsWithKey(vault, key);
+    wipeBytes(key);
+    return result !== null;
+  } catch {
+    return false;
+  }
 }
 
 export async function changePin(currentPin: string, newPin: string): Promise<boolean> {
@@ -749,14 +864,15 @@ export async function changePin(currentPin: string, newPin: string): Promise<boo
   }
 
   try {
-    const newPinHash = bytesToHex(sha256(new TextEncoder().encode(newPin)));
-    await setSecureItem(STORAGE_KEYS.PIN_HASH, newPinHash);
-
+    // Re-encrypt the vault with the new PIN (this is the sole source of truth)
     const vaultJson = await getSecureItem(STORAGE_KEYS.VAULT);
     if (vaultJson && cachedSecrets) {
       const newEncryptedVault = await encryptSecrets(cachedSecrets, newPin);
       await setSecureItem(STORAGE_KEYS.VAULT, JSON.stringify(newEncryptedVault));
     }
+
+    // Clean up legacy PIN hash if present
+    await deleteSecureItem(STORAGE_KEYS.PIN_HASH);
 
     const hasBiometric = await hasBiometricPinEnabled();
     if (hasBiometric) {
@@ -781,8 +897,9 @@ export async function hasVault(): Promise<boolean> {
 }
 
 export async function hasDevicePin(): Promise<boolean> {
-  const storedHash = await getSecureItem(STORAGE_KEYS.PIN_HASH);
-  const result = storedHash !== null;
+  // A device PIN exists if a vault exists (the vault IS the PIN-protected store)
+  const vaultJson = await getSecureItem(STORAGE_KEYS.VAULT);
+  const result = vaultJson !== null;
   if (__DEV__) {
     console.log("[WalletEngine] hasDevicePin:", result);
   }
@@ -805,8 +922,8 @@ export async function addWalletToExistingVault(
   }
   
   const addresses = deriveMultiChainAddresses(normalizedMnemonic);
-  const walletId = `wallet_${Date.now()}`;
-  
+  const walletId = `wallet_${bytesToHex(randomBytes(8))}`;
+
   const wallet: WalletRecord = {
     id: walletId,
     name,
@@ -815,44 +932,57 @@ export async function addWalletToExistingVault(
     walletType,
     createdAt: Date.now(),
   };
-  
+
   const meta = await loadVaultMeta();
-  
-  const isDuplicate = meta.wallets.some(w => 
+
+  const isDuplicate = meta.wallets.some(w =>
     (w.addresses?.evm && w.addresses.evm === addresses.evm) ||
     (w.addresses?.solana && w.addresses.solana === addresses.solana)
   );
-  
+
   if (isDuplicate) {
     throw new Error("This wallet already exists. The same seed phrase was previously imported.");
   }
-  
+
   const newSecrets: DecryptedSecrets = {
     ...cachedSecrets,
     mnemonics: { ...cachedSecrets.mnemonics, [walletId]: normalizedMnemonic }
   };
-  
+
+  // Security fix: Re-encrypt using the cached key with a NEW iv (but preserve
+  // the original salt so the vault can still be unlocked via PBKDF2 + PIN).
   const cachedKey = await getCachedVaultKey();
   if (!cachedKey) {
     throw new Error("Vault key not available. Please unlock with PIN first.");
   }
-  
-  const salt = randomBytes(16);
+
+  // Read current vault to preserve the original salt (which corresponds to the cached key)
+  const currentVaultJson = await getSecureItem(STORAGE_KEYS.VAULT);
+  let originalSalt: string;
+  try {
+    const currentVault = JSON.parse(currentVaultJson!);
+    originalSalt = currentVault.salt;
+  } catch {
+    throw new Error("Failed to read current vault for re-encryption");
+  }
+
   const iv = randomBytes(12);
   const plaintext = new TextEncoder().encode(JSON.stringify(newSecrets));
   const cipher = gcm(cachedKey, iv);
   const ciphertext = cipher.encrypt(plaintext);
-  
+
   const encryptedVault: EncryptedVault = {
     version: 1,
-    salt: bytesToHex(salt),
+    salt: originalSalt, // Preserve original salt so PBKDF2 derivation still works
     iv: bytesToHex(iv),
     ciphertext: bytesToHex(ciphertext),
   };
-  
+
+  wipeBytes(plaintext);
+
   await setSecureItem(STORAGE_KEYS.VAULT, JSON.stringify(encryptedVault));
   await saveVaultMeta([...meta.wallets, wallet], walletId);
-  
+
   cachedSecrets = newSecrets;
   
   if (__DEV__) {
@@ -871,7 +1001,7 @@ export async function addWalletFromPrivateKey(
     throw new WalletLockedError();
   }
 
-  const walletId = `wallet_${Date.now()}`;
+  const walletId = `wallet_${bytesToHex(randomBytes(8))}`;
   let addresses: MultiChainAddresses;
   let normalizedKey: string;
 
@@ -968,7 +1098,16 @@ export async function addWalletFromPrivateKey(
     throw new Error("Vault key not available. Please unlock with PIN first.");
   }
 
-  const salt = randomBytes(16);
+  // Preserve original salt so PBKDF2 derivation still works
+  const currentVaultJson = await getSecureItem(STORAGE_KEYS.VAULT);
+  let originalSalt: string;
+  try {
+    const currentVault = JSON.parse(currentVaultJson!);
+    originalSalt = currentVault.salt;
+  } catch {
+    throw new Error("Failed to read current vault for re-encryption");
+  }
+
   const iv = randomBytes(12);
   const plaintext = new TextEncoder().encode(JSON.stringify(newSecrets));
   const cipher = gcm(cachedKey, iv);
@@ -976,10 +1115,12 @@ export async function addWalletFromPrivateKey(
 
   const encryptedVault: EncryptedVault = {
     version: 1,
-    salt: bytesToHex(salt),
+    salt: originalSalt,
     iv: bytesToHex(iv),
     ciphertext: bytesToHex(ciphertext),
   };
+
+  wipeBytes(plaintext);
 
   await setSecureItem(STORAGE_KEYS.VAULT, JSON.stringify(encryptedVault));
   await saveVaultMeta([...meta.wallets, wallet], walletId);

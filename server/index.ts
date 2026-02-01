@@ -21,6 +21,10 @@ function setupCors(app: express.Application) {
   app.use((req, res, next) => {
     const origins = new Set<string>();
 
+    // Production domain
+    origins.add("https://app.cordonwallet.com");
+
+    // Replit deployment domains
     if (process.env.REPLIT_DEV_DOMAIN) {
       origins.add(`https://${process.env.REPLIT_DEV_DOMAIN}`);
     }
@@ -31,6 +35,13 @@ function setupCors(app: express.Application) {
       });
     }
 
+    // Local development
+    if (process.env.NODE_ENV !== "production") {
+      origins.add("http://localhost:3000");
+      origins.add("http://localhost:5000");
+      origins.add("http://localhost:8081");
+    }
+
     const origin = req.header("origin");
 
     if (origin && origins.has(origin)) {
@@ -39,12 +50,48 @@ function setupCors(app: express.Application) {
         "Access-Control-Allow-Methods",
         "GET, POST, PUT, DELETE, OPTIONS",
       );
-      res.header("Access-Control-Allow-Headers", "Content-Type");
+      res.header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-API-Key");
       res.header("Access-Control-Allow-Credentials", "true");
     }
 
     if (req.method === "OPTIONS") {
       return res.sendStatus(200);
+    }
+
+    next();
+  });
+}
+
+/**
+ * API key authentication middleware.
+ * Requires X-API-Key header on all /api/* routes.
+ * Auth callback routes (/auth/*) are excluded since they're browser-based OAuth flows.
+ * Health check is excluded so uptime monitors still work.
+ */
+function setupApiKeyAuth(app: express.Application) {
+  const apiKey = process.env.CORDON_API_KEY;
+
+  if (!apiKey) {
+    if (process.env.NODE_ENV === "production") {
+      log("[Security] WARNING: CORDON_API_KEY not set — API key auth is DISABLED in production!");
+    } else {
+      log("[Security] CORDON_API_KEY not set — API key auth disabled in development");
+    }
+    return;
+  }
+
+  log("[Security] API key auth enabled for /api/* routes");
+
+  app.use("/api", (req: Request, res: Response, next: NextFunction) => {
+    // Allow health check without auth
+    if (req.path === "/solana/health" || req.path === "/health") {
+      return next();
+    }
+
+    const providedKey = req.header("X-API-Key");
+
+    if (!providedKey || providedKey !== apiKey) {
+      return res.status(401).json({ error: "Unauthorized: invalid or missing API key" });
     }
 
     next();
@@ -243,6 +290,7 @@ function setupErrorHandler(app: express.Application) {
 (async () => {
   setupCors(app);
   setupBodyParsing(app);
+  setupApiKeyAuth(app);
   setupRequestLogging(app);
 
   // Auth routes must be registered BEFORE static file serving
