@@ -1,6 +1,6 @@
 import { Connection, PublicKey } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
-import { getApiUrl } from "@/lib/query-client";
+import { getApiUrl, getApiHeaders } from "@/lib/query-client";
 
 const SOLANA_RPC_URL = process.env.SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com";
 
@@ -55,7 +55,7 @@ async function fetchTokenAccountsFromServer(owner: string): Promise<RawTokenAcco
     const apiUrl = getApiUrl();
     const url = new URL(`/api/solana/token-accounts/${owner}`, apiUrl);
     
-    const response = await fetch(url.toString());
+    const response = await fetch(url.toString(), { headers: getApiHeaders() });
     if (!response.ok) {
       console.log(`[SolanaPermissions] Server API returned ${response.status}`);
       return [];
@@ -107,7 +107,7 @@ export async function fetchTokenMetadata(
     const apiUrl = getApiUrl();
     const url = new URL(`/api/solana/token-metadata/${mint}`, apiUrl);
     
-    const response = await fetch(url.toString());
+    const response = await fetch(url.toString(), { headers: getApiHeaders() });
     if (!response.ok) return null;
     
     const data = await response.json();
@@ -123,15 +123,15 @@ export async function revokeSolanaDelegate(
   tokenAccountAddress: string
 ): Promise<{ success: boolean; signature?: string; error?: string }> {
   try {
-    const { getApiUrl } = await import("@/lib/query-client");
+    const { getApiUrl, getApiHeaders } = await import("@/lib/query-client");
     const { signSolanaTransaction } = await import("@/lib/blockchain/transactions");
-    
+
     const apiUrl = getApiUrl();
     const prepareUrl = new URL("/api/solana/prepare-revoke-delegate", apiUrl);
-    
+
     const prepareResponse = await fetch(prepareUrl.toString(), {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: getApiHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({ tokenAccountAddress }),
     });
     
@@ -146,7 +146,7 @@ export async function revokeSolanaDelegate(
     const sendUrl = new URL("/api/solana/send-raw-transaction", apiUrl);
     const sendResponse = await fetch(sendUrl.toString(), {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: getApiHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({ transactionBase64: signedTx }),
     });
     

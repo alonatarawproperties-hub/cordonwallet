@@ -19,7 +19,7 @@ import { PriceChart } from "@/components/PriceChart";
 import { useWallet } from "@/lib/wallet-context";
 import { fetchTransactionHistory } from "@/lib/blockchain/explorer-api";
 import { TxRecord, getTransactionsByWallet, filterTreasuryTransactions } from "@/lib/transaction-history";
-import { getApiUrl } from "@/lib/query-client";
+import { getApiUrl, getApiHeaders } from "@/lib/query-client";
 import { getTokenLogoUrl } from "@/lib/token-logos";
 import {
   TokenSafetyReportV2,
@@ -335,8 +335,8 @@ export default function AssetDetailScreen({ route }: Props) {
             const apiUrl = getApiUrl();
             const url = new URL(`/api/solana/history/${solanaAddr}`, apiUrl);
             url.searchParams.set("limit", "30");
-            const response = await fetch(url.toString());
-            
+            const response = await fetch(url.toString(), { headers: getApiHeaders() });
+
             if (response.ok) {
               const solanaHistory = await response.json();
               // Convert Solana API response to TxRecord format and filter by token
@@ -450,7 +450,7 @@ export default function AssetDetailScreen({ route }: Props) {
       if (address) {
         url.searchParams.set("address", address);
       }
-      const response = await fetch(url.toString());
+      const response = await fetch(url.toString(), { headers: getApiHeaders() });
       if (response.ok) {
         const data = await response.json();
         setTokenInfo(data);

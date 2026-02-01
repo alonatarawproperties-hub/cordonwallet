@@ -5,7 +5,7 @@ import * as Haptics from "expo-haptics";
 import { useTheme } from "@/hooks/useTheme";
 import { ThemedText } from "@/components/ThemedText";
 import { Spacing, BorderRadius } from "@/constants/theme";
-import { getApiUrl } from "@/lib/query-client";
+import { getApiUrl, getApiHeaders } from "@/lib/query-client";
 
 type TimeRange = "1D" | "1W" | "1M" | "3M" | "1Y";
 
@@ -86,7 +86,7 @@ export function PriceChart({ symbol, currentPrice, width: propWidth, height = 20
         url.searchParams.set("address", tokenAddress);
       }
       
-      const response = await fetch(url.toString());
+      const response = await fetch(url.toString(), { headers: getApiHeaders() });
       
       if (!response.ok) {
         if (response.status === 404) {

@@ -1,6 +1,6 @@
 import { AppState, AppStateStatus } from "react-native";
 import { swapLogger, isRetryableError, getUserFriendlyErrorMessage } from "./swapLogger";
-import { getApiUrl } from "@/lib/query-client";
+import { getApiUrl, getApiHeaders } from "@/lib/query-client";
 import type { QuoteResponse } from "@/services/jupiter";
 import { SwapSpeed, QUOTE_REFRESH_INTERVALS, QUOTE_DEBOUNCE_MS } from "@/constants/solanaSwap";
 
@@ -295,7 +295,7 @@ class QuoteEngine {
 
         const response = await fetch(url, {
           method: "GET",
-          headers: { Accept: "application/json" },
+          headers: getApiHeaders({ "Accept": "application/json" }),
           signal: controller.signal,
         });
 

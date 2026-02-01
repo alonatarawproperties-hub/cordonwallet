@@ -1,6 +1,6 @@
 import { getChainById, supportedChains, ChainConfig } from "./chains";
 import { TxRecord, ActivityType } from "@/lib/transaction-history";
-import { getApiUrl } from "@/lib/query-client";
+import { getApiUrl, getApiHeaders } from "@/lib/query-client";
 
 interface ExplorerTransaction {
   hash: string;
@@ -49,7 +49,7 @@ async function enrichTransactionsWithPrices(transactions: TxRecord[]): Promise<T
     
     const response = await fetch(url.toString(), {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: getApiHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({ transactions }),
     });
     
@@ -86,7 +86,7 @@ export async function fetchTransactionHistory(
       
       console.log(`[ExplorerAPI] Fetching Solana transactions for:`, walletAddress);
       
-      const response = await fetch(url.toString());
+      const response = await fetch(url.toString(), { headers: getApiHeaders() });
       if (!response.ok) {
         console.error(`[ExplorerAPI] Solana history error:`, response.status);
         return [];
@@ -125,7 +125,7 @@ export async function fetchTransactionHistory(
     
     console.log(`[ExplorerAPI] Fetching all transactions for ${chain.name}:`, walletAddress);
     
-    const response = await fetch(url.toString());
+    const response = await fetch(url.toString(), { headers: getApiHeaders() });
     const data = await response.json();
 
     console.log(`[ExplorerAPI] ${chain.name} response status:`, data.status, data.message);

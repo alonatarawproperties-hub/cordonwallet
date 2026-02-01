@@ -4,7 +4,7 @@ import { getNativeBalance, getERC20Balance, isBalanceError, BalanceResult } from
 import { getTokensForChain, TokenInfo } from "@/lib/blockchain/tokens";
 import { getChainById } from "@/lib/blockchain/chains";
 import { NETWORKS, NetworkId } from "@/lib/types";
-import { getApiUrl } from "@/lib/query-client";
+import { getApiUrl, getApiHeaders } from "@/lib/query-client";
 import { useWallet } from "@/lib/wallet-context";
 
 function createTimeoutSignal(ms: number): { signal: AbortSignal; cleanup: () => void } {
@@ -175,6 +175,7 @@ export function usePortfolio(address: string | undefined, networkId: NetworkId) 
         const discoveryUrl = new URL(`/api/evm/${chainId}/${address}/tokens`, apiUrl);
         const discoveryResponse = await fetch(discoveryUrl.toString(), {
           signal: timeoutSignal,
+          headers: getApiHeaders(),
         });
         cleanupTimeout();
         
@@ -283,7 +284,7 @@ export function usePortfolio(address: string | undefined, networkId: NetworkId) 
 
       try {
         const priceUrl = new URL("/api/prices", apiUrl);
-        const priceResponse = await fetch(priceUrl.toString());
+        const priceResponse = await fetch(priceUrl.toString(), { headers: getApiHeaders() });
         if (priceResponse.ok) {
           const priceData = await priceResponse.json();
           const prices = priceData.prices || {};

@@ -20,7 +20,7 @@ import { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { useExternalAuth, AuthStatus } from "@/context/ExternalAuthContext";
 import { useWallet } from "@/lib/wallet-context";
 import { useWalletConnect } from "@/lib/walletconnect/context";
-import { getApiUrl } from "@/lib/query-client";
+import { getApiUrl, getApiHeaders } from "@/lib/query-client";
 import { BrowserConnectSheet } from "@/components/BrowserConnectSheet";
 import { BrowserSignSheet } from "@/components/BrowserSignSheet";
 import { ComingSoonSheet } from "@/components/ComingSoonSheet";
@@ -1464,7 +1464,7 @@ export default function BrowserWebViewScreen() {
           
           const startResponse = await fetch(`${apiBaseUrl}/api/auth/cordon/mobile/start`, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: getApiHeaders({ "Content-Type": "application/json" }),
           });
           
           if (!startResponse.ok) {
@@ -1488,7 +1488,7 @@ export default function BrowserWebViewScreen() {
             await new Promise(resolve => setTimeout(resolve, 1000));
             attempts++;
             
-            const pollResponse = await fetch(`${apiBaseUrl}/api/auth/cordon/mobile/poll?sessionId=${sessionId}`);
+            const pollResponse = await fetch(`${apiBaseUrl}/api/auth/cordon/mobile/poll?sessionId=${sessionId}`, { headers: getApiHeaders() });
             const pollData = await pollResponse.json();
             
             console.log("[BrowserWebView] Poll attempt", attempts, "status:", pollData.status);
@@ -1974,7 +1974,7 @@ export default function BrowserWebViewScreen() {
             const sendUrl = new URL("/api/solana/send-signed-transaction", apiUrl);
             const sendResponse = await fetch(sendUrl.toString(), {
               method: "POST",
-              headers: { "Content-Type": "application/json" },
+              headers: getApiHeaders({ "Content-Type": "application/json" }),
               body: JSON.stringify({ transactionBase64: signedTxBase64 }),
             });
             const sendResult = await sendResponse.json();

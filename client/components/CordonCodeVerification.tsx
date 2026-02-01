@@ -5,7 +5,7 @@ import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
 import { Feather } from "@expo/vector-icons";
-import { getApiUrl } from "@/lib/query-client";
+import { getApiUrl, getApiHeaders } from "@/lib/query-client";
 
 const CORDON_JWT_KEY = "cordon_auth_jwt";
 const CORDON_USER_KEY = "cordon_auth_user";
@@ -36,7 +36,7 @@ export function CordonCodeVerification({ onSuccess, onCancel }: CordonCodeVerifi
     try {
       const response = await fetch(`${getApiUrl()}/api/auth/cordon/exchange-code`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getApiHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({ code: code.toUpperCase() }),
       });
 

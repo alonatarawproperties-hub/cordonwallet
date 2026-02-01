@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { AppState, AppStateStatus } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { getApiUrl } from "@/lib/query-client";
+import { getApiUrl, getApiHeaders } from "@/lib/query-client";
 import { getCustomTokens, getHiddenTokens, CustomToken } from "@/lib/token-preferences";
 import { getPreloadedCache, clearPreloadedCache, getDefaultNativeTokens } from "@/lib/portfolio-cache";
 import { useWallet } from "@/lib/wallet-context";
@@ -31,8 +31,8 @@ interface SolanaPortfolio {
 async function fetchSolanaPortfolio(address: string): Promise<SolanaPortfolio> {
   const apiUrl = getApiUrl();
   const url = new URL(`/api/solana/portfolio/${address}`, apiUrl);
-  const response = await fetch(url.toString());
-  
+  const response = await fetch(url.toString(), { headers: getApiHeaders() });
+
   if (!response.ok) {
     throw new Error("Failed to fetch Solana portfolio");
   }
@@ -273,7 +273,7 @@ export function useSolanaPortfolio(address: string | undefined) {
       try {
         const apiUrl = getApiUrl();
         const priceUrl = new URL("/api/prices", apiUrl);
-        const priceResponse = await fetch(priceUrl.toString());
+        const priceResponse = await fetch(priceUrl.toString(), { headers: getApiHeaders() });
         if (priceResponse.ok) {
           const priceData = await priceResponse.json();
           const prices = priceData.prices || {};
@@ -317,7 +317,7 @@ export function useSolanaPortfolio(address: string | undefined) {
             const metadataPromises = tokensNeedingMetadata.map(async (token) => {
               try {
                 const metaUrl = new URL(`/api/solana/token-metadata/${token.mint}`, apiUrl);
-                const response = await fetch(metaUrl.toString());
+                const response = await fetch(metaUrl.toString(), { headers: getApiHeaders() });
                 if (response.ok) {
                   const metadata = await response.json();
                   return { mint: token.mint!, metadata };
@@ -356,7 +356,7 @@ export function useSolanaPortfolio(address: string | undefined) {
           dexUrl.searchParams.set("addresses", mintAddresses);
           dexUrl.searchParams.set("chainId", "solana");
           
-          const dexResponse = await fetch(dexUrl.toString());
+          const dexResponse = await fetch(dexUrl.toString(), { headers: getApiHeaders() });
           if (dexResponse.ok) {
             const dexData = await dexResponse.json();
             if (dexData.prices) {
