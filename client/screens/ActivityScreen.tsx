@@ -727,7 +727,6 @@ export default function ActivityScreen() {
         ListEmptyComponent={
           loading ? null : (
             <EmptyState
-              image={require("../../assets/images/empty-activity.png")}
               title="No Activity Yet"
               message="Your sends, receives, and swaps will appear here"
             />
