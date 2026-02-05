@@ -23,7 +23,7 @@ import { Spacing } from "@/constants/theme";
 import { addCustomToken } from "@/lib/token-preferences";
 import { useWallet } from "@/lib/wallet-context";
 import { supportedChains, ChainConfig } from "@/lib/blockchain/chains";
-import { getApiUrl } from "@/lib/query-client";
+import { getApiUrl, getApiHeaders } from "@/lib/query-client";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
@@ -86,7 +86,7 @@ export default function ImportTokenScreen() {
     setIsFetchingMetadata(true);
     try {
       const url = new URL(`/api/solana/token-metadata/${mintAddress}`, getApiUrl());
-      const response = await fetch(url.toString());
+      const response = await fetch(url.toString(), { headers: getApiHeaders() });
       
       if (response.ok) {
         const data = await response.json();

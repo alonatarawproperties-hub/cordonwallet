@@ -74,7 +74,7 @@ import { calculateFeeConfig, formatFeeDisplay } from "@/lib/solana/feeController
 import { decodeAndValidateSwapTx, isDrainerTransaction } from "@/lib/solana/swapSecurity";
 import { broadcastTransaction, classifyError, getExplorerUrl } from "@/services/txBroadcaster";
 import { addSwapRecord, updateSwapStatus, addDebugLog, SwapTimings } from "@/services/swapStore";
-import { getApiUrl } from "@/lib/query-client";
+import { getApiUrl, getApiHeaders } from "@/lib/query-client";
 import {
   estimateFeeReserveLamports,
   lamportsToSolString,
@@ -458,7 +458,7 @@ export default function SwapScreen({ route }: Props) {
 
       try {
         const url = new URL(`/api/swap/solana/token/${mint}`, getApiUrl());
-        const resp = await fetch(url.toString());
+        const resp = await fetch(url.toString(), { headers: getApiHeaders() });
         const data = await resp.json();
 
         if (resp.ok && data.ok !== false) {

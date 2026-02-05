@@ -23,7 +23,7 @@ import type { TokenInfo } from "@/services/solanaTokenList";
 import { searchTokens, getPopularTokens } from "@/services/solanaTokenList";
 import { useSolanaPortfolio } from "@/hooks/useSolanaPortfolio";
 import { useWallet } from "@/lib/wallet-context";
-import { getApiUrl } from "@/lib/query-client";
+import { getApiUrl, getApiHeaders } from "@/lib/query-client";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 
 export interface TokenSelectParams {
@@ -129,7 +129,7 @@ export default function TokenSelectScreen() {
       setCustomLoading(true);
       try {
         const url = new URL(`/api/swap/solana/token/${query.trim()}`, getApiUrl());
-        const resp = await fetch(url.toString());
+        const resp = await fetch(url.toString(), { headers: getApiHeaders() });
         const data = await resp.json();
         if (resp.ok && data.ok !== false) {
           setCustomToken({
