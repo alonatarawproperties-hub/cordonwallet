@@ -588,6 +588,7 @@ export default function SwapScreen({ route }: Props) {
     const timings: SwapTimings = {};
     const buildStart = Date.now();
 
+    let keypair: Keypair | null = null;
     try {
       const capSol = customCapSol ?? SPEED_CONFIGS[speed].capSol;
       let swapResponse: SwapResponse;
@@ -713,7 +714,8 @@ export default function SwapScreen({ route }: Props) {
       }
 
       const { secretKey } = deriveSolanaKeypair(mnemonic);
-      const keypair = Keypair.fromSecretKey(secretKey);
+      keypair = Keypair.fromSecretKey(secretKey);
+      secretKey.fill(0);
       
       let transaction: VersionedTransaction;
       let feeAppended = false;
@@ -883,6 +885,9 @@ export default function SwapScreen({ route }: Props) {
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       showAlert("Error", error.message || "Swap failed");
     } finally {
+      if (keypair?.secretKey) {
+        keypair.secretKey.fill(0);
+      }
       setIsSwapping(false);
       setSwapStatus("");
       setPendingSwap(null);

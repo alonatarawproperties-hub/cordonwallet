@@ -140,6 +140,8 @@ function AssetRow({
   onSecurityPress?: () => void;
 }) {
   const scale = useSharedValue(1);
+  const [tokenLogoError, setTokenLogoError] = useState(false);
+  const [chainLogoError, setChainLogoError] = useState(false);
 
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
@@ -166,6 +168,7 @@ function AssetRow({
   };
 
   const chainLogoUrl = getChainLogoUrl(asset.chainName);
+  const tokenLogoUrl = ("logoUrl" in asset && asset.logoUrl) ? asset.logoUrl : getTokenLogoUrl(asset.symbol);
 
   return (
     <AnimatedPressable
@@ -176,18 +179,23 @@ function AssetRow({
     >
       <View style={styles.tokenIconContainer}>
         <View style={[styles.tokenIcon, { backgroundColor: getChainColor(asset.chainName) + "12" }]}>
-          {("logoUrl" in asset && asset.logoUrl) || getTokenLogoUrl(asset.symbol) ? (
-            <Image 
-              source={{ uri: ("logoUrl" in asset && asset.logoUrl) ? asset.logoUrl : getTokenLogoUrl(asset.symbol)! }} 
+          {tokenLogoUrl && !tokenLogoError ? (
+            <Image
+              source={{ uri: tokenLogoUrl }}
               style={styles.tokenLogoImage}
+              onError={() => setTokenLogoError(true)}
             />
           ) : (
             <Feather name={getTokenIcon(asset.symbol)} size={18} color={getChainColor(asset.chainName)} />
           )}
         </View>
-        {chainLogoUrl ? (
+        {chainLogoUrl && !chainLogoError ? (
           <View style={[styles.chainLogoOverlay, { borderColor: theme.backgroundDefault }]}>
-            <Image source={{ uri: chainLogoUrl }} style={styles.chainLogoImage} />
+            <Image
+              source={{ uri: chainLogoUrl }}
+              style={styles.chainLogoImage}
+              onError={() => setChainLogoError(true)}
+            />
           </View>
         ) : null}
       </View>

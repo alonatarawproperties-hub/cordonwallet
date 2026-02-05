@@ -14,5 +14,7 @@ export function deriveEvmPrivateKey(mnemonic: string): string {
 
 export function deriveSolanaPrivateKey(mnemonic: string): string {
   const { secretKey } = deriveSolanaKeypair(mnemonic);
-  return bs58.encode(secretKey);
+  const encoded = bs58.encode(secretKey);
+  secretKey.fill(0);
+  return encoded;
 }

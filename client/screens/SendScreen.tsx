@@ -115,6 +115,8 @@ export default function SendScreen({ navigation, route }: Props) {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedFilter, setSelectedFilter] = useState("all");
   const [customTokens, setCustomTokens] = useState<CustomToken[]>([]);
+  const [failedLogos, setFailedLogos] = useState<Set<string>>(new Set());
+  const [failedFilterLogos, setFailedFilterLogos] = useState<Set<string>>(new Set());
 
   const presetAsset = route.params?.presetAsset;
 
@@ -138,10 +140,18 @@ export default function SendScreen({ navigation, route }: Props) {
   const solanaAddress = activeWallet?.addresses?.solana || "";
   const isSolanaOnly = activeWallet?.walletType === "solana-only";
 
-  const { assets: evmAssets, isLoading: evmLoading } = useAllChainsPortfolio(
-    isSolanaOnly ? undefined : evmAddress || undefined
-  );
-  const { assets: solanaAssets, isLoading: solanaLoading } = useSolanaPortfolio(solanaAddress || undefined);
+  const {
+    assets: evmAssets,
+    isLoading: evmLoading,
+    error: evmError,
+    refresh: refreshEvmAssets,
+  } = useAllChainsPortfolio(isSolanaOnly ? undefined : evmAddress || undefined);
+  const {
+    assets: solanaAssets,
+    isLoading: solanaLoading,
+    error: solanaError,
+    refresh: refreshSolanaAssets,
+  } = useSolanaPortfolio(solanaAddress || undefined);
 
   useEffect(() => {
     if (solanaAddress) {
@@ -245,10 +255,17 @@ export default function SendScreen({ navigation, route }: Props) {
   };
 
   const isLoading = evmLoading || solanaLoading;
+  const errorMessage = evmError || solanaError;
+
+  const handleRetry = () => {
+    refreshEvmAssets();
+    refreshSolanaAssets();
+  };
 
   const renderChainFilter = (filter: ChainFilter) => {
     const isSelected = selectedFilter === filter.id;
     const count = chainCounts[filter.id] || 0;
+    const showLogo = filter.logoUrl && !failedFilterLogos.has(filter.id);
     
     if (filter.id !== "all" && count === 0) return null;
 
@@ -271,8 +288,18 @@ export default function SendScreen({ navigation, route }: Props) {
           >
             All
           </ThemedText>
-        ) : filter.logoUrl ? (
-          <Image source={{ uri: filter.logoUrl }} style={styles.filterLogo} />
+        ) : showLogo ? (
+          <Image
+            source={{ uri: filter.logoUrl }}
+            style={styles.filterLogo}
+            onError={() => {
+              setFailedFilterLogos((prev) => {
+                const next = new Set(prev);
+                next.add(filter.id);
+                return next;
+              });
+            }}
+          />
         ) : (
           <View style={[styles.filterDot, { backgroundColor: filter.color }]} />
         )}
@@ -282,6 +309,8 @@ export default function SendScreen({ navigation, route }: Props) {
 
   const renderTokenItem = ({ item }: { item: UnifiedAsset }) => {
     const logoUrl = getTokenLogoUrl(item, customTokens);
+    const assetKey = `${item.chainId}-${item.symbol}-${item.address || item.mint || "native"}`;
+    const hasLogo = logoUrl && !failedLogos.has(assetKey);
     const cleanBalance = item.balance.replace(/[<>,]/g, "").trim();
     const balanceNum = parseFloat(cleanBalance) || 0;
     const calculatedValue = item.valueUsd ?? (item.priceUsd ? item.priceUsd * balanceNum : 0);
@@ -297,8 +326,18 @@ export default function SendScreen({ navigation, route }: Props) {
       >
         <View style={styles.tokenLeft}>
           <View style={[styles.tokenIcon, { backgroundColor: theme.backgroundDefault }]}>
-            {logoUrl ? (
-              <Image source={{ uri: logoUrl }} style={styles.tokenLogo} />
+            {hasLogo ? (
+              <Image
+                source={{ uri: logoUrl }}
+                style={styles.tokenLogo}
+                onError={() => {
+                  setFailedLogos((prev) => {
+                    const next = new Set(prev);
+                    next.add(assetKey);
+                    return next;
+                  });
+                }}
+              />
             ) : (
               <ThemedText type="body" style={{ fontWeight: "700" }}>
                 {item.symbol.slice(0, 2)}
@@ -372,6 +411,22 @@ export default function SendScreen({ navigation, route }: Props) {
             <Feather name="chevron-down" size={14} color={theme.textSecondary} />
           </View>
         </View>
+
+        {errorMessage && !isLoading ? (
+          <View style={[styles.errorBanner, { backgroundColor: theme.danger + "12", borderColor: theme.danger + "40" }]}>
+            <View style={styles.errorTextContainer}>
+              <Feather name="alert-triangle" size={16} color={theme.danger} />
+              <ThemedText type="caption" style={{ color: theme.danger }}>
+                {errorMessage}
+              </ThemedText>
+            </View>
+            <Pressable onPress={handleRetry} style={[styles.retryButton, { borderColor: theme.danger }]}>
+              <ThemedText type="caption" style={{ color: theme.danger, fontWeight: "600" }}>
+                Retry
+              </ThemedText>
+            </Pressable>
+          </View>
+        ) : null}
 
         {isLoading ? (
           <View style={styles.loadingContainer}>
@@ -507,6 +562,29 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
+  },
+  errorBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: Spacing.md,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    marginBottom: Spacing.md,
+  },
+  errorTextContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+    flex: 1,
+  },
+  retryButton: {
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.xs,
+    borderRadius: BorderRadius.full,
+    borderWidth: 1,
   },
   emptyContainer: {
     padding: Spacing["2xl"],
