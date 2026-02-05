@@ -19,7 +19,7 @@ import { useDevSettings } from "@/context/DevSettingsContext";
 import { NETWORKS } from "@/lib/types";
 import { getChainById } from "@/lib/blockchain/chains";
 import { FEATURES } from "@/config/features";
-import { hasBiometricPinEnabled, isBiometricAvailable, savePinForBiometrics, disableBiometrics, verifyPin, changePin } from "@/lib/wallet-engine";
+import { hasBiometricPinEnabled, isBiometricAvailable, savePinForBiometrics, disableBiometrics, verifyPinFast, changePin, getPinWithBiometrics } from "@/lib/wallet-engine";
 import * as WebBrowser from "expo-web-browser";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 
@@ -144,17 +144,38 @@ export default function SettingsScreen() {
     setIsTogglingBiometric(false);
   };
 
-  const handleChangePin = () => {
-    setPinModalStep("current");
+  const handleChangePin = async () => {
     setPinModalError(null);
     setCurrentPinValue("");
     setNewPinValue("");
+
+    // If biometrics enabled, use it to verify identity and skip current PIN step
+    const hasBiometric = await hasBiometricPinEnabled();
+    if (hasBiometric) {
+      try {
+        const storedPin = await getPinWithBiometrics();
+        if (storedPin) {
+          // Biometric verified - skip to new PIN entry
+          setCurrentPinValue(storedPin);
+          setPinModalStep("new");
+          setPinModalVisible(true);
+          return;
+        }
+      } catch {
+        // Biometric failed, fall back to PIN entry
+      }
+    }
+
+    // No biometrics or biometric failed - require current PIN
+    setPinModalStep("current");
     setPinModalVisible(true);
   };
 
   const handlePinModalSubmit = async (pin: string) => {
     if (pinModalStep === "current") {
-      const isValid = await verifyPin(pin);
+      setPinModalLoading(true);
+      const isValid = await verifyPinFast(pin);
+      setPinModalLoading(false);
       if (!isValid) {
         setPinModalError("Incorrect PIN. Please try again.");
         return;
@@ -171,10 +192,11 @@ export default function SettingsScreen() {
         setPinModalError("PINs do not match. Please try again.");
         return;
       }
-      
+
       setPinModalLoading(true);
       try {
-        const success = await changePin(currentPinValue, newPinValue);
+        // Skip verification since we already verified the current PIN
+        const success = await changePin(currentPinValue, newPinValue, true);
         setPinModalLoading(false);
         if (success) {
           setPinModalVisible(false);
@@ -523,6 +545,7 @@ export default function SettingsScreen() {
         error={pinModalError}
         step={pinModalStep}
         loading={pinModalLoading}
+        loadingMessage={pinModalStep === "current" ? "Verifying PIN..." : "Updating PIN..."}
       />
     </ScrollView>
   );

@@ -876,10 +876,45 @@ export async function verifyPin(pin: string): Promise<boolean> {
   }
 }
 
-export async function changePin(currentPin: string, newPin: string): Promise<boolean> {
-  const isCurrentValid = await verifyPin(currentPin);
-  if (!isCurrentValid) {
-    throw new Error("Current PIN is incorrect");
+// Fast PIN verification using cached key - avoids full vault decryption
+// Compares derived key with cached key for instant verification
+export async function verifyPinFast(pin: string): Promise<boolean> {
+  const cachedKey = await getCachedVaultKey();
+  if (!cachedKey) {
+    // Fall back to regular verification if no cached key
+    return verifyPin(pin);
+  }
+
+  const vaultJson = await getSecureItem(STORAGE_KEYS.VAULT);
+  if (!vaultJson) {
+    return false;
+  }
+
+  try {
+    const vault = JSON.parse(vaultJson);
+    if (!isValidVaultFormat(vault)) return false;
+
+    const salt = hexToBytes(vault.salt);
+    const derivedKey = await deriveKeyFromPin(pin, salt);
+
+    // Compare derived key with cached key
+    const keysMatch = derivedKey.length === cachedKey.length &&
+      derivedKey.every((byte, i) => byte === cachedKey[i]);
+
+    wipeBytes(derivedKey);
+    return keysMatch;
+  } catch {
+    return false;
+  }
+}
+
+export async function changePin(currentPin: string, newPin: string, skipVerification = false): Promise<boolean> {
+  if (!skipVerification) {
+    // Use fast verification with cached key when available
+    const isCurrentValid = await verifyPinFast(currentPin);
+    if (!isCurrentValid) {
+      throw new Error("Current PIN is incorrect");
+    }
   }
 
   if (newPin.length !== 6 || !/^\d{6}$/.test(newPin)) {
