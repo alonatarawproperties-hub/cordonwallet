@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { View, StyleSheet, Pressable, Alert } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
@@ -26,9 +26,18 @@ export default function SeedPhraseExportScreen({ navigation, route }: Props) {
   const [isRevealed, setIsRevealed] = useState(false);
   const [copied, setCopied] = useState(false);
   const [timeLeft, setTimeLeft] = useState(60);
+  const clipboardTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     authenticateAndLoad();
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (clipboardTimeoutRef.current) {
+        clearTimeout(clipboardTimeoutRef.current);
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -79,6 +88,13 @@ export default function SeedPhraseExportScreen({ navigation, route }: Props) {
     await Clipboard.setStringAsync(seedPhrase.join(" "));
     await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     setCopied(true);
+
+    if (clipboardTimeoutRef.current) {
+      clearTimeout(clipboardTimeoutRef.current);
+    }
+    clipboardTimeoutRef.current = setTimeout(() => {
+      Clipboard.setStringAsync("");
+    }, 30000);
     
     Alert.alert(
       "Copied",
@@ -137,6 +153,9 @@ export default function SeedPhraseExportScreen({ navigation, route }: Props) {
         <Pressable
           onPress={handleCopy}
           style={[styles.copyButton, { backgroundColor: copied ? theme.success : theme.accent }]}
+          accessibilityRole="button"
+          accessibilityLabel="Copy recovery phrase"
+          accessibilityHint="Copies your recovery phrase to the clipboard"
         >
           <Feather name={copied ? "check" : "copy"} size={18} color="#fff" />
           <ThemedText type="body" style={styles.copyButtonText}>

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { View, StyleSheet, ScrollView, Pressable } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
@@ -23,12 +23,31 @@ export default function SeedPhraseScreen({ navigation, route }: Props) {
   const { seedPhrase } = route.params;
   const [revealed, setRevealed] = useState(false);
   const [copied, setCopied] = useState(false);
+  const clipboardTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (clipboardTimeoutRef.current) {
+        clearTimeout(clipboardTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  const scheduleClipboardClear = () => {
+    if (clipboardTimeoutRef.current) {
+      clearTimeout(clipboardTimeoutRef.current);
+    }
+    clipboardTimeoutRef.current = setTimeout(() => {
+      Clipboard.setStringAsync("");
+    }, 30000);
+  };
 
   const handleCopy = async () => {
     await Clipboard.setStringAsync(seedPhrase.join(" "));
     await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+    scheduleClipboardClear();
   };
 
   const handleContinue = () => {
@@ -60,9 +79,12 @@ export default function SeedPhraseScreen({ navigation, route }: Props) {
         </ThemedText>
 
         {!revealed ? (
-          <Pressable 
+          <Pressable
             style={[styles.revealCard, { backgroundColor: theme.backgroundDefault, borderColor: theme.border }]}
             onPress={() => setRevealed(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Reveal seed phrase"
+            accessibilityHint="Shows your recovery words on screen"
           >
             <Feather name="eye" size={32} color={theme.textSecondary} />
             <ThemedText type="body" style={{ color: theme.textSecondary }}>
@@ -84,9 +106,12 @@ export default function SeedPhraseScreen({ navigation, route }: Props) {
               ))}
             </View>
 
-            <Pressable 
+            <Pressable
               style={[styles.copyButton, { backgroundColor: theme.backgroundSecondary }]}
               onPress={handleCopy}
+              accessibilityRole="button"
+              accessibilityLabel="Copy seed phrase"
+              accessibilityHint="Copies your recovery words to the clipboard"
             >
               <Feather name={copied ? "check" : "copy"} size={18} color={theme.accent} />
               <ThemedText type="small" style={{ color: theme.accent }}>

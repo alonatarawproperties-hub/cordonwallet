@@ -134,6 +134,20 @@ const { publicKey, secretKey } = deriveSolanaKeypair(mnemonic);
 ```
 The `secretKey` (64 bytes) persists in the closure until garbage collected.
 
+In `client/screens/SwapScreen.tsx:715-716`:
+```typescript
+const { secretKey } = deriveSolanaKeypair(mnemonic);
+const keypair = Keypair.fromSecretKey(secretKey);
+```
+The secret key is promoted into a `Keypair` without any wipe, extending the lifetime of key material beyond the signing step.
+
+In `client/lib/blockchain/keys.ts:13-17`:
+```typescript
+const { secretKey } = deriveSolanaKeypair(mnemonic);
+return bs58.encode(secretKey);
+```
+The secret key is converted into an encoded string for export without any attempt to zero memory afterward.
+
 **Recommendation:**
 - Zero out `Uint8Array` key material after use: `secretKey.fill(0)`
 - Implement an auto-lock timer that calls `lock()` after inactivity
@@ -263,11 +277,22 @@ CORS middleware is only applied to `/auth/cordon` and `/api/auth/cordon` routes.
 **Recommendation:**
 - Apply CORS middleware globally or to all API routes
 
+### 16. Sensitive Data Copied to Clipboard Without Auto-Clear
+**File:** `client/screens/SeedPhraseScreen.tsx:20-41`, `client/screens/SeedPhraseExportScreen.tsx:56-79`, `client/screens/PrivateKeyExportScreen.tsx:95-122`
+**Severity:** MEDIUM
+
+Seed phrases and private keys are copied into the system clipboard, but the app never clears the clipboard afterward. This allows other apps, keyboards, or system services to read long-lived clipboard contents.
+
+**Recommendation:**
+- Auto-clear the clipboard after a short timeout (e.g., 30-60 seconds)
+- Warn users and provide a "clear clipboard" action after copy
+- Avoid clipboard copy for private keys entirely when possible
+
 ---
 
 ## LOW Issues
 
-### 16. Wallet ID Uses `Date.now()` - Collisions Possible
+### 17. Wallet ID Uses `Date.now()` - Collisions Possible
 **File:** `client/lib/wallet-engine.ts:463`
 **Severity:** LOW
 
@@ -280,7 +305,7 @@ If two wallets are created within the same millisecond (e.g., during import flow
 **Recommendation:**
 Use `crypto.randomUUID()` or append random bytes.
 
-### 17. `getRecentBlockhash` is Deprecated
+### 18. `getRecentBlockhash` is Deprecated
 **File:** `server/solana-api.ts:1113`
 **Severity:** LOW
 
@@ -290,13 +315,13 @@ const { feeCalculator } = await connection.getRecentBlockhash();
 
 `getRecentBlockhash` is deprecated in favor of `getLatestBlockhash` + `getFeeForMessage`.
 
-### 18. Error Messages Leak Internal State
+### 19. Error Messages Leak Internal State
 **File:** Various server files
 **Severity:** LOW
 
 Error responses include raw error messages like `error.message` which may expose internal paths, stack traces, or configuration details to clients.
 
-### 19. No HTTPS Enforcement on Server
+### 20. No HTTPS Enforcement on Server
 **File:** `server/routes.ts:1638`
 **Severity:** LOW
 
@@ -338,8 +363,9 @@ The server creates a plain HTTP server. In production, HTTPS should be enforced 
 | P2 | #13 Fix XSS in auth callbacks | Low |
 | P2 | #14 Add PIN attempt limiting | Medium |
 | P2 | #15 Global CORS policy | Low |
+| P2 | #16 Clipboard auto-clear for secrets | Medium |
 | P3 | #12 Increase auth code entropy | Low |
-| P3 | #16-19 Low severity fixes | Low |
+| P3 | #17-20 Low severity fixes | Low |
 
 ---
 

@@ -113,7 +113,7 @@ function getTokenLogoUrl(asset: UnifiedAsset, customTokens: CustomToken[]): stri
 export default function ReceiveScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
-  const { theme } = useTheme();
+  const { theme, isDark } = useTheme();
   const { activeWallet } = useWallet();
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedFilter, setSelectedFilter] = useState("all");
@@ -354,6 +354,8 @@ export default function ReceiveScreen({ navigation, route }: Props) {
 
   if (selectedAsset) {
     const address = getAddressForAsset(selectedAsset);
+    const qrBackground = isDark ? "#FFFFFF" : theme.backgroundRoot;
+    const qrColor = isDark ? "#000000" : theme.text;
     
     return (
       <ThemedView style={styles.container}>
@@ -385,8 +387,8 @@ export default function ReceiveScreen({ navigation, route }: Props) {
               <QRCode
                 value={address}
                 size={200}
-                backgroundColor="white"
-                color="black"
+                backgroundColor={qrBackground}
+                color={qrColor}
               />
             </View>
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { View, StyleSheet, Pressable, Alert, ScrollView } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
@@ -29,9 +29,27 @@ export default function PrivateKeyExportScreen({ navigation, route }: Props) {
   const [copiedEvm, setCopiedEvm] = useState(false);
   const [copiedSolana, setCopiedSolana] = useState(false);
   const [timeLeft, setTimeLeft] = useState(60);
+  const clipboardTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     authenticateAndLoad();
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (clipboardTimeoutRef.current) {
+        clearTimeout(clipboardTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  const scheduleClipboardClear = useCallback(() => {
+    if (clipboardTimeoutRef.current) {
+      clearTimeout(clipboardTimeoutRef.current);
+    }
+    clipboardTimeoutRef.current = setTimeout(() => {
+      Clipboard.setStringAsync("");
+    }, 30000);
   }, []);
 
   useEffect(() => {
@@ -86,7 +104,8 @@ export default function PrivateKeyExportScreen({ navigation, route }: Props) {
     await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     setCopiedEvm(true);
     setTimeout(() => setCopiedEvm(false), 3000);
-  }, [evmPrivateKey]);
+    scheduleClipboardClear();
+  }, [evmPrivateKey, scheduleClipboardClear]);
 
   const handleCopySolana = useCallback(async () => {
     if (!solanaPrivateKey) return;
@@ -95,7 +114,8 @@ export default function PrivateKeyExportScreen({ navigation, route }: Props) {
     await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     setCopiedSolana(true);
     setTimeout(() => setCopiedSolana(false), 3000);
-  }, [solanaPrivateKey]);
+    scheduleClipboardClear();
+  }, [solanaPrivateKey, scheduleClipboardClear]);
 
   if (!isRevealed) {
     return (
@@ -144,7 +164,13 @@ export default function PrivateKeyExportScreen({ navigation, route }: Props) {
                 {evmPrivateKey}
               </ThemedText>
             </View>
-            <Pressable onPress={handleCopyEvm} style={styles.copyRow}>
+            <Pressable
+              onPress={handleCopyEvm}
+              style={styles.copyRow}
+              accessibilityRole="button"
+              accessibilityLabel="Copy EVM private key"
+              accessibilityHint="Copies your EVM private key to the clipboard"
+            >
               <Feather 
                 name={copiedEvm ? "check" : "copy"} 
                 size={14} 
@@ -176,7 +202,13 @@ export default function PrivateKeyExportScreen({ navigation, route }: Props) {
                 {solanaPrivateKey}
               </ThemedText>
             </View>
-            <Pressable onPress={handleCopySolana} style={styles.copyRow}>
+            <Pressable
+              onPress={handleCopySolana}
+              style={styles.copyRow}
+              accessibilityRole="button"
+              accessibilityLabel="Copy Solana private key"
+              accessibilityHint="Copies your Solana private key to the clipboard"
+            >
               <Feather 
                 name={copiedSolana ? "check" : "copy"} 
                 size={14} 
