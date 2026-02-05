@@ -545,6 +545,7 @@ export default function SettingsScreen() {
         error={pinModalError}
         step={pinModalStep}
         loading={pinModalLoading}
+        loadingMessage={pinModalStep === "current" ? "Verifying PIN..." : "Updating PIN..."}
       />
     </ScrollView>
   );

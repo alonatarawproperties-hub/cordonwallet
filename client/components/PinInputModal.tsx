@@ -16,9 +16,10 @@ interface PinInputModalProps {
   error?: string | null;
   step?: string;
   loading?: boolean;
+  loadingMessage?: string;
 }
 
-export function PinInputModal({ visible, title, message, onSubmit, onCancel, error, step, loading }: PinInputModalProps) {
+export function PinInputModal({ visible, title, message, onSubmit, onCancel, error, step, loading, loadingMessage = "Processing..." }: PinInputModalProps) {
   const { theme } = useTheme();
   const [pin, setPin] = useState("");
   const inputRef = useRef<TextInput>(null);
@@ -71,7 +72,7 @@ export function PinInputModal({ visible, title, message, onSubmit, onCancel, err
               <View style={styles.loadingContainer}>
                 <ActivityIndicator size="large" color={theme.accent} />
                 <ThemedText type="body" style={[styles.loadingText, { color: theme.textSecondary }]}>
-                  Updating PIN...
+                  {loadingMessage}
                 </ThemedText>
               </View>
             ) : (
