@@ -19,7 +19,7 @@ import { useDevSettings } from "@/context/DevSettingsContext";
 import { NETWORKS } from "@/lib/types";
 import { getChainById } from "@/lib/blockchain/chains";
 import { FEATURES } from "@/config/features";
-import { hasBiometricPinEnabled, isBiometricAvailable, savePinForBiometrics, disableBiometrics, verifyPin, changePin } from "@/lib/wallet-engine";
+import { hasBiometricPinEnabled, isBiometricAvailable, savePinForBiometrics, disableBiometrics, verifyPinFast, changePin } from "@/lib/wallet-engine";
 import * as WebBrowser from "expo-web-browser";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 
@@ -154,7 +154,9 @@ export default function SettingsScreen() {
 
   const handlePinModalSubmit = async (pin: string) => {
     if (pinModalStep === "current") {
-      const isValid = await verifyPin(pin);
+      setPinModalLoading(true);
+      const isValid = await verifyPinFast(pin);
+      setPinModalLoading(false);
       if (!isValid) {
         setPinModalError("Incorrect PIN. Please try again.");
         return;
@@ -171,10 +173,11 @@ export default function SettingsScreen() {
         setPinModalError("PINs do not match. Please try again.");
         return;
       }
-      
+
       setPinModalLoading(true);
       try {
-        const success = await changePin(currentPinValue, newPinValue);
+        // Skip verification since we already verified the current PIN
+        const success = await changePin(currentPinValue, newPinValue, true);
         setPinModalLoading(false);
         if (success) {
           setPinModalVisible(false);
