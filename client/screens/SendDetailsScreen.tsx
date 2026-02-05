@@ -38,7 +38,7 @@ import {
 import { sendSol, sendSplToken } from "@/lib/solana/transactions";
 import { getMnemonic } from "@/lib/wallet-engine";
 import { saveTransaction, updateTransactionStatus } from "@/lib/transaction-history";
-import { getApiUrl } from "@/lib/query-client";
+import { getApiUrl, getApiHeaders } from "@/lib/query-client";
 import { checkAddressBlocklist } from "@/lib/security/blocklist";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 
@@ -118,8 +118,8 @@ export default function SendDetailsScreen({ navigation, route }: Props) {
         const apiUrl = getApiUrl();
         const url = new URL("/api/solana/estimate-fee", apiUrl);
         url.searchParams.set("isToken", params.isNative ? "false" : "true");
-        
-        const response = await fetch(url.toString());
+
+        const response = await fetch(url.toString(), { headers: getApiHeaders() });
         if (response.ok) {
           const data = await response.json();
           setGasEstimate({
