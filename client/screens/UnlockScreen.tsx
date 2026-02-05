@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { View, StyleSheet, TextInput, Pressable, Alert, Image, Keyboard, Platform, Dimensions } from "react-native";
+import { View, StyleSheet, TextInput, Pressable, Alert, Image, Keyboard, Platform, Dimensions, InteractionManager } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { Feather } from "@expo/vector-icons";
@@ -11,7 +11,7 @@ import { Spacing, BorderRadius } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
 import { useWallet } from "@/lib/wallet-context";
-import { unlockWithPin, verifyPin, VaultCorruptedError, repairCorruptedVault, getPinWithBiometrics, hasBiometricPinEnabled, savePinForBiometrics, getActiveWallet } from "@/lib/wallet-engine";
+import { unlockWithPin, unlockWithCachedKey, verifyPin, VaultCorruptedError, repairCorruptedVault, getPinWithBiometrics, hasBiometricPinEnabled, savePinForBiometrics, getActiveWallet } from "@/lib/wallet-engine";
 import { prefetchPortfolioCache } from "@/lib/portfolio-cache";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 
@@ -63,34 +63,46 @@ export default function UnlockScreen({ navigation }: Props) {
         console.log("Biometric unlock not enabled for this wallet");
         return;
       }
-      
+
+      // First try fast unlock with cached key (instant, no PBKDF2)
+      setIsUnlocking(true);
+
+      // Trigger biometric prompt by attempting to get PIN from secure storage
       const pin = await getPinWithBiometrics();
-      
-      if (pin) {
-        setIsUnlocking(true);
-        const success = await unlockWithPin(pin);
-        
-        if (success) {
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-          unlock();
-          
-          // Start prefetching portfolio data immediately (don't await)
-          const wallet = await getActiveWallet();
+      if (!pin) {
+        setIsUnlocking(false);
+        return;
+      }
+
+      // Try fast path with cached key first
+      let success = await unlockWithCachedKey();
+
+      // Fall back to PIN verification if cached key unavailable
+      if (!success) {
+        success = await unlockWithPin(pin);
+      }
+
+      if (success) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        unlock();
+
+        // Navigate immediately for instant response
+        navigation.reset({
+          index: 0,
+          routes: [{ name: "Main" }],
+        });
+
+        // Background tasks - don't block navigation
+        getActiveWallet().then(wallet => {
           if (wallet) {
             const evmAddr = wallet.addresses?.evm || wallet.address;
             const solAddr = wallet.addresses?.solana;
             prefetchPortfolioCache(evmAddr, solAddr);
           }
-          
-          // Navigate immediately, refresh wallets in background
-          navigation.reset({
-            index: 0,
-            routes: [{ name: "Main" }],
-          });
-          refreshWallets();
-        } else {
-          setIsUnlocking(false);
-        }
+        });
+        refreshWallets();
+      } else {
+        setIsUnlocking(false);
       }
     } catch (error) {
       console.log("Biometric unlock failed:", error);
@@ -101,16 +113,20 @@ export default function UnlockScreen({ navigation }: Props) {
   const handlePinChange = (value: string) => {
     const numericValue = value.replace(/[^0-9]/g, "").slice(0, PIN_LENGTH);
     setPin(numericValue);
-    
+
     if (numericValue.length === PIN_LENGTH) {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      setTimeout(() => handleUnlock(numericValue), 200);
+      // Unlock immediately without artificial delay
+      handleUnlock(numericValue);
     }
   };
 
   const handleUnlock = async (enteredPin: string) => {
     setIsUnlocking(true);
-    
+
+    // Allow UI to render the loading state before starting heavy PBKDF2 work
+    await new Promise(resolve => InteractionManager.runAfterInteractions(resolve));
+
     try {
       const success = await unlockWithPin(enteredPin);
       

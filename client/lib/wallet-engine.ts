@@ -655,60 +655,83 @@ export async function unlockWithPin(pin: string): Promise<boolean> {
     throw new VaultCorruptedError();
   }
 
-  // Try fast path with cached vault key (native platforms only)
-  // Security: The cached key is only available on native platforms (iOS Keychain / Android KeyStore)
-  // and is used purely as an optimization. The PIN is still validated via PBKDF2 decryption.
-  const cachedKey = await getCachedVaultKey();
-  if (cachedKey) {
-    // Even with cached key, we must verify the PIN is correct by attempting PBKDF2 decryption
-    const salt = hexToBytes(vault.salt);
-    const derivedKey = await deriveKeyFromPin(pin, salt);
-    const secrets = await decryptSecretsWithKey(vault, derivedKey);
-    wipeBytes(derivedKey);
-
-    if (secrets) {
-      if (__DEV__) {
-        console.log("[WalletEngine] unlockWithPin: Verified PIN and unlocked", {
-          walletCount: Object.keys(secrets.mnemonics).length,
-        });
-      }
-      cachedSecrets = secrets;
-      isVaultUnlocked = true;
-      await resetPinAttempts();
-      return true;
-    }
-    // PIN was wrong - fall through to record failure
-    await clearCachedVaultKey();
-  } else {
-    // No cached key - derive and decrypt (standard path)
-    if (__DEV__) {
-      console.log("[WalletEngine] unlockWithPin: Deriving key with PBKDF2");
-    }
-    const salt = hexToBytes(vault.salt);
-    const key = await deriveKeyFromPin(pin, salt);
-    const secrets = await decryptSecretsWithKey(vault, key);
-
-    if (secrets) {
-      if (__DEV__) {
-        console.log("[WalletEngine] unlockWithPin: Successfully decrypted vault", {
-          walletCount: Object.keys(secrets.mnemonics).length,
-        });
-      }
-      cachedSecrets = secrets;
-      isVaultUnlocked = true;
-      // Cache the key for fast unlocks next time (native only)
-      await cacheVaultKey(key);
-      wipeBytes(key);
-      await resetPinAttempts();
-      return true;
-    }
-    wipeBytes(key);
+  // Derive key from PIN and attempt decryption
+  if (__DEV__) {
+    console.log("[WalletEngine] unlockWithPin: Deriving key with PBKDF2");
   }
+  const salt = hexToBytes(vault.salt);
+  const key = await deriveKeyFromPin(pin, salt);
+  const secrets = await decryptSecretsWithKey(vault, key);
+
+  if (secrets) {
+    if (__DEV__) {
+      console.log("[WalletEngine] unlockWithPin: Successfully decrypted vault", {
+        walletCount: Object.keys(secrets.mnemonics).length,
+      });
+    }
+    cachedSecrets = secrets;
+    isVaultUnlocked = true;
+    // Cache the key for fast biometric unlocks (native only)
+    await cacheVaultKey(key);
+    wipeBytes(key);
+    await resetPinAttempts();
+    return true;
+  }
+  wipeBytes(key);
 
   // PIN was incorrect
   await recordPinFailure();
   if (__DEV__) {
     console.log("[WalletEngine] unlockWithPin: Failed to decrypt, attempts:", pinAttemptCount);
+  }
+  return false;
+}
+
+// Fast unlock using cached key - for biometric unlock only
+// Security: This bypasses PBKDF2 derivation by using a cached key stored in secure storage.
+// Only call this when the user has been verified via biometrics (Face ID/Touch ID/fingerprint).
+export async function unlockWithCachedKey(): Promise<boolean> {
+  const vaultJson = await getSecureItem(STORAGE_KEYS.VAULT);
+  if (!vaultJson) {
+    return false;
+  }
+
+  let vault: unknown;
+  try {
+    vault = JSON.parse(vaultJson);
+  } catch {
+    throw new VaultCorruptedError();
+  }
+
+  if (!isValidVaultFormat(vault)) {
+    throw new VaultCorruptedError();
+  }
+
+  const cachedKey = await getCachedVaultKey();
+  if (!cachedKey) {
+    if (__DEV__) {
+      console.log("[WalletEngine] unlockWithCachedKey: No cached key available");
+    }
+    return false;
+  }
+
+  const secrets = await decryptSecretsWithKey(vault, cachedKey);
+  if (secrets) {
+    if (__DEV__) {
+      console.log("[WalletEngine] unlockWithCachedKey: Fast unlock successful", {
+        walletCount: Object.keys(secrets.mnemonics).length,
+      });
+    }
+    cachedSecrets = secrets;
+    isVaultUnlocked = true;
+    await resetPinAttempts();
+    return true;
+  }
+
+  // Cached key is stale or corrupted - clear it
+  await clearCachedVaultKey();
+  if (__DEV__) {
+    console.log("[WalletEngine] unlockWithCachedKey: Cached key failed, cleared");
   }
   return false;
 }
