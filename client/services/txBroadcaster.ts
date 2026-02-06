@@ -197,29 +197,54 @@ export async function broadcastTransaction(
   
   try {
     config.onStatusChange?.("submitted", "");
-    signature = await sendWithRetry(primaryConn, signedTxBytes, 3, skipPreflight);
-    config.onStatusChange?.("submitted", signature);
-    console.log(`[Broadcaster] Primary submit: ${signature}${skipPreflight ? " (preflight skipped)" : ""}`);
-  } catch (primaryError: any) {
-    console.warn("[Broadcaster] Primary submit failed, trying fallback:", primaryError.message);
-    
-    try {
-      signature = await sendWithRetry(fallbackConn, signedTxBytes, 3, skipPreflight);
+
+    // Send to both RPCs in parallel for fastest landing
+    const primaryPromise = sendWithRetry(primaryConn, signedTxBytes, 3, skipPreflight)
+      .catch((e: any) => ({ error: e }));
+    const fallbackPromise = sendWithRetry(fallbackConn, signedTxBytes, 2, skipPreflight)
+      .catch((e: any) => ({ error: e }));
+
+    const [primaryResult, fallbackResult] = await Promise.all([primaryPromise, fallbackPromise]);
+
+    if (typeof primaryResult === "string") {
+      signature = primaryResult;
+      usedFallback = false;
+      console.log(`[Broadcaster] Primary submit: ${signature}${skipPreflight ? " (preflight skipped)" : ""}`);
+    } else if (typeof fallbackResult === "string") {
+      signature = fallbackResult;
       usedFallback = true;
-      config.onStatusChange?.("submitted", signature);
       console.log(`[Broadcaster] Fallback submit: ${signature}`);
-    } catch (fallbackError: any) {
+    } else {
+      // Both failed
+      const error = (primaryResult as any).error || (fallbackResult as any).error;
       return {
         signature: "",
         status: "failed",
-        error: fallbackError.message || "Failed to submit transaction",
+        error: error?.message || "Failed to submit transaction",
         rebroadcastCount: 0,
         usedFallback: true,
       };
     }
+
+    // If fallback also succeeded, mark it
+    if (typeof primaryResult === "string" && typeof fallbackResult === "string") {
+      usedFallback = true;
+      console.log("[Broadcaster] Submitted to both RPCs in parallel");
+    }
+
+    config.onStatusChange?.("submitted", signature);
+  } catch (submitError: any) {
+    return {
+      signature: "",
+      status: "failed",
+      error: submitError.message || "Failed to submit transaction",
+      rebroadcastCount: 0,
+      usedFallback: false,
+    };
   }
   
-  const initialCheck = await waitForStatus(primaryConn, signature, "processed", 500);
+  // Quick initial status check - don't block long, rebroadcast loop handles retries
+  const initialCheck = await waitForStatus(primaryConn, signature, "processed", 300);
   if (initialCheck.status?.err) {
     return {
       signature,
@@ -230,61 +255,46 @@ export async function broadcastTransaction(
     };
   }
   
-  if (!initialCheck.confirmed && !usedFallback) {
-    try {
-      await sendWithRetry(fallbackConn, signedTxBytes, 1);
-      usedFallback = true;
-      console.log("[Broadcaster] Also sent to fallback for redundancy");
-    } catch {
-    }
-  }
-  
+  let rebroadcastDone = false;
+
   const rebroadcastLoop = async () => {
     const maxDuration = speedConfig.maxRebroadcastDurationMs;
     const interval = speedConfig.rebroadcastIntervalMs;
     const loopStart = Date.now();
-    
-    while (Date.now() - loopStart < maxDuration) {
+
+    while (Date.now() - loopStart < maxDuration && !rebroadcastDone) {
       await new Promise(r => setTimeout(r, interval));
-      
-      const status = await waitForStatus(primaryConn, signature, "processed", 300);
-      if (status.confirmed || status.status?.err) {
-        return;
-      }
-      
+
+      if (rebroadcastDone) return;
+
       rebroadcastCount++;
-      config.onRebroadcast?.(rebroadcastCount);
-      
-      try {
-        await primaryConn.sendRawTransaction(signedTxBytes, {
+
+      // Fire rebroadcasts to both RPCs in parallel - don't wait for status check
+      const sends: Promise<void>[] = [
+        primaryConn.sendRawTransaction(signedTxBytes, {
           skipPreflight: true,
           preflightCommitment: "confirmed",
           maxRetries: 0,
-        });
-        console.log(`[Broadcaster] Rebroadcast ${rebroadcastCount}`);
-      } catch {
-      }
-      
-      if (config.mode === "turbo" && rebroadcastCount % 2 === 0) {
-        try {
-          await fallbackConn.sendRawTransaction(signedTxBytes, {
-            skipPreflight: true,
-            preflightCommitment: "confirmed",
-            maxRetries: 0,
-          });
-        } catch {
-        }
-      }
+        }).then(() => { console.log(`[Broadcaster] Rebroadcast ${rebroadcastCount} (primary)`); }).catch(() => {}),
+        fallbackConn.sendRawTransaction(signedTxBytes, {
+          skipPreflight: true,
+          preflightCommitment: "confirmed",
+          maxRetries: 0,
+        }).then(() => { console.log(`[Broadcaster] Rebroadcast ${rebroadcastCount} (fallback)`); }).catch(() => {}),
+      ];
+
+      await Promise.all(sends);
     }
   };
-  
+
   rebroadcastLoop().catch(console.error);
   
   const targetCommitment = speedConfig.completionLevel === "confirmed" ? "confirmed" : "processed";
-  const waitTimeout = speedConfig.maxRebroadcastDurationMs + 5000;
-  
+  const waitTimeout = speedConfig.maxRebroadcastDurationMs + 3000;
+
   const result = await waitForStatus(primaryConn, signature, targetCommitment, waitTimeout);
-  
+  rebroadcastDone = true;
+
   if (result.status?.err) {
     const errorStr = JSON.stringify(result.status.err);
     
