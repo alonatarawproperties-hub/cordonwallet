@@ -87,7 +87,7 @@ import {
   formatBufferSol,
   hasEnoughSolForBuffer,
 } from "@/lib/solana/swapBuffer";
-import { appendOutputFeeInstruction } from "@/lib/solana/outputFee";
+// appendOutputFeeInstruction removed — output fee disabled (0 bps), replaced by Jupiter platform fee
 import { likelyNeedsAtaRent } from "@/lib/solana/ataCheck";
 import {
   getSuccessFeeLamports,
@@ -735,44 +735,10 @@ export default function SwapScreen({ route }: Props) {
         }
       }
       
-      let transaction: VersionedTransaction;
-      let feeAppended = false;
-      
-      // Skip fee appending for pump routes - decompile/recompile corrupts signer metadata
-      // and causes PrivilegeEscalation errors. Fee is charged separately via success fee.
-      const isPumpRoute = pendingSwap.route === "pump";
-      
-      if (pendingSwap.quote && outputToken && !isPumpRoute) {
-        try {
-          const connection = new Connection(RPC_PRIMARY, "confirmed");
-          const feeResult = await appendOutputFeeInstruction(
-            connection,
-            pendingSwap.swapResponse.swapTransaction,
-            keypair.publicKey,
-            outputToken.mint,
-            pendingSwap.quote.outAmount
-          );
-          transaction = feeResult.transaction;
-          feeAppended = feeResult.feeAppended;
-          if (__DEV__) {
-            console.log("[CordonFee] Result:", {
-              appended: feeAppended,
-              amount: feeResult.feeAmountAtomic.toString(),
-              reason: feeResult.reason,
-            });
-          }
-        } catch (feeError: any) {
-          if (__DEV__) console.warn("[CordonFee] Fee append error:", feeError.message);
-          const txBuffer = Buffer.from(pendingSwap.swapResponse.swapTransaction, "base64");
-          transaction = VersionedTransaction.deserialize(txBuffer);
-        }
-      } else {
-        const txBuffer = Buffer.from(pendingSwap.swapResponse.swapTransaction, "base64");
-        transaction = VersionedTransaction.deserialize(txBuffer);
-        if (__DEV__ && isPumpRoute) {
-          console.log("[CordonFee] Skipped for pump route - fee charged via success fee");
-        }
-      }
+      // Output fee is disabled (0 bps) — replaced by Jupiter platform fee (server-side).
+      // Just deserialize the transaction directly.
+      const txBuffer = Buffer.from(pendingSwap.swapResponse.swapTransaction, "base64");
+      let transaction = VersionedTransaction.deserialize(txBuffer);
 
       // Replace blockhash with a fresh one right before signing.
       // The transaction was built earlier (possibly seconds ago while the user

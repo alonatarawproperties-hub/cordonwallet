@@ -236,7 +236,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         normalizedBody.wrapAndUnwrapSol = true;
       }
 
-      // Server-side: resolve and inject feeAccount when platform fees are enabled
+      // Server-side: resolve and inject feeAccount when platform fees are enabled.
+      // If the treasury ATA doesn't exist for this token, we must re-fetch a fresh
+      // quote WITHOUT platformFeeBps to keep quote and swap consistent.
+      let hasFeeAccount = false;
       if (platformFeesAllowed()) {
         const quoteResponse = body.quoteResponse;
         const outputMint = quoteResponse?.outputMint || "";
@@ -246,9 +249,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const feeResult = await getPlatformFeeParams(feeMint);
         if (feeResult.params) {
           normalizedBody.feeAccount = feeResult.params.feeAccount;
+          hasFeeAccount = true;
           console.log(`[Jupiter Proxy] Injected feeAccount: ${feeResult.params.feeAccount.slice(0, 8)}... (${feeResult.reason})`);
         } else {
           console.log(`[Jupiter Proxy] No feeAccount for this mint: ${feeResult.reason}`);
+          // The quote was fetched WITH platformFeeBps, but we can't collect the fee.
+          // Re-fetch quote WITHOUT platformFeeBps so user gets the full output amount.
+          const quoteRes = body.quoteResponse;
+          if (quoteRes?.platformFee || quoteRes?.inputMint) {
+            console.log("[Jupiter Proxy] Re-fetching quote without platformFeeBps for consistency");
+            try {
+              const freshQuoteParams = new URLSearchParams({
+                inputMint: quoteRes.inputMint,
+                outputMint: quoteRes.outputMint,
+                amount: quoteRes.inAmount,
+                slippageBps: (quoteRes.slippageBps || "50").toString(),
+                swapMode: quoteRes.swapMode || "ExactIn",
+              });
+              const freshQuoteRes = await fetch(`${JUPITER_API}/quote?${freshQuoteParams.toString()}`, {
+                headers: { "Accept": "application/json" },
+              });
+              if (freshQuoteRes.ok) {
+                const freshQuote = await freshQuoteRes.json();
+                normalizedBody.quoteResponse = freshQuote;
+                console.log("[Jupiter Proxy] Using fresh quote without platform fee");
+              }
+            } catch (reQuoteErr: any) {
+              console.warn("[Jupiter Proxy] Re-quote failed, proceeding with original:", reQuoteErr.message);
+            }
+          }
         }
       }
 
@@ -260,10 +289,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
         },
         body: JSON.stringify(normalizedBody),
       });
-      
+
       if (!response.ok) {
         const errorText = await response.text();
         console.error("[Jupiter Proxy] Swap error:", response.status, errorText);
+
+        // If swap build failed with fee account, retry without it
+        if (hasFeeAccount && (errorText.includes("0x1788") || errorText.includes("fee"))) {
+          console.warn("[Jupiter Proxy] Retrying swap without feeAccount after error");
+          delete normalizedBody.feeAccount;
+          // Re-fetch quote without platformFeeBps
+          try {
+            const qr = body.quoteResponse;
+            const retryQuoteParams = new URLSearchParams({
+              inputMint: qr.inputMint, outputMint: qr.outputMint,
+              amount: qr.inAmount, slippageBps: (qr.slippageBps || "50").toString(),
+              swapMode: qr.swapMode || "ExactIn",
+            });
+            const retryQuoteRes = await fetch(`${JUPITER_API}/quote?${retryQuoteParams.toString()}`, {
+              headers: { "Accept": "application/json" },
+            });
+            if (retryQuoteRes.ok) {
+              normalizedBody.quoteResponse = await retryQuoteRes.json();
+            }
+          } catch {}
+          const retryResponse = await fetch(`${JUPITER_API}/swap`, {
+            method: "POST",
+            headers: { "Accept": "application/json", "Content-Type": "application/json" },
+            body: JSON.stringify(normalizedBody),
+          });
+          if (retryResponse.ok) {
+            const retryData = await retryResponse.json();
+            console.log("[Jupiter Proxy] Retry without fee succeeded");
+            return res.json({ ...retryData, feeDisabledReason: "Fee account error, executed without fee" });
+          }
+        }
+
         return res.status(response.status).json({ error: errorText });
       }
       
