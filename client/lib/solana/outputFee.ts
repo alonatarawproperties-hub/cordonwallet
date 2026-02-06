@@ -17,7 +17,8 @@ import {
 import { getCordonSolTreasury, isTreasuryConfigured } from "@/constants/treasury";
 
 const WSOL_MINT = "So11111111111111111111111111111111111111112";
-const OUTPUT_FEE_BPS = 100;
+// Output fee disabled - replaced by Jupiter platform fee (server-side, atomic, tamper-proof)
+const OUTPUT_FEE_BPS = 0;
 
 export interface AppendFeeResult {
   transaction: VersionedTransaction;

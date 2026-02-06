@@ -91,7 +91,7 @@ const config = ({ config }: ConfigContext): ExpoConfig => ({
     apiDomain: process.env.EXPO_PUBLIC_DOMAIN ?? "app.cordonwallet.com",
     cordonApiKey: process.env.EXPO_PUBLIC_CORDON_API_KEY ?? "",
     cordonTreasuryName: "Cordon Treasury",
-    cordonSolTreasury: "6pcN26cpKbWmGyRn8DgRjqRzpBW2CFp8PK5wZ9gTArpE",
+    cordonSolTreasury: "J23SHFtAW79DRKxGFeogFYCXi3oNRBDFfJKss1dfaNi2",
   },
 });
 

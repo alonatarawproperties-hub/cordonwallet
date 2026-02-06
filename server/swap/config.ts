@@ -1,18 +1,18 @@
-export const CORDON_TREASURY_WALLET = "6pcN26cpKbWmGyRn8DgRjqRzpBW2CFp8PK5wZ9gTArpE";
+export const CORDON_TREASURY_WALLET = "J23SHFtAW79DRKxGFeogFYCXi3oNRBDFfJKss1dfaNi2";
 export const CORDON_SUCCESS_FEE_BPS = 50; // 0.50%
 
 export const platformFeeConfig = {
-  enabled: process.env.CORDON_PLATFORM_FEE_ENABLED === "true",
+  // Enabled by default - uses treasury wallet ATAs as fee accounts (no referral program needed)
+  enabled: process.env.CORDON_PLATFORM_FEE_ENABLED !== "false",
   feeBps: parseInt(process.env.CORDON_PLATFORM_FEE_BPS || "50", 10),
-  referralAccount: process.env.CORDON_REFERRAL_ACCOUNT || "",
-  
+
   knownFeeAccounts: {} as Record<string, string>,
 };
 
 export function isPlatformFeeEnabled(): boolean {
-  return platformFeeConfig.enabled && 
-         platformFeeConfig.feeBps > 0 && 
-         platformFeeConfig.referralAccount.length > 0;
+  return platformFeeConfig.enabled &&
+         platformFeeConfig.feeBps > 0 &&
+         CORDON_TREASURY_WALLET.length > 0;
 }
 
 export const swapConfig = {
