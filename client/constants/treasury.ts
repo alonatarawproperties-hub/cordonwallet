@@ -3,7 +3,7 @@ import { PublicKey } from "@solana/web3.js";
 
 export const CORDON_TREASURY_NAME = "Cordon Treasury";
 
-const FALLBACK_SOL_TREASURY = "6pcN26cpKbWmGyRn8DgRjqRzpBW2CFp8PK5wZ9gTArpE";
+const FALLBACK_SOL_TREASURY = "J23SHFtAW79DRKxGFeogFYCXi3oNRBDFfJKss1dfaNi2";
 
 function validateSolanaAddress(addr: string): string {
   if (!addr || addr.length < 32) return "";

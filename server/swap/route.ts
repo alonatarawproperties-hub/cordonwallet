@@ -181,7 +181,6 @@ export async function getRouteQuote(params: {
     });
     
     if (jupiterResult.ok) {
-      // Platform fees are currently disabled - always return disabled status
       let feeStatus: FeeStatus;
       if (platformFeesAllowed()) {
         const feeResult = await getPlatformFeeParams(outputMint);
@@ -189,16 +188,13 @@ export async function getRouteQuote(params: {
           ? { mode: "platformFee", feeBps: feeResult.params.feeBps }
           : { mode: "disabled", reason: feeResult.reason, outputMint: feeResult.normalizedMint };
       } else {
-        feeStatus = { mode: "disabled", reason: "Platform fees disabled (kill-switch)" };
+        feeStatus = { mode: "disabled", reason: "Platform fees disabled by config" };
       }
-      
-      // Ensure quote has no platformFee (sanitize)
-      const sanitizedQuote = { ...jupiterResult.quote, platformFee: null };
-      
+
       const routeResult: RouteQuoteResult = {
         ok: true,
         route: "jupiter",
-        quoteResponse: sanitizedQuote,
+        quoteResponse: jupiterResult.quote,
         normalized: jupiterResult.normalized,
         fee: feeStatus,
       };

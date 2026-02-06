@@ -15,6 +15,8 @@ import {
 import { validateSwapTxServer, type SwapSecurityResult } from "./swap/txSecurity";
 import { quoteRateLimiter, tokenListRateLimiter, swapBuildRateLimiter } from "./middleware/rateLimit";
 import { fetchWithBackoff } from "./lib/fetchWithBackoff";
+import { platformFeesAllowed, getPlatformFeeParams } from "./swap/jupiter";
+import { platformFeeConfig } from "./swap/config";
 
 const ETHERSCAN_V2_API = "https://api.etherscan.io/v2/api";
 const COINGECKO_API = "https://api.coingecko.com/api/v3";
@@ -28,53 +30,49 @@ const JUPITER_TOKENS_API = "https://tokens.jup.ag";
 const WSOL_MINT = "So11111111111111111111111111111111111111112";
 
 // Helper: Normalize swap params for SOL/WSOL output
-// - For SOL output: wrapAndUnwrapSol=true, NO destination token account, NO platform fees
-// - For non-SOL output: normal behavior
+// - For SOL output: wrapAndUnwrapSol=true, NO destination token account
+// - feeAccount is allowed when platform fees are enabled (set server-side, not from client)
 function normalizeJupiterSwapParams(
   body: Record<string, any>,
   quoteResponse: any
 ): { normalizedBody: Record<string, any>; isSolOutput: boolean; debug: Record<string, any> } {
   const outputMint = quoteResponse?.outputMint || "";
   const isSolOutput = outputMint === WSOL_MINT;
-  
-  // Fields to NEVER pass for SOL output (or at all for safety)
-  const dangerousFields = [
+
+  // Fields to always strip (client should never control these)
+  const stripFields = [
     "destinationTokenAccount",
-    "destinationTokenAccountAddress", 
+    "destinationTokenAccountAddress",
     "outputTokenAccount",
     "outputAccount",
-    "feeAccount",
-    "platformFeeBps",
+    "feeAccount",        // stripped from client; server adds its own
+    "platformFeeBps",    // stripped from client; server adds via quote
     "referralAccount",
     "disablePlatformFee",
   ];
-  
-  // Create clean body without dangerous fields
+
+  // Create clean body without stripped fields
   const normalizedBody: Record<string, any> = {};
   for (const [key, value] of Object.entries(body)) {
-    if (!dangerousFields.includes(key)) {
+    if (!stripFields.includes(key)) {
       normalizedBody[key] = value;
     }
   }
-  
+
   // Force wrapAndUnwrapSol=true for SOL output (critical!)
   if (isSolOutput) {
     normalizedBody.wrapAndUnwrapSol = true;
   }
-  
-  // IMPORTANT: Do NOT modify the quoteResponse object at all!
-  // Jupiter's swap endpoint requires the exact quoteResponse from the quote endpoint.
-  // Any modification (even setting platformFee: null) can cause 0x1788 errors.
-  
+
   const debug = {
     outputMint: outputMint.slice(0, 8) + "...",
     isSolOutput,
     hasDestinationTokenAccountField: "destinationTokenAccount" in body || "outputTokenAccount" in body,
     wrapAndUnwrapSol: normalizedBody.wrapAndUnwrapSol,
     hasPlatformFeeFields: "feeAccount" in body || "platformFeeBps" in body,
-    strippedFields: dangerousFields.filter(f => f in body),
+    strippedFields: stripFields.filter(f => f in body),
   };
-  
+
   return { normalizedBody, isSolOutput, debug };
 }
 
@@ -155,16 +153,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Jupiter API Proxy - Quote endpoint (public API, no auth required)
-  // NOTE: platformFeeBps is NEVER sent to Jupiter - platform fees are disabled
+  // Server-side adds platformFeeBps when platform fees are enabled
   app.get("/api/jupiter/quote", quoteRateLimiter, async (req: Request, res: Response) => {
     try {
       const { inputMint, outputMint, amount, slippageBps, swapMode, onlyDirectRoutes } = req.query;
-      
+
       if (!inputMint || !outputMint || !amount) {
         return res.status(400).json({ error: "Missing required parameters: inputMint, outputMint, amount" });
       }
 
-      // NEVER include platformFeeBps - platform fees are disabled
       const params = new URLSearchParams({
         inputMint: inputMint as string,
         outputMint: outputMint as string,
@@ -172,36 +169,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
         slippageBps: (slippageBps as string) || "50",
         swapMode: (swapMode as string) || "ExactIn",
       });
-      
+
       if (onlyDirectRoutes === "true") {
         params.set("onlyDirectRoutes", "true");
       }
 
+      // Add platformFeeBps server-side when fees are enabled
+      const feesEnabled = platformFeesAllowed();
+      if (feesEnabled) {
+        params.set("platformFeeBps", platformFeeConfig.feeBps.toString());
+      }
+
       const url = `${JUPITER_API}/quote?${params.toString()}`;
-      console.log("[Jupiter Proxy] Quote request (NO platformFeeBps):", url);
-      
+      console.log(`[Jupiter Proxy] Quote request (platformFee: ${feesEnabled ? platformFeeConfig.feeBps + "bps" : "OFF"}):`, url);
+
       const response = await fetch(url, {
-        headers: { 
+        headers: {
           "Accept": "application/json",
           "User-Agent": "Cordon-Wallet/1.0",
         },
       });
-      
+
       const responseText = await response.text();
       console.log("[Jupiter Proxy] Quote response status:", response.status);
-      
+
       if (!response.ok) {
         console.error("[Jupiter Proxy] Quote error:", response.status, responseText);
         return res.status(response.status).json({ error: responseText });
       }
-      
+
       try {
         const data = JSON.parse(responseText);
-        // Strip platformFee from response if present
-        if (data.platformFee) {
-          data.platformFee = null;
-          console.log("[Jupiter Proxy] Stripped platformFee from quote response");
-        }
         console.log("[SwapFee] quote.platformFee:", data.platformFee ?? null);
         res.json(data);
       } catch {
@@ -215,29 +213,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Jupiter API Proxy - Swap endpoint
-  // NOTE: Uses normalizeJupiterSwapParams to handle SOL/WSOL output properly
+  // Server-side injects feeAccount when platform fees are enabled
   app.post("/api/jupiter/swap", swapBuildRateLimiter, async (req: Request, res: Response) => {
     try {
       const body = req.body;
-      
+
       if (!body.quoteResponse || !body.userPublicKey) {
         return res.status(400).json({ error: "Missing quoteResponse or userPublicKey" });
       }
 
       console.log("[Jupiter Proxy] Swap request for:", body.userPublicKey);
-      
-      // Normalize swap params - handles SOL output special case
+
+      // Normalize swap params - strips client fee fields, handles SOL output
       const { normalizedBody, isSolOutput, debug } = normalizeJupiterSwapParams(body, body.quoteResponse);
-      
+
       // Log diagnostic info
       console.log("[JUP_SWAP_DEBUG]", JSON.stringify(debug));
-      
+
       // Additional validation for SOL output
       if (isSolOutput && !normalizedBody.wrapAndUnwrapSol) {
         console.error("[JUP_SWAP_DEBUG] CRITICAL: SOL output but wrapAndUnwrapSol is false!");
         normalizedBody.wrapAndUnwrapSol = true;
       }
-      
+
+      // Server-side: resolve and inject feeAccount when platform fees are enabled
+      if (platformFeesAllowed()) {
+        const quoteResponse = body.quoteResponse;
+        const outputMint = quoteResponse?.outputMint || "";
+        const swapMode = quoteResponse?.swapMode || "ExactIn";
+        const feeMint = swapMode === "ExactOut" ? (quoteResponse?.inputMint || "") : outputMint;
+
+        const feeResult = await getPlatformFeeParams(feeMint);
+        if (feeResult.params) {
+          normalizedBody.feeAccount = feeResult.params.feeAccount;
+          console.log(`[Jupiter Proxy] Injected feeAccount: ${feeResult.params.feeAccount.slice(0, 8)}... (${feeResult.reason})`);
+        } else {
+          console.log(`[Jupiter Proxy] No feeAccount for this mint: ${feeResult.reason}`);
+        }
+      }
+
       const response = await fetch(`${JUPITER_API}/swap`, {
         method: "POST",
         headers: {
