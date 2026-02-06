@@ -31,7 +31,7 @@ import { ThemedView } from "@/components/ThemedView";
 import { useThemedAlert } from "@/components/ThemedAlert";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import { useWallet } from "@/lib/wallet-context";
-import { getMnemonic } from "@/lib/wallet-engine";
+import { getMnemonic, getWalletPrivateKey, unlockWithCachedKey } from "@/lib/wallet-engine";
 import { deriveSolanaKeypair } from "@/lib/solana/keys";
 import { useSolanaPortfolio, SolanaAsset } from "@/hooks/useSolanaPortfolio";
 import {
@@ -701,21 +701,39 @@ export default function SwapScreen({ route }: Props) {
 
     const timings: SwapTimings = {};
     const tapStart = Date.now();
+    let keypair: Keypair | null = null;
 
     try {
       const solanaAddr = activeWallet.addresses?.solana;
       if (!solanaAddr) throw new Error("No Solana address");
 
-      const mnemonic = await getMnemonic(activeWallet.id);
+      let mnemonic = await getMnemonic(activeWallet.id);
+
+      // If mnemonic is null, the wallet may have been imported via private key,
+      // or the in-memory vault state was lost. Try recovery before failing.
       if (!mnemonic) {
-        showAlert("Error", "Please unlock your wallet first");
-        setIsSwapping(false);
-        return;
+        // Attempt to re-unlock vault using cached biometric key
+        const recovered = await unlockWithCachedKey().catch(() => false);
+        if (recovered) {
+          mnemonic = await getMnemonic(activeWallet.id);
+        }
       }
 
-      const { secretKey } = deriveSolanaKeypair(mnemonic);
-      keypair = Keypair.fromSecretKey(secretKey);
-      secretKey.fill(0);
+      if (mnemonic) {
+        const { secretKey } = deriveSolanaKeypair(mnemonic);
+        keypair = Keypair.fromSecretKey(secretKey);
+        secretKey.fill(0);
+      } else {
+        // Wallet may have been imported via private key (no mnemonic)
+        const pk = await getWalletPrivateKey(activeWallet.id);
+        if (pk && pk.type === "solana") {
+          keypair = Keypair.fromSecretKey(bs58.decode(pk.key));
+        } else {
+          showAlert("Error", "Please unlock your wallet first");
+          setIsSwapping(false);
+          return;
+        }
+      }
       
       let transaction: VersionedTransaction;
       let feeAppended = false;

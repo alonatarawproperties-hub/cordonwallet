@@ -813,6 +813,13 @@ export async function getMnemonic(walletId: string): Promise<string | null> {
   return cachedSecrets.mnemonics[walletId] || null;
 }
 
+export async function getWalletPrivateKey(walletId: string): Promise<{ type: "evm" | "solana"; key: string } | null> {
+  if (!cachedSecrets) {
+    return null;
+  }
+  return cachedSecrets.privateKeys?.[walletId] || null;
+}
+
 export class WalletLockedError extends Error {
   code = "WALLET_LOCKED";
   constructor() {
