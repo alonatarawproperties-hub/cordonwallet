@@ -774,6 +774,17 @@ export default function SwapScreen({ route }: Props) {
         }
       }
 
+      // Replace blockhash with a fresh one right before signing.
+      // The transaction was built earlier (possibly seconds ago while the user
+      // reviewed the confirmation modal), so its embedded blockhash may be stale.
+      try {
+        const connection = new Connection(RPC_PRIMARY, "confirmed");
+        const { blockhash } = await connection.getLatestBlockhash("confirmed");
+        transaction.message.recentBlockhash = blockhash;
+      } catch (bhError: any) {
+        console.warn("[Swap] Failed to refresh blockhash, using original:", bhError.message);
+      }
+
       transaction.sign([keypair]);
 
       const signedBytes = transaction.serialize();
