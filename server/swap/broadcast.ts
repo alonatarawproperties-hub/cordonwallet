@@ -91,14 +91,29 @@ export async function broadcastTransaction(params: {
   const retryConfig = swapConfig.broadcastRetries[mode];
   
   console.log(`[Broadcast] Sending tx, mode: ${mode}, retries: ${retryConfig.maxRetries}`);
-  
-  const primaryResult = await sendToRpc(
+
+  const hasFallback = swapConfig.solanaRpcUrlFallback &&
+    swapConfig.solanaRpcUrlFallback !== swapConfig.solanaRpcUrl;
+
+  // Send to both RPCs in parallel for fastest landing
+  const primaryPromise = sendToRpc(
     swapConfig.solanaRpcUrl,
     signedTransactionBase64,
     retryConfig.maxRetries,
     retryConfig.timeoutMs
   );
-  
+
+  const fallbackPromise = hasFallback
+    ? sendToRpc(
+        swapConfig.solanaRpcUrlFallback,
+        signedTransactionBase64,
+        Math.max(1, retryConfig.maxRetries - 1),
+        retryConfig.timeoutMs
+      )
+    : Promise.resolve({ error: "no fallback" } as { signature?: string; error?: string });
+
+  const [primaryResult, fallbackResult] = await Promise.all([primaryPromise, fallbackPromise]);
+
   if (primaryResult.signature) {
     return {
       ok: true,
@@ -106,37 +121,21 @@ export async function broadcastTransaction(params: {
       rpc: "primary",
     };
   }
-  
-  if (swapConfig.solanaRpcUrlFallback && 
-      swapConfig.solanaRpcUrlFallback !== swapConfig.solanaRpcUrl) {
-    console.log("[Broadcast] Primary failed, trying fallback RPC...");
-    
-    const fallbackResult = await sendToRpc(
-      swapConfig.solanaRpcUrlFallback,
-      signedTransactionBase64,
-      Math.max(1, retryConfig.maxRetries - 1),
-      retryConfig.timeoutMs / 2
-    );
-    
-    if (fallbackResult.signature) {
-      return {
-        ok: true,
-        signature: fallbackResult.signature,
-        rpc: "fallback",
-      };
-    }
-    
+
+  if (fallbackResult.signature) {
     return {
-      ok: false,
-      code: "SEND_FAILED",
-      message: `Both RPCs failed. Primary: ${primaryResult.error}, Fallback: ${fallbackResult.error}`,
+      ok: true,
+      signature: fallbackResult.signature,
+      rpc: "fallback",
     };
   }
-  
+
   return {
     ok: false,
     code: "SEND_FAILED",
-    message: primaryResult.error || "Failed to send transaction",
+    message: hasFallback
+      ? `Both RPCs failed. Primary: ${primaryResult.error}, Fallback: ${fallbackResult.error}`
+      : primaryResult.error || "Failed to send transaction",
   };
 }
 
