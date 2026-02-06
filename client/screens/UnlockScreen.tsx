@@ -10,8 +10,6 @@ import Animated, {
   useAnimatedStyle,
   withTiming,
   withRepeat,
-  withSequence,
-  withDelay,
   Easing,
   cancelAnimation,
   type SharedValue,
@@ -86,12 +84,8 @@ export default function UnlockScreen({ navigation }: Props) {
   const waveProgress = useSharedValue(0);
   const unlockingAnim = useSharedValue(0);
   const overlayOpacity = useSharedValue(0);
-  const glowScale = useSharedValue(1);
-  const glowOpacity = useSharedValue(0);
-  const ripple1Progress = useSharedValue(0);
-  const ripple2Progress = useSharedValue(0);
+  const spinnerRotation = useSharedValue(0);
   const textOpacity = useSharedValue(0);
-  const iconScale = useSharedValue(1);
 
   useEffect(() => {
     const showSub = Keyboard.addListener(
@@ -130,60 +124,24 @@ export default function UnlockScreen({ navigation }: Props) {
       );
 
       // Overlay fade in
-      overlayOpacity.value = withTiming(1, { duration: 350, easing: Easing.out(Easing.ease) });
+      overlayOpacity.value = withTiming(1, { duration: 300, easing: Easing.out(Easing.ease) });
 
-      // Central glow pulse
-      glowOpacity.value = withTiming(0.4, { duration: 500 });
-      glowScale.value = withRepeat(
-        withSequence(
-          withTiming(1.25, { duration: 1200, easing: Easing.inOut(Easing.ease) }),
-          withTiming(0.85, { duration: 1200, easing: Easing.inOut(Easing.ease) })
-        ),
-        -1, true
-      );
-
-      // Expanding ripple rings
-      ripple1Progress.value = withRepeat(
-        withTiming(1, { duration: 2200, easing: Easing.out(Easing.cubic) }),
+      // Spinner rotation
+      spinnerRotation.value = withRepeat(
+        withTiming(360, { duration: 1100, easing: Easing.linear }),
         -1
       );
-      ripple2Progress.value = withDelay(1100, withRepeat(
-        withTiming(1, { duration: 2200, easing: Easing.out(Easing.cubic) }),
-        -1
-      ));
 
-      // Icon breathe
-      iconScale.value = withRepeat(
-        withSequence(
-          withTiming(1.08, { duration: 1400, easing: Easing.inOut(Easing.ease) }),
-          withTiming(0.95, { duration: 1400, easing: Easing.inOut(Easing.ease) })
-        ),
-        -1, true
-      );
-
-      // Text pulse
-      textOpacity.value = withDelay(200, withRepeat(
-        withSequence(
-          withTiming(1, { duration: 1200, easing: Easing.inOut(Easing.ease) }),
-          withTiming(0.3, { duration: 1200, easing: Easing.inOut(Easing.ease) })
-        ),
-        -1, true
-      ));
+      // Text fade in
+      textOpacity.value = withTiming(0.6, { duration: 400, easing: Easing.out(Easing.ease) });
     } else {
       // Reset all animations
       unlockingAnim.value = withTiming(0, { duration: 200 });
       cancelAnimation(waveProgress);
       waveProgress.value = 0;
       overlayOpacity.value = withTiming(0, { duration: 200 });
-      glowOpacity.value = withTiming(0, { duration: 200 });
-      cancelAnimation(glowScale);
-      glowScale.value = 1;
-      cancelAnimation(ripple1Progress);
-      cancelAnimation(ripple2Progress);
-      ripple1Progress.value = 0;
-      ripple2Progress.value = 0;
-      cancelAnimation(iconScale);
-      iconScale.value = 1;
+      cancelAnimation(spinnerRotation);
+      spinnerRotation.value = 0;
       textOpacity.value = withTiming(0, { duration: 200 });
     }
   }, [isUnlocking]);
@@ -193,23 +151,8 @@ export default function UnlockScreen({ navigation }: Props) {
     opacity: overlayOpacity.value,
   }));
 
-  const glowAnimStyle = useAnimatedStyle(() => ({
-    opacity: glowOpacity.value,
-    transform: [{ scale: glowScale.value }],
-  }));
-
-  const ripple1Style = useAnimatedStyle(() => ({
-    transform: [{ scale: ripple1Progress.value * 3 }],
-    opacity: (1 - ripple1Progress.value) * 0.5,
-  }));
-
-  const ripple2Style = useAnimatedStyle(() => ({
-    transform: [{ scale: ripple2Progress.value * 3 }],
-    opacity: (1 - ripple2Progress.value) * 0.35,
-  }));
-
-  const iconAnimStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: iconScale.value }],
+  const spinnerAnimStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${spinnerRotation.value}deg` }],
   }));
 
   const textAnimStyle = useAnimatedStyle(() => ({
@@ -433,28 +376,22 @@ export default function UnlockScreen({ navigation }: Props) {
       {/* ── Unlock animation overlay ── */}
       {isUnlocking && (
         <Animated.View style={[styles.animOverlay, overlayAnimStyle]}>
-          {/* Expanding ripple rings */}
-          <Animated.View
-            style={[styles.rippleRing, { borderColor: theme.accent }, ripple1Style]}
-          />
-          <Animated.View
-            style={[styles.rippleRing, { borderColor: theme.accent }, ripple2Style]}
-          />
-
-          {/* Pulsing glow orb */}
-          <Animated.View
-            style={[styles.glowOrb, { backgroundColor: theme.accent }, glowAnimStyle]}
-          />
-
-          {/* Shield icon */}
-          <Animated.View style={iconAnimStyle}>
-            <Feather name="shield" size={52} color={theme.accent} />
-          </Animated.View>
+          {/* Minimal spinner with lock icon */}
+          <View style={styles.spinnerContainer}>
+            <Animated.View
+              style={[
+                styles.spinnerRing,
+                { borderTopColor: theme.accent, borderRightColor: theme.accent },
+                spinnerAnimStyle,
+              ]}
+            />
+            <Feather name="lock" size={22} color={theme.accent} />
+          </View>
 
           {/* Unlocking text */}
           <Animated.View style={[styles.unlockTextWrap, textAnimStyle]}>
-            <ThemedText type="h4" style={{ color: "#FFFFFF" }}>
-              Unlocking...
+            <ThemedText type="small" style={{ color: "rgba(255, 255, 255, 0.6)", letterSpacing: 1 }}>
+              Unlocking
             </ThemedText>
           </Animated.View>
         </Animated.View>
@@ -526,24 +463,25 @@ const styles = StyleSheet.create({
   /* ── Unlock animation overlay ── */
   animOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(10, 14, 19, 0.92)",
+    backgroundColor: "rgba(10, 14, 19, 0.95)",
     alignItems: "center",
     justifyContent: "center",
   },
-  rippleRing: {
-    position: "absolute",
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    borderWidth: 2,
+  spinnerContainer: {
+    width: 56,
+    height: 56,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  glowOrb: {
+  spinnerRing: {
     position: "absolute",
-    width: 160,
-    height: 160,
-    borderRadius: 80,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    borderWidth: 2,
+    borderColor: "rgba(255, 255, 255, 0.06)",
   },
   unlockTextWrap: {
-    marginTop: Spacing["2xl"],
+    marginTop: Spacing.lg,
   },
 });
