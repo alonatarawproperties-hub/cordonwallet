@@ -594,6 +594,10 @@ export default function SwapScreen({ route }: Props) {
       let swapResponse: SwapResponse;
       let freshQuote: QuoteResponse | null = null;
 
+      // Track the effective route — may change from "pump" to "jupiter"
+      // if the token has graduated from the bonding curve.
+      let effectiveRoute: SwapRoute = swapRoute;
+
       if (swapRoute === "pump" && pumpMeta) {
         const isBuying = inputToken.mint === SOL_MINT;
         const buildResult = await buildPump({
@@ -623,6 +627,7 @@ export default function SwapScreen({ route }: Props) {
               swapMode: "ExactIn",
             });
             swapResponse = await buildSwapTransaction(freshQuote, solanaAddr, speed, capSol);
+            effectiveRoute = "jupiter";
           } else {
             throw new Error(buildResult.message || "Failed to build Pump transaction");
           }
@@ -656,7 +661,7 @@ export default function SwapScreen({ route }: Props) {
         swapResponse.swapTransaction,
         solanaAddr,
         outputToken.mint,
-        swapRoute
+        effectiveRoute
       );
 
       if (!securityResult.safe) {
@@ -680,7 +685,7 @@ export default function SwapScreen({ route }: Props) {
       }
 
       // Use freshQuote for Jupiter routes (which we just fetched), fallback to cached quote for Pump
-      setPendingSwap({ quote: freshQuote || quote, swapResponse, route: swapRoute });
+      setPendingSwap({ quote: freshQuote || quote, swapResponse, route: effectiveRoute });
       setShowConfirmModal(true);
       setIsSwapping(false);
       setSwapStatus("");
@@ -740,6 +745,8 @@ export default function SwapScreen({ route }: Props) {
       // Never fall back to the original tx: stale blockhashes cause the tx to be
       // silently dropped, leaving the user stuck at "Submitting..." for 30+ seconds.
       let txBase64 = pendingSwap.swapResponse.swapTransaction;
+      let activeRoute: SwapRoute = pendingSwap.route;
+      let freshQuoteForSubmit: QuoteResponse | null = null;
       if (pendingSwap.route === "pump" && pumpMeta) {
         setSwapStatus("Building fresh tx...");
         const isBuying = inputToken.mint === SOL_MINT;
@@ -757,6 +764,35 @@ export default function SwapScreen({ route }: Props) {
         if (freshBuild.ok && freshBuild.swapTransactionBase64) {
           txBase64 = freshBuild.swapTransactionBase64;
           console.log("[Swap] Rebuilt fresh Pump tx at submit time");
+        } else if ((freshBuild as any).code === "TOKEN_GRADUATED") {
+          // Token graduated from bonding curve — auto-fallback to Jupiter
+          console.log("[Swap] Token graduated, falling back to Jupiter at submit time");
+          await addDebugLog("info", "Token graduated at submit, using Jupiter", {});
+          setSwapStatus("Token graduated, using Jupiter...");
+          const inputAmountLamports = Math.floor(
+            parseFloat(inputAmount) * Math.pow(10, inputToken.decimals)
+          ).toString();
+          freshQuoteForSubmit = await getQuote({
+            inputMint: inputToken.mint,
+            outputMint: outputToken.mint,
+            amount: inputAmountLamports,
+            slippageBps,
+            swapMode: "ExactIn",
+          });
+          const jupiterSwap = await buildSwapTransaction(freshQuoteForSubmit, solanaAddr, speed, capSol);
+          txBase64 = jupiterSwap.swapTransaction;
+          activeRoute = "jupiter";
+
+          // Run security validation on the new Jupiter tx
+          const secCheck = decodeAndValidateSwapTx(txBase64, solanaAddr, outputToken.mint, "jupiter");
+          if (!secCheck.safe) {
+            await addDebugLog("error", "Jupiter fallback security check failed", secCheck);
+            throw new Error("Security check failed on Jupiter fallback: " + secCheck.errors.join(", "));
+          }
+          if (isDrainerTransaction(txBase64, solanaAddr)) {
+            await addDebugLog("error", "Drainer detected in Jupiter fallback");
+            throw new Error("Suspicious transaction detected. Swap blocked for safety.");
+          }
         } else {
           const msg = (freshBuild as any).message || "Failed to build transaction. Please try again.";
           throw new Error(msg);
@@ -779,16 +815,18 @@ export default function SwapScreen({ route }: Props) {
 
       setSwapStatus("Submitting...");
 
-      const outAmount = pendingSwap.quote 
-        ? formatBaseUnits(pendingSwap.quote.outAmount, outputToken.decimals)
+      // Use fresh Jupiter quote if we fell back from graduated Pump, otherwise use pending quote
+      const activeQuote = freshQuoteForSubmit || pendingSwap.quote;
+      const outAmount = activeQuote
+        ? formatBaseUnits(activeQuote.outAmount, outputToken.decimals)
         : "0";
-      const minReceived = pendingSwap.quote 
-        ? formatBaseUnits(pendingSwap.quote.otherAmountThreshold, outputToken.decimals)
+      const minReceived = activeQuote
+        ? formatBaseUnits(activeQuote.otherAmountThreshold, outputToken.decimals)
         : "0";
 
       const capSol = customCapSol ?? SPEED_CONFIGS[speed].capSol;
-      const routeLabel = pendingSwap.route === "pump" ? "Pump.fun" : 
-        (pendingSwap.quote ? formatRoute(pendingSwap.quote) : "Unknown");
+      const routeLabel = activeRoute === "pump" ? "Pump.fun" :
+        (activeQuote ? formatRoute(activeQuote) : "Jupiter");
 
       const record = await addSwapRecord({
         timestamp: Date.now(),
@@ -806,14 +844,14 @@ export default function SwapScreen({ route }: Props) {
         status: "submitted",
         timings,
         route: routeLabel,
-        priceImpactPct: pendingSwap.quote ? parseFloat(pendingSwap.quote.priceImpactPct) : 0,
+        priceImpactPct: activeQuote ? parseFloat(activeQuote.priceImpactPct) : 0,
       });
 
       const submitStart = Date.now();
 
       // Pump.fun txs land in ~5s or not at all. Cap the wait to 15s to avoid
       // leaving the user stuck on "Confirming..." for 30+ seconds.
-      const isPumpRoute = pendingSwap.route === "pump";
+      const isPumpRoute = activeRoute === "pump";
 
       const result = await broadcastTransaction(signedBytes, {
         mode: speed,
