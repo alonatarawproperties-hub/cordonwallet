@@ -803,8 +803,27 @@ export async function getMnemonic(walletId: string): Promise<string | null> {
       hasSecretForWallet: cachedSecrets ? !!cachedSecrets.mnemonics[walletId] : false,
     });
   }
-  
+
   if (!cachedSecrets) {
+    // Auto-recover: try to re-unlock using cached key before giving up.
+    // This prevents false "Session Expired" alerts when the user is actively
+    // using the app but cachedSecrets got cleared (e.g. memory pressure).
+    if (__DEV__) {
+      console.log("[WalletEngine] getMnemonic: cachedSecrets lost, attempting auto-recovery");
+    }
+    try {
+      const recovered = await unlockWithCachedKey();
+      if (recovered && cachedSecrets) {
+        if (__DEV__) {
+          console.log("[WalletEngine] getMnemonic: auto-recovery succeeded");
+        }
+        return cachedSecrets.mnemonics[walletId] || null;
+      }
+    } catch (e) {
+      if (__DEV__) {
+        console.warn("[WalletEngine] getMnemonic: auto-recovery failed", e);
+      }
+    }
     if (__DEV__) {
       console.log("[WalletEngine] getMnemonic returning null - no cached secrets");
     }
