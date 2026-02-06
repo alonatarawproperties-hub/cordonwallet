@@ -123,8 +123,26 @@ const STORAGE_KEYS = {
 
 const PBKDF2_ITERATIONS = 100000;
 
-let cachedSecrets: DecryptedSecrets | null = null;
-let isVaultUnlocked = false;
+// Use globalThis to survive module re-evaluation (hot reload / fast refresh)
+// Without this, cachedSecrets resets to null on every hot reload, causing
+// false "Session Expired" alerts while the user is actively using the app.
+const _g = globalThis as any;
+if (!_g.__walletEngineState) {
+  _g.__walletEngineState = { cachedSecrets: null, isVaultUnlocked: false };
+}
+
+function getCachedSecrets(): DecryptedSecrets | null {
+  return _g.__walletEngineState.cachedSecrets;
+}
+function setCachedSecrets(s: DecryptedSecrets | null) {
+  _g.__walletEngineState.cachedSecrets = s;
+}
+function getIsVaultUnlocked(): boolean {
+  return _g.__walletEngineState.isVaultUnlocked;
+}
+function setIsVaultUnlocked(v: boolean) {
+  _g.__walletEngineState.isVaultUnlocked = v;
+}
 
 // Cache the vault key in SecureStore for fast subsequent unlocks
 // Security: NEVER cache raw keys on web (localStorage is not secure)
@@ -556,8 +574,8 @@ export async function createWallet(
   let secrets: DecryptedSecrets;
   let wallets: WalletRecord[];
 
-  if (existingVault && cachedSecrets) {
-    secrets = { ...cachedSecrets, mnemonics: { ...cachedSecrets.mnemonics, [walletId]: mnemonic } };
+  if (existingVault && getCachedSecrets()) {
+    secrets = { ...getCachedSecrets()!, mnemonics: { ...getCachedSecrets()!.mnemonics, [walletId]: mnemonic } };
     const meta = await loadVaultMeta();
 
     // Check for duplicate wallets (same EVM or Solana address)
@@ -583,8 +601,8 @@ export async function createWallet(
   // Clean up legacy PIN hash if it exists
   await deleteSecureItem(STORAGE_KEYS.PIN_HASH);
 
-  cachedSecrets = secrets;
-  isVaultUnlocked = true;
+  setCachedSecrets(secrets);
+  setIsVaultUnlocked(true);
   await resetPinAttempts();
 
   return wallet;
@@ -669,8 +687,8 @@ export async function unlockWithPin(pin: string): Promise<boolean> {
         walletCount: Object.keys(secrets.mnemonics).length,
       });
     }
-    cachedSecrets = secrets;
-    isVaultUnlocked = true;
+    setCachedSecrets(secrets);
+    setIsVaultUnlocked(true);
     // Cache the key for fast biometric unlocks (native only)
     await cacheVaultKey(key);
     wipeBytes(key);
@@ -722,8 +740,8 @@ export async function unlockWithCachedKey(): Promise<boolean> {
         walletCount: Object.keys(secrets.mnemonics).length,
       });
     }
-    cachedSecrets = secrets;
-    isVaultUnlocked = true;
+    setCachedSecrets(secrets);
+    setIsVaultUnlocked(true);
     await resetPinAttempts();
     return true;
   }
@@ -737,12 +755,12 @@ export async function unlockWithCachedKey(): Promise<boolean> {
 }
 
 export function lock(): void {
-  cachedSecrets = null;
-  isVaultUnlocked = false;
+  setCachedSecrets(null);
+  setIsVaultUnlocked(false);
 }
 
 export function isUnlocked(): boolean {
-  return isVaultUnlocked;
+  return getIsVaultUnlocked();
 }
 
 export async function listWallets(): Promise<WalletRecord[]> {
@@ -798,26 +816,26 @@ export async function getMnemonic(walletId: string): Promise<string | null> {
   if (__DEV__) {
     console.log("[WalletEngine] getMnemonic called", {
       walletId,
-      isUnlocked: isVaultUnlocked,
-      hasCachedSecrets: !!cachedSecrets,
-      hasSecretForWallet: cachedSecrets ? !!cachedSecrets.mnemonics[walletId] : false,
+      isUnlocked: getIsVaultUnlocked(),
+      hasCachedSecrets: !!getCachedSecrets(),
+      hasSecretForWallet: getCachedSecrets() ? !!getCachedSecrets()!.mnemonics[walletId] : false,
     });
   }
 
-  if (!cachedSecrets) {
+  if (!getCachedSecrets()) {
     // Auto-recover: try to re-unlock using cached key before giving up.
     // This prevents false "Session Expired" alerts when the user is actively
-    // using the app but cachedSecrets got cleared (e.g. memory pressure).
+    // using the app but secrets got cleared (e.g. hot reload, memory pressure).
     if (__DEV__) {
-      console.log("[WalletEngine] getMnemonic: cachedSecrets lost, attempting auto-recovery");
+      console.log("[WalletEngine] getMnemonic: secrets lost, attempting auto-recovery");
     }
     try {
       const recovered = await unlockWithCachedKey();
-      if (recovered && cachedSecrets) {
+      if (recovered && getCachedSecrets()) {
         if (__DEV__) {
           console.log("[WalletEngine] getMnemonic: auto-recovery succeeded");
         }
-        return cachedSecrets.mnemonics[walletId] || null;
+        return getCachedSecrets()!.mnemonics[walletId] || null;
       }
     } catch (e) {
       if (__DEV__) {
@@ -829,14 +847,14 @@ export async function getMnemonic(walletId: string): Promise<string | null> {
     }
     return null;
   }
-  return cachedSecrets.mnemonics[walletId] || null;
+  return getCachedSecrets()!.mnemonics[walletId] || null;
 }
 
 export async function getWalletPrivateKey(walletId: string): Promise<{ type: "evm" | "solana"; key: string } | null> {
-  if (!cachedSecrets) {
+  if (!getCachedSecrets()) {
     return null;
   }
-  return cachedSecrets.privateKeys?.[walletId] || null;
+  return getCachedSecrets()!.privateKeys?.[walletId] || null;
 }
 
 export class WalletLockedError extends Error {
@@ -848,7 +866,7 @@ export class WalletLockedError extends Error {
 }
 
 export function requireUnlocked(): void {
-  if (!isVaultUnlocked || !cachedSecrets) {
+  if (!getIsVaultUnlocked() || !getCachedSecrets()) {
     throw new WalletLockedError();
   }
 }
@@ -861,7 +879,7 @@ export async function getActiveWalletMnemonic(): Promise<string> {
     throw new Error("No active wallet selected");
   }
   
-  const mnemonic = cachedSecrets!.mnemonics[meta.activeWalletId];
+  const mnemonic = getCachedSecrets()!.mnemonics[meta.activeWalletId];
   if (!mnemonic) {
     throw new Error("Mnemonic not found for active wallet");
   }
@@ -876,8 +894,8 @@ export async function deleteVault(): Promise<void> {
   await deleteSecureItem(STORAGE_KEYS.BIOMETRIC_ENABLED);
   await deleteSecureItem(STORAGE_KEYS.CACHED_VAULT_KEY);
   await AsyncStorage.removeItem(STORAGE_KEYS.VAULT_META);
-  cachedSecrets = null;
-  isVaultUnlocked = false;
+  setCachedSecrets(null);
+  setIsVaultUnlocked(false);
 }
 
 export async function verifyPin(pin: string): Promise<boolean> {
@@ -950,8 +968,8 @@ export async function changePin(currentPin: string, newPin: string, skipVerifica
   try {
     // Re-encrypt the vault with the new PIN (this is the sole source of truth)
     const vaultJson = await getSecureItem(STORAGE_KEYS.VAULT);
-    if (vaultJson && cachedSecrets) {
-      const newEncryptedVault = await encryptSecrets(cachedSecrets, newPin);
+    if (vaultJson && getCachedSecrets()) {
+      const newEncryptedVault = await encryptSecrets(getCachedSecrets()!, newPin);
       await setSecureItem(STORAGE_KEYS.VAULT, JSON.stringify(newEncryptedVault));
     }
 
@@ -995,7 +1013,7 @@ export async function addWalletToExistingVault(
   name: string,
   walletType: WalletType = "multi-chain"
 ): Promise<WalletRecord> {
-  if (!isVaultUnlocked || !cachedSecrets) {
+  if (!getIsVaultUnlocked() || !getCachedSecrets()) {
     throw new WalletLockedError();
   }
   
@@ -1029,8 +1047,8 @@ export async function addWalletToExistingVault(
   }
 
   const newSecrets: DecryptedSecrets = {
-    ...cachedSecrets,
-    mnemonics: { ...cachedSecrets.mnemonics, [walletId]: normalizedMnemonic }
+    ...getCachedSecrets()!,
+    mnemonics: { ...getCachedSecrets()!.mnemonics, [walletId]: normalizedMnemonic }
   };
 
   // Security fix: Re-encrypt using the cached key with a NEW iv (but preserve
@@ -1067,7 +1085,7 @@ export async function addWalletToExistingVault(
   await setSecureItem(STORAGE_KEYS.VAULT, JSON.stringify(encryptedVault));
   await saveVaultMeta([...meta.wallets, wallet], walletId);
 
-  cachedSecrets = newSecrets;
+  setCachedSecrets(newSecrets);
   
   if (__DEV__) {
     console.log("[WalletEngine] addWalletToExistingVault: Success", { walletId, name });
@@ -1081,7 +1099,7 @@ export async function addWalletFromPrivateKey(
   chainType: "evm" | "solana",
   name: string
 ): Promise<WalletRecord> {
-  if (!isVaultUnlocked || !cachedSecrets) {
+  if (!getIsVaultUnlocked() || !getCachedSecrets()) {
     throw new WalletLockedError();
   }
 
@@ -1169,10 +1187,10 @@ export async function addWalletFromPrivateKey(
   }
 
   const newSecrets: DecryptedSecrets = {
-    ...cachedSecrets,
-    mnemonics: { ...cachedSecrets.mnemonics },
-    privateKeys: { 
-      ...(cachedSecrets.privateKeys || {}), 
+    ...getCachedSecrets()!,
+    mnemonics: { ...getCachedSecrets()!.mnemonics },
+    privateKeys: {
+      ...(getCachedSecrets()!.privateKeys || {}),
       [walletId]: { type: chainType, key: normalizedKey } 
     }
   };
@@ -1209,7 +1227,7 @@ export async function addWalletFromPrivateKey(
   await setSecureItem(STORAGE_KEYS.VAULT, JSON.stringify(encryptedVault));
   await saveVaultMeta([...meta.wallets, wallet], walletId);
 
-  cachedSecrets = newSecrets;
+  setCachedSecrets(newSecrets);
 
   if (__DEV__) {
     console.log("[WalletEngine] addWalletFromPrivateKey: Success", { walletId, name, chainType });
