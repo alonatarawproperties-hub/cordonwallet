@@ -74,12 +74,16 @@ export interface SendSplResult {
   error?: string;
 }
 
+export type SolanaKeypair = { publicKey: string; secretKey: Uint8Array };
+
 export async function sendSol(
-  mnemonic: string,
+  mnemonicOrKeys: string | SolanaKeypair,
   toAddress: string,
   amountSol: string
 ): Promise<SendSolResult> {
-  const { publicKey, secretKey } = deriveSolanaKeypair(mnemonic);
+  const { publicKey, secretKey } = typeof mnemonicOrKeys === "string"
+    ? deriveSolanaKeypair(mnemonicOrKeys)
+    : mnemonicOrKeys;
 
   try {
     const apiUrl = getApiUrl();
@@ -140,7 +144,8 @@ export async function sendSol(
 }
 
 export interface SendSplOptions {
-  mnemonic: string;
+  mnemonic?: string;
+  keys?: SolanaKeypair;
   mintAddress: string;
   toAddress: string;
   amount: string;
@@ -167,9 +172,11 @@ export async function checkRecipientAtaExists(
 }
 
 export async function sendSplToken(options: SendSplOptions): Promise<SendSplResult> {
-  const { mnemonic, mintAddress, toAddress, amount, decimals, allowCreateAta = true } = options;
+  const { mnemonic, keys, mintAddress, toAddress, amount, decimals, allowCreateAta = true } = options;
 
-  const { publicKey, secretKey } = deriveSolanaKeypair(mnemonic);
+  const { publicKey, secretKey } = keys
+    ? keys
+    : deriveSolanaKeypair(mnemonic!);
 
   try {
     const apiUrl = getApiUrl();

@@ -35,8 +35,10 @@ import {
   GasEstimate,
   TransactionFailedError,
 } from "@/lib/blockchain/transactions";
-import { sendSol, sendSplToken } from "@/lib/solana/transactions";
-import { getMnemonic } from "@/lib/wallet-engine";
+import { sendSol, sendSplToken, SolanaKeypair } from "@/lib/solana/transactions";
+import { getMnemonic, getWalletPrivateKey } from "@/lib/wallet-engine";
+import bs58 from "bs58";
+import * as nacl from "tweetnacl";
 import { saveTransaction, updateTransactionStatus } from "@/lib/transaction-history";
 import { getApiUrl, getApiHeaders } from "@/lib/query-client";
 import { checkAddressBlocklist } from "@/lib/security/blocklist";
@@ -317,15 +319,30 @@ export default function SendDetailsScreen({ navigation, route }: Props) {
 
       if (params.chainType === "solana") {
         const mnemonic = await getMnemonic(activeWallet.id);
+
+        // Resolve signing credentials: mnemonic-based or private-key-based
+        let sendCredential: string | SolanaKeypair | null = mnemonic;
+
         if (!mnemonic) {
+          // Wallet may have been imported via private key (no mnemonic).
+          // Try private key fallback before showing "Session Expired".
+          const pk = await getWalletPrivateKey(activeWallet.id);
+          if (pk && pk.type === "solana") {
+            const secretKey = bs58.decode(pk.key);
+            const kp = nacl.sign.keyPair.fromSecretKey(secretKey);
+            sendCredential = { publicKey: bs58.encode(kp.publicKey), secretKey: kp.secretKey };
+          }
+        }
+
+        if (!sendCredential) {
           setIsSending(false);
           Alert.alert(
             "Session Expired",
             "For security, your wallet has been locked. Please unlock to continue.",
             [
               { text: "Cancel", style: "cancel" },
-              { 
-                text: "Unlock", 
+              {
+                text: "Unlock",
                 onPress: () => navigation.navigate("Unlock")
               }
             ]
@@ -337,13 +354,15 @@ export default function SendDetailsScreen({ navigation, route }: Props) {
         let txError: string | undefined;
 
         if (params.isNative) {
-          const solResult = await sendSol(mnemonic, recipient, amount);
+          const solResult = await sendSol(sendCredential, recipient, amount);
           result = { hash: solResult.signature, explorerUrl: solResult.explorerUrl };
           txStatus = solResult.status;
           txError = solResult.error;
         } else {
           const splResult = await sendSplToken({
-            mnemonic,
+            ...(typeof sendCredential === "string"
+              ? { mnemonic: sendCredential }
+              : { keys: sendCredential }),
             mintAddress: params.tokenAddress!,
             toAddress: recipient,
             amount,
