@@ -735,32 +735,31 @@ export default function SwapScreen({ route }: Props) {
         }
       }
       
-      // For Pump routes, rebuild the transaction fresh right now — bonding curve
-      // state moves fast and the transaction from executeSwap() may already be stale.
+      // For Pump routes, ALWAYS rebuild the transaction fresh — bonding curve
+      // state moves fast and the transaction from executeSwap() is likely stale.
+      // Never fall back to the original tx: stale blockhashes cause the tx to be
+      // silently dropped, leaving the user stuck at "Submitting..." for 30+ seconds.
       let txBase64 = pendingSwap.swapResponse.swapTransaction;
       if (pendingSwap.route === "pump" && pumpMeta) {
-        try {
-          setSwapStatus("Building fresh tx...");
-          const isBuying = inputToken.mint === SOL_MINT;
-          const capSol = customCapSol ?? SPEED_CONFIGS[speed].capSol;
-          const freshBuild = await buildPump({
-            userPublicKey: solanaAddr,
-            mint: pumpMeta.mint,
-            side: isBuying ? "buy" : "sell",
-            amountSol: isBuying ? parseFloat(inputAmount) : undefined,
-            amountTokens: isBuying ? undefined : parseFloat(inputAmount),
-            slippageBps,
-            speedMode: speed,
-            maxPriorityFeeLamports: capSol * LAMPORTS_PER_SOL,
-          });
-          if (freshBuild.ok && freshBuild.swapTransactionBase64) {
-            txBase64 = freshBuild.swapTransactionBase64;
-            console.log("[Swap] Rebuilt fresh Pump tx at submit time");
-          } else {
-            console.warn("[Swap] Fresh Pump build failed, using original tx");
-          }
-        } catch (rebuildErr: any) {
-          console.warn("[Swap] Pump rebuild error, using original tx:", rebuildErr.message);
+        setSwapStatus("Building fresh tx...");
+        const isBuying = inputToken.mint === SOL_MINT;
+        const capSol = customCapSol ?? SPEED_CONFIGS[speed].capSol;
+        const freshBuild = await buildPump({
+          userPublicKey: solanaAddr,
+          mint: pumpMeta.mint,
+          side: isBuying ? "buy" : "sell",
+          amountSol: isBuying ? parseFloat(inputAmount) : undefined,
+          amountTokens: isBuying ? undefined : parseFloat(inputAmount),
+          slippageBps,
+          speedMode: speed,
+          maxPriorityFeeLamports: capSol * LAMPORTS_PER_SOL,
+        });
+        if (freshBuild.ok && freshBuild.swapTransactionBase64) {
+          txBase64 = freshBuild.swapTransactionBase64;
+          console.log("[Swap] Rebuilt fresh Pump tx at submit time");
+        } else {
+          const msg = (freshBuild as any).message || "Failed to build transaction. Please try again.";
+          throw new Error(msg);
         }
         setSwapStatus("Signing...");
       }
@@ -812,13 +811,22 @@ export default function SwapScreen({ route }: Props) {
 
       const submitStart = Date.now();
 
+      // Pump.fun txs land in ~5s or not at all. Cap the wait to 15s to avoid
+      // leaving the user stuck on "Confirming..." for 30+ seconds.
+      const isPumpRoute = pendingSwap.route === "pump";
+
       const result = await broadcastTransaction(signedBytes, {
         mode: speed,
+        maxWaitMs: isPumpRoute ? 15_000 : undefined,
         onStatusChange: (status, sig) => {
           if (sig && record.signature !== sig) {
             updateSwapStatus(record.id, status, { signature: sig });
           }
-          if (status === "processed") {
+          if (status === "submitted" && sig) {
+            // Tx was accepted by the RPC — update from "Submitting..." so user
+            // sees forward progress instead of a frozen screen.
+            setSwapStatus("Confirming...");
+          } else if (status === "processed") {
             setSwapStatus("Processing...");
             timings.submittedToProcessedMs = Date.now() - submitStart;
           } else if (status === "confirmed" || status === "finalized") {

@@ -31,6 +31,9 @@ export interface BroadcastConfig {
   onStatusChange?: (status: TxStatus, signature: string) => void;
   onRebroadcast?: (count: number) => void;
   skipPreflight?: boolean;
+  /** Override the max wait duration (ms). Useful for Pump.fun txs that land in
+   *  ~5s or not at all — avoids making the user wait 30+ seconds. */
+  maxWaitMs?: number;
 }
 
 interface RpcHealth {
@@ -187,14 +190,15 @@ export async function broadcastTransaction(
   const speedConfig = SPEED_CONFIGS[config.mode];
   const primaryConn = getPrimaryConnection();
   const fallbackConn = getFallbackConnection();
-  
+
   let signature: string = "";
   let usedFallback = false;
   let rebroadcastCount = 0;
   const startTime = Date.now();
-  
+
   const skipPreflight = config.skipPreflight ?? true; // Default to skip for DEX swaps
-  
+
+  // --- Phase 1: Submit to RPCs ---
   try {
     config.onStatusChange?.("submitted", "");
     signature = await sendWithRetry(primaryConn, signedTxBytes, 3, skipPreflight);
@@ -202,7 +206,7 @@ export async function broadcastTransaction(
     console.log(`[Broadcaster] Primary submit: ${signature}${skipPreflight ? " (preflight skipped)" : ""}`);
   } catch (primaryError: any) {
     console.warn("[Broadcaster] Primary submit failed, trying fallback:", primaryError.message);
-    
+
     try {
       signature = await sendWithRetry(fallbackConn, signedTxBytes, 3, skipPreflight);
       usedFallback = true;
@@ -218,7 +222,10 @@ export async function broadcastTransaction(
       };
     }
   }
-  
+
+  // --- Phase 2: Early failure detection ---
+  // Check status quickly. If the tx already errored on-chain, return immediately
+  // instead of waiting the full timeout.
   const initialCheck = await waitForStatus(primaryConn, signature, "processed", 500);
   if (initialCheck.status?.err) {
     return {
@@ -229,8 +236,25 @@ export async function broadcastTransaction(
       usedFallback,
     };
   }
-  
-  if (!initialCheck.confirmed && !usedFallback) {
+
+  // If already confirmed in the initial check, return immediately
+  if (initialCheck.confirmed) {
+    const confStatus = initialCheck.status?.confirmationStatus as string | undefined;
+    const earlyStatus: TxStatus = confStatus === "finalized" ? "finalized"
+      : confStatus === "confirmed" ? "confirmed" : "processed";
+    config.onStatusChange?.(earlyStatus, signature);
+    return {
+      signature,
+      status: earlyStatus,
+      slot: initialCheck.status?.slot ?? undefined,
+      confirmationTime: Date.now() - startTime,
+      rebroadcastCount,
+      usedFallback,
+    };
+  }
+
+  // Also send to fallback for redundancy if primary succeeded
+  if (!usedFallback) {
     try {
       await sendWithRetry(fallbackConn, signedTxBytes, 1);
       usedFallback = true;
@@ -238,23 +262,54 @@ export async function broadcastTransaction(
     } catch {
     }
   }
-  
+
+  // --- Phase 3: Simulate to detect doomed transactions early ---
+  // If skipPreflight was used, run a simulation now to catch errors that would
+  // cause the tx to be silently dropped (expired blockhash, program errors).
+  // This avoids waiting 30+ seconds for a tx that will never land.
+  if (skipPreflight) {
+    try {
+      const simResult = await primaryConn.simulateTransaction(
+        VersionedTransaction.deserialize(signedTxBytes),
+        { commitment: "confirmed", replaceRecentBlockhash: false }
+      );
+      if (simResult.value.err) {
+        const simError = JSON.stringify(simResult.value.err);
+        console.warn("[Broadcaster] Simulation failed, tx is doomed:", simError);
+        return {
+          signature,
+          status: "failed",
+          error: simError,
+          rebroadcastCount,
+          usedFallback,
+        };
+      }
+      console.log("[Broadcaster] Simulation passed, tx should land");
+    } catch (simErr: any) {
+      // Simulation RPC call failed (network issue) - continue waiting normally
+      console.warn("[Broadcaster] Simulation check failed (non-fatal):", simErr.message);
+    }
+  }
+
+  // --- Phase 4: Rebroadcast loop + confirmation wait ---
   const rebroadcastLoop = async () => {
-    const maxDuration = speedConfig.maxRebroadcastDurationMs;
+    const maxDuration = config.maxWaitMs
+      ? Math.min(config.maxWaitMs, speedConfig.maxRebroadcastDurationMs)
+      : speedConfig.maxRebroadcastDurationMs;
     const interval = speedConfig.rebroadcastIntervalMs;
     const loopStart = Date.now();
-    
+
     while (Date.now() - loopStart < maxDuration) {
       await new Promise(r => setTimeout(r, interval));
-      
+
       const status = await waitForStatus(primaryConn, signature, "processed", 300);
       if (status.confirmed || status.status?.err) {
         return;
       }
-      
+
       rebroadcastCount++;
       config.onRebroadcast?.(rebroadcastCount);
-      
+
       try {
         await primaryConn.sendRawTransaction(signedTxBytes, {
           skipPreflight: true,
@@ -264,7 +319,7 @@ export async function broadcastTransaction(
         console.log(`[Broadcaster] Rebroadcast ${rebroadcastCount}`);
       } catch {
       }
-      
+
       if (config.mode === "turbo" && rebroadcastCount % 2 === 0) {
         try {
           await fallbackConn.sendRawTransaction(signedTxBytes, {
@@ -277,17 +332,17 @@ export async function broadcastTransaction(
       }
     }
   };
-  
+
   rebroadcastLoop().catch(console.error);
-  
+
   const targetCommitment = speedConfig.completionLevel === "confirmed" ? "confirmed" : "processed";
-  const waitTimeout = speedConfig.maxRebroadcastDurationMs + 5000;
-  
+  const waitTimeout = config.maxWaitMs ?? (speedConfig.maxRebroadcastDurationMs + 5000);
+
   const result = await waitForStatus(primaryConn, signature, targetCommitment, waitTimeout);
-  
+
   if (result.status?.err) {
     const errorStr = JSON.stringify(result.status.err);
-    
+
     let errorCategory = "unknown";
     if (errorStr.includes("SlippageToleranceExceeded") || errorStr.includes("0x1771")) {
       errorCategory = "slippage";
@@ -296,12 +351,12 @@ export async function broadcastTransaction(
     } else if (errorStr.includes("blockhash") || errorStr.includes("expired")) {
       errorCategory = "blockhash_expired";
     }
-    
+
     return {
       signature,
       status: "failed",
-      error: errorCategory === "slippage" 
-        ? "Slippage tolerance exceeded. Please retry with higher slippage." 
+      error: errorCategory === "slippage"
+        ? "Slippage tolerance exceeded. Please retry with higher slippage."
         : errorCategory === "insufficient_funds"
         ? "Insufficient funds for this swap."
         : errorCategory === "blockhash_expired"
@@ -312,7 +367,7 @@ export async function broadcastTransaction(
       usedFallback,
     };
   }
-  
+
   if (!result.confirmed) {
     return {
       signature,
@@ -322,16 +377,16 @@ export async function broadcastTransaction(
       usedFallback,
     };
   }
-  
+
   const confirmationTime = Date.now() - startTime;
-  const finalStatus: TxStatus = result.status?.confirmationStatus === "finalized" 
-    ? "finalized" 
-    : result.status?.confirmationStatus === "confirmed" 
-    ? "confirmed" 
+  const finalStatus: TxStatus = result.status?.confirmationStatus === "finalized"
+    ? "finalized"
+    : result.status?.confirmationStatus === "confirmed"
+    ? "confirmed"
     : "processed";
-  
+
   config.onStatusChange?.(finalStatus, signature);
-  
+
   return {
     signature,
     status: finalStatus,
