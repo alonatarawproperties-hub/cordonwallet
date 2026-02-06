@@ -462,7 +462,7 @@ export function useSolanaPortfolio(address: string | undefined) {
   }, [fetchBalances, address]);
 
   const refresh = useCallback(() => {
-    fetchBalances(true);
+    return fetchBalances(true);
   }, [fetchBalances]);
 
   return {

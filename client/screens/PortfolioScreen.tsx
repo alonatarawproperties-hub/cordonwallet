@@ -406,21 +406,24 @@ export default function PortfolioScreen() {
   };
 
   const [activeTab, setActiveTab] = useState<"assets" | "approvals">("assets");
-  const hasTriggeredRefresh = useRef(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const REFRESH_TIMEOUT = 15000;
 
-  const handleRefreshWithHaptic = useCallback(() => {
-    if (!hasTriggeredRefresh.current) {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      hasTriggeredRefresh.current = true;
+  const handleRefreshWithHaptic = useCallback(async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setRefreshing(true);
+    try {
+      await Promise.race([
+        Promise.all([
+          evmPortfolio.refresh(),
+          solanaPortfolio.refresh(),
+        ]),
+        new Promise(resolve => setTimeout(resolve, REFRESH_TIMEOUT)),
+      ]);
+    } finally {
+      setRefreshing(false);
     }
-    handleRefresh();
-  }, []);
-
-  useEffect(() => {
-    if (!isRefreshing) {
-      hasTriggeredRefresh.current = false;
-    }
-  }, [isRefreshing]);
+  }, [evmPortfolio, solanaPortfolio]);
 
   useEffect(() => {
     if (!isLoading && !isRefreshing && lastUpdated && (evmPortfolio.assets.length > 0 || solanaPortfolio.assets.length > 0)) {
@@ -497,9 +500,9 @@ export default function PortfolioScreen() {
       }}
       scrollIndicatorInsets={{ bottom: insets.bottom }}
       refreshControl={
-        <RefreshControl 
-          refreshing={isRefreshing} 
-          onRefresh={handleRefreshWithHaptic} 
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={handleRefreshWithHaptic}
           tintColor="transparent"
           colors={["transparent"]}
           progressBackgroundColor="transparent"
@@ -507,8 +510,8 @@ export default function PortfolioScreen() {
         />
       }
     >
-      <AnimatedRefreshIndicator 
-        isRefreshing={isRefreshing} 
+      <AnimatedRefreshIndicator
+        isRefreshing={refreshing || isRefreshing}
         color={theme.accent}
         size={24}
       />
