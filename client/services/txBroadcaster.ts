@@ -135,48 +135,53 @@ async function sendWithRetry(
   throw lastError || new Error("Failed to send transaction");
 }
 
+function checkStatusResult(
+  status: SignatureStatus | null,
+  targetStatus: Commitment
+): { done: boolean; confirmed: boolean } {
+  if (!status) return { done: false, confirmed: false };
+  if (status.err) return { done: true, confirmed: false };
+
+  const confStatus = status.confirmationStatus as string | undefined;
+  if (confStatus === "finalized") return { done: true, confirmed: true };
+  if (targetStatus === "confirmed" && (confStatus === "confirmed" || confStatus === "finalized")) {
+    return { done: true, confirmed: true };
+  }
+  if (targetStatus === "processed" && confStatus) {
+    return { done: true, confirmed: true };
+  }
+  return { done: false, confirmed: false };
+}
+
 async function waitForStatus(
-  connection: Connection,
+  connections: Connection[],
   signature: string,
   targetStatus: Commitment,
   timeoutMs: number
 ): Promise<{ status: SignatureStatus | null; confirmed: boolean }> {
   const start = Date.now();
-  
+
   while (Date.now() - start < timeoutMs) {
-    try {
-      const response = await connection.getSignatureStatus(signature, {
-        searchTransactionHistory: false,
-      });
-      
-      const status = response.value;
-      
-      if (status?.err) {
-        return { status, confirmed: false };
+    // Poll all connections in parallel, take the first definitive result
+    const results = await Promise.all(
+      connections.map(conn =>
+        conn.getSignatureStatus(signature, { searchTransactionHistory: false })
+          .then(r => r.value)
+          .catch(() => null)
+      )
+    );
+
+    for (const status of results) {
+      if (!status) continue;
+      const check = checkStatusResult(status, targetStatus);
+      if (check.done) {
+        return { status, confirmed: check.confirmed };
       }
-      
-      const confStatus = status?.confirmationStatus as string | undefined;
-      
-      if (confStatus === "finalized") {
-        return { status, confirmed: true };
-      }
-      
-      if (targetStatus === "confirmed") {
-        if (confStatus === "confirmed" || confStatus === "finalized") {
-          return { status, confirmed: true };
-        }
-      }
-      
-      if (targetStatus === "processed" && confStatus) {
-        return { status, confirmed: true };
-      }
-    } catch (error) {
-      console.warn("[Broadcaster] Status check error:", error);
     }
-    
+
     await new Promise(r => setTimeout(r, 200));
   }
-  
+
   return { status: null, confirmed: false };
 }
 
@@ -244,7 +249,7 @@ export async function broadcastTransaction(
   }
   
   // Quick initial status check - don't block long, rebroadcast loop handles retries
-  const initialCheck = await waitForStatus(primaryConn, signature, "processed", 300);
+  const initialCheck = await waitForStatus([primaryConn, fallbackConn], signature, "processed", 300);
   if (initialCheck.status?.err) {
     return {
       signature,
@@ -290,9 +295,10 @@ export async function broadcastTransaction(
   rebroadcastLoop().catch(console.error);
   
   const targetCommitment = speedConfig.completionLevel === "confirmed" ? "confirmed" : "processed";
-  const waitTimeout = speedConfig.maxRebroadcastDurationMs + 3000;
+  // Wait for the full rebroadcast window + 10s grace — blockhash is valid ~60s
+  const waitTimeout = speedConfig.maxRebroadcastDurationMs + 10000;
 
-  const result = await waitForStatus(primaryConn, signature, targetCommitment, waitTimeout);
+  const result = await waitForStatus([primaryConn, fallbackConn], signature, targetCommitment, waitTimeout);
   rebroadcastDone = true;
 
   if (result.status?.err) {
