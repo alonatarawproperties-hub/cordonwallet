@@ -442,7 +442,7 @@ export function useAllChainsPortfolio(address: string | undefined) {
   }, [fetchAllBalances, address]);
 
   const refresh = useCallback(() => {
-    fetchAllBalances(true);
+    return fetchAllBalances(true);
   }, [fetchAllBalances]);
 
   return {
