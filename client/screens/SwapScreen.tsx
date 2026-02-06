@@ -812,8 +812,6 @@ export default function SwapScreen({ route }: Props) {
 
       const submitStart = Date.now();
 
-      setSwapStatus("Confirming...");
-
       const result = await broadcastTransaction(signedBytes, {
         mode: speed,
         onStatusChange: (status, sig) => {
@@ -821,13 +819,16 @@ export default function SwapScreen({ route }: Props) {
             updateSwapStatus(record.id, status, { signature: sig });
           }
           if (status === "processed") {
-            setSwapStatus("Confirmed!");
+            setSwapStatus("Processing...");
             timings.submittedToProcessedMs = Date.now() - submitStart;
           } else if (status === "confirmed" || status === "finalized") {
             setSwapStatus("Confirmed!");
             timings.processedToConfirmedMs = Date.now() - submitStart - (timings.submittedToProcessedMs || 0);
             timings.totalMs = Date.now() - tapStart;
           }
+        },
+        onRebroadcast: (count) => {
+          setSwapStatus(`Rebroadcasting (${count})...`);
         },
       });
 
