@@ -211,22 +211,26 @@ export async function broadcastTransaction(
   try {
     config.onStatusChange?.("submitted", "");
 
-    // FIRST attempt: use preflight (skipPreflight=false) to catch invalid
-    // transactions immediately instead of waiting 30+ seconds for timeout.
-    // If preflight fails, we get an instant error message for the user.
+    // FIRST attempt: use preflight to catch clearly-invalid transactions instantly
+    // (insufficient funds, expired blockhash, wrong signer).
+    // But for DEX swaps, simulation can fail on stale pool state even though the
+    // transaction would land on-chain. So we only hard-fail on unrecoverable errors;
+    // for program/simulation errors we fall through to skipPreflight.
     try {
       signature = await sendWithRetry(primaryConn, signedTxBytes, 1, false);
       console.log(`[Broadcaster] Primary submit with preflight: ${signature}`);
     } catch (preflightError: any) {
       const errMsg = preflightError.message || "";
+      console.warn(`[Broadcaster] Preflight failed: ${errMsg}`);
 
-      // If it's a simulation failure, that means the TX is genuinely invalid.
-      // Return the error immediately — don't waste 30s waiting.
-      if (errMsg.includes("Transaction simulation failed") ||
-          errMsg.includes("custom program error") ||
-          errMsg.includes("insufficient") ||
-          errMsg.includes("0x1")) {
-        console.error(`[Broadcaster] Preflight rejected tx: ${errMsg}`);
+      // Only hard-fail on errors that are clearly unrecoverable and NOT stale-state:
+      const isInsufficientFunds = errMsg.includes("insufficient lamports") ||
+        errMsg.includes("insufficient sol") ||
+        errMsg.includes("not enough sol");
+      const isBlockhashExpired = errMsg.includes("blockhash") && errMsg.includes("not found");
+
+      if (isInsufficientFunds || isBlockhashExpired) {
+        console.error(`[Broadcaster] Fatal preflight error: ${errMsg}`);
         return {
           signature: "",
           status: "failed",
@@ -236,8 +240,9 @@ export async function broadcastTransaction(
         };
       }
 
-      // For non-simulation errors (network, timeout, etc.), retry with skipPreflight
-      console.warn(`[Broadcaster] Preflight failed (non-fatal), retrying without: ${errMsg}`);
+      // For all other errors (simulation failed, custom program error, stale state),
+      // retry WITHOUT preflight — the transaction may still land on-chain.
+      console.log("[Broadcaster] Retrying without preflight (may be stale simulation)...");
       try {
         signature = await sendWithRetry(primaryConn, signedTxBytes, 2, true);
         console.log(`[Broadcaster] Primary submit (no preflight): ${signature}`);
@@ -248,10 +253,11 @@ export async function broadcastTransaction(
           usedFallback = true;
           console.log(`[Broadcaster] Fallback submit: ${signature}`);
         } catch (fallbackError: any) {
+          // Everything failed — return the original preflight error (most informative)
           return {
             signature: "",
             status: "failed",
-            error: fallbackError.message || "Failed to submit transaction",
+            error: errMsg || fallbackError.message || "Failed to submit transaction",
             rebroadcastCount: 0,
             usedFallback: true,
           };
