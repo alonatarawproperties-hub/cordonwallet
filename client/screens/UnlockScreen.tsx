@@ -247,9 +247,12 @@ export default function UnlockScreen({ navigation }: Props) {
         />
 
         {!keyboardVisible && (
-          <Pressable 
-            style={styles.inputArea} 
-            onPress={() => inputRef.current?.focus()}
+          <Pressable
+            style={styles.inputArea}
+            onPress={() => {
+              inputRef.current?.blur();
+              setTimeout(() => inputRef.current?.focus(), 100);
+            }}
           >
             <ThemedText type="small" style={{ color: theme.textSecondary }}>
               Tap here if keyboard disappeared
@@ -318,10 +321,9 @@ const styles = StyleSheet.create({
   },
   hiddenInput: {
     position: "absolute",
-    opacity: 0.01,
+    opacity: 0,
     height: 1,
     width: 1,
-    left: -9999,
   },
   inputArea: {
     padding: Spacing.md,
