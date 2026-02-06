@@ -766,19 +766,13 @@ export default function SwapScreen({ route }: Props) {
       }
 
       const txBuffer = Buffer.from(txBase64, "base64");
-      let transaction = VersionedTransaction.deserialize(txBuffer);
+      const transaction = VersionedTransaction.deserialize(txBuffer);
 
-      // Replace blockhash with a fresh one right before signing.
-      // The transaction was built earlier (possibly seconds ago while the user
-      // reviewed the confirmation modal), so its embedded blockhash may be stale.
-      try {
-        const connection = new Connection(RPC_PRIMARY, "confirmed");
-        const { blockhash } = await connection.getLatestBlockhash("confirmed");
-        transaction.message.recentBlockhash = blockhash;
-      } catch (bhError: any) {
-        console.warn("[Swap] Failed to refresh blockhash, using original:", bhError.message);
-      }
-
+      // Sign with the user's keypair — do NOT modify the message (e.g. blockhash)
+      // after deserialization.  The transaction was just built (Pump txs are rebuilt
+      // fresh above, Jupiter txs were built seconds ago) so the blockhash is valid.
+      // Mutating recentBlockhash on a VersionedTransaction invalidates any existing
+      // signatures and can cause validators to silently drop the tx.
       transaction.sign([keypair]);
 
       const signedBytes = transaction.serialize();
