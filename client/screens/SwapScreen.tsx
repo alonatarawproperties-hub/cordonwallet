@@ -735,9 +735,37 @@ export default function SwapScreen({ route }: Props) {
         }
       }
       
-      // Output fee is disabled (0 bps) — replaced by Jupiter platform fee (server-side).
-      // Just deserialize the transaction directly.
-      const txBuffer = Buffer.from(pendingSwap.swapResponse.swapTransaction, "base64");
+      // For Pump routes, rebuild the transaction fresh right now — bonding curve
+      // state moves fast and the transaction from executeSwap() may already be stale.
+      let txBase64 = pendingSwap.swapResponse.swapTransaction;
+      if (pendingSwap.route === "pump" && pumpMeta) {
+        try {
+          setSwapStatus("Building fresh tx...");
+          const isBuying = inputToken.mint === SOL_MINT;
+          const capSol = customCapSol ?? SPEED_CONFIGS[speed].capSol;
+          const freshBuild = await buildPump({
+            userPublicKey: solanaAddr,
+            mint: pumpMeta.mint,
+            side: isBuying ? "buy" : "sell",
+            amountSol: isBuying ? parseFloat(inputAmount) : undefined,
+            amountTokens: isBuying ? undefined : parseFloat(inputAmount),
+            slippageBps,
+            speedMode: speed,
+            maxPriorityFeeLamports: capSol * LAMPORTS_PER_SOL,
+          });
+          if (freshBuild.ok && freshBuild.swapTransactionBase64) {
+            txBase64 = freshBuild.swapTransactionBase64;
+            console.log("[Swap] Rebuilt fresh Pump tx at submit time");
+          } else {
+            console.warn("[Swap] Fresh Pump build failed, using original tx");
+          }
+        } catch (rebuildErr: any) {
+          console.warn("[Swap] Pump rebuild error, using original tx:", rebuildErr.message);
+        }
+        setSwapStatus("Signing...");
+      }
+
+      const txBuffer = Buffer.from(txBase64, "base64");
       let transaction = VersionedTransaction.deserialize(txBuffer);
 
       // Replace blockhash with a fresh one right before signing.
