@@ -42,9 +42,9 @@ export const swapConfig = {
   maxPriorityFeeCap: 10_000_000,
   
   broadcastRetries: {
-    standard: { maxRetries: 3, timeoutMs: 4000 },
-    fast: { maxRetries: 5, timeoutMs: 8000 },
-    turbo: { maxRetries: 8, timeoutMs: 12000 },
+    standard: { maxRetries: 5, timeoutMs: 30000 },
+    fast: { maxRetries: 8, timeoutMs: 40000 },
+    turbo: { maxRetries: 12, timeoutMs: 50000 },
   },
 };
 
