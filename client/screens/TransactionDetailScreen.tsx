@@ -47,6 +47,19 @@ function truncateAddress(address: string): string {
   return `${address.slice(0, 6)}...${address.slice(-6)}`;
 }
 
+function formatAmount(value: string | number): string {
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n)) return String(value);
+
+  const abs = Math.abs(n);
+  const maxDecimals = abs >= 1000 ? 2 : abs >= 1 ? 4 : 6;
+
+  return new Intl.NumberFormat("en-US", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: maxDecimals,
+  }).format(n);
+}
+
 export default function TransactionDetailScreen({ route, navigation }: Props) {
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
@@ -77,9 +90,10 @@ export default function TransactionDetailScreen({ route, navigation }: Props) {
   };
 
   const getAmountDisplay = () => {
-    if (isReceive) return `+${amount} ${tokenSymbol}`;
-    if (isSwap) return `${amount} ${tokenSymbol}`;
-    return `-${amount} ${tokenSymbol}`;
+    const formatted = formatAmount(amount);
+    if (isReceive) return `+${formatted} ${tokenSymbol}`;
+    if (isSwap) return `${formatted} ${tokenSymbol}`;
+    return `-${formatted} ${tokenSymbol}`;
   };
 
   const amountColor = isReceive ? theme.success : theme.text;
