@@ -3,16 +3,17 @@ import { getCordonSolTreasury, isTreasuryConfigured } from "./treasury";
 
 export const CORDON_FEE_WALLET_SOLANA = getCordonSolTreasury();
 
+// Success fee disabled - replaced by Jupiter platform fee (atomic, 0.5%)
 export const SUCCESS_FEE_LAMPORTS: Record<SwapSpeed, number> = {
-  standard: 200_000,   // 0.00020 SOL
-  fast: 350_000,       // 0.00035 SOL
-  turbo: 600_000,      // 0.00060 SOL
+  standard: 0,
+  fast: 0,
+  turbo: 0,
 };
 
 export const SUCCESS_FEE_SOL: Record<SwapSpeed, string> = {
-  standard: "0.00020",
-  fast: "0.00035",
-  turbo: "0.00060",
+  standard: "0",
+  fast: "0",
+  turbo: "0",
 };
 
 export function getSuccessFeeLamports(
