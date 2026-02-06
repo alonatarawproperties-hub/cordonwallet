@@ -73,7 +73,7 @@ export default function ImportWalletScreen({ navigation }: Props) {
   const [previewAddress, setPreviewAddress] = useState<string | null>(null);
   
   const [importMethod, setImportMethod] = useState<ImportMethod>("seed");
-  const [pkChain, setPkChain] = useState<PrivateKeyChain>("evm");
+  const [pkChain, setPkChain] = useState<PrivateKeyChain>(FEATURES.EVM_ENABLED ? "evm" : "solana");
   const [privateKey, setPrivateKey] = useState("");
   const [pkError, setPkError] = useState<string | null>(null);
   const [pkPreviewAddress, setPkPreviewAddress] = useState<string | null>(null);
@@ -556,19 +556,30 @@ export default function ImportWalletScreen({ navigation }: Props) {
                 <Pressable
                   style={[
                     styles.segmentButton,
-                    pkChain === "evm" && { backgroundColor: theme.accent }
+                    pkChain === "evm" && FEATURES.EVM_ENABLED && { backgroundColor: theme.accent },
+                    !FEATURES.EVM_ENABLED && { opacity: 0.4 },
                   ]}
-                  onPress={() => handlePkChainChange("evm")}
+                  onPress={() => FEATURES.EVM_ENABLED && handlePkChainChange("evm")}
+                  disabled={!FEATURES.EVM_ENABLED}
                 >
-                  <ThemedText 
-                    type="small" 
-                    style={{ 
-                      color: pkChain === "evm" ? "#fff" : theme.textSecondary,
-                      fontWeight: "600"
-                    }}
-                  >
-                    EVM (ETH/POL/BNB)
-                  </ThemedText>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                    <ThemedText
+                      type="small"
+                      style={{
+                        color: pkChain === "evm" && FEATURES.EVM_ENABLED ? "#fff" : theme.textSecondary,
+                        fontWeight: "600"
+                      }}
+                    >
+                      EVM (ETH/POL/BNB)
+                    </ThemedText>
+                    {!FEATURES.EVM_ENABLED && (
+                      <View style={{ backgroundColor: theme.warning + "30", paddingHorizontal: 4, paddingVertical: 1, borderRadius: 3 }}>
+                        <ThemedText type="caption" style={{ color: theme.warning, fontWeight: "600", fontSize: 8 }}>
+                          SOON
+                        </ThemedText>
+                      </View>
+                    )}
+                  </View>
                 </Pressable>
                 <Pressable
                   style={[
@@ -577,9 +588,9 @@ export default function ImportWalletScreen({ navigation }: Props) {
                   ]}
                   onPress={() => handlePkChainChange("solana")}
                 >
-                  <ThemedText 
-                    type="small" 
-                    style={{ 
+                  <ThemedText
+                    type="small"
+                    style={{
                       color: pkChain === "solana" ? "#fff" : theme.textSecondary,
                       fontWeight: "600"
                     }}
