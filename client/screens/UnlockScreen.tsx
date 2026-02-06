@@ -1,10 +1,21 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, memo } from "react";
 import { View, StyleSheet, TextInput, Pressable, Alert, Image, Keyboard, Platform, Dimensions, InteractionManager } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import * as LocalAuthentication from "expo-local-authentication";
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+  withRepeat,
+  withSequence,
+  withDelay,
+  Easing,
+  cancelAnimation,
+  type SharedValue,
+} from "react-native-reanimated";
 
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius } from "@/constants/theme";
@@ -19,16 +30,68 @@ type Props = NativeStackScreenProps<RootStackParamList, "Unlock">;
 
 const PIN_LENGTH = 6;
 
+/* ── Animated dot with traveling wave effect ── */
+const AnimatedDot = memo(function AnimatedDot({
+  index,
+  filled,
+  waveProgress,
+  unlockingAnim,
+  accentColor,
+  defaultBgColor,
+  borderColor,
+}: {
+  index: number;
+  filled: boolean;
+  waveProgress: SharedValue<number>;
+  unlockingAnim: SharedValue<number>;
+  accentColor: string;
+  defaultBgColor: string;
+  borderColor: string;
+}) {
+  const animStyle = useAnimatedStyle(() => {
+    "worklet";
+    const offset = index / PIN_LENGTH;
+    const wave = Math.sin((waveProgress.value - offset) * 2 * Math.PI);
+    const bounce = Math.max(0, wave) * 0.4;
+    const scale = 1 + bounce * unlockingAnim.value;
+    return { transform: [{ scale }] };
+  });
+
+  return (
+    <Animated.View
+      style={[
+        styles.dot,
+        {
+          backgroundColor: filled ? accentColor : defaultBgColor,
+          borderColor: filled ? accentColor : borderColor,
+        },
+        animStyle,
+      ]}
+    />
+  );
+});
+
 export default function UnlockScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
   const { theme } = useTheme();
   const { unlock, refreshWallets, resetWalletState } = useWallet();
-  
+
   const [pin, setPin] = useState("");
   const [isUnlocking, setIsUnlocking] = useState(false);
   const [attempts, setAttempts] = useState(0);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const inputRef = useRef<TextInput>(null);
+
+  /* ── Animation shared values ── */
+  const waveProgress = useSharedValue(0);
+  const unlockingAnim = useSharedValue(0);
+  const overlayOpacity = useSharedValue(0);
+  const glowScale = useSharedValue(1);
+  const glowOpacity = useSharedValue(0);
+  const ripple1Progress = useSharedValue(0);
+  const ripple2Progress = useSharedValue(0);
+  const textOpacity = useSharedValue(0);
+  const iconScale = useSharedValue(1);
 
   useEffect(() => {
     const showSub = Keyboard.addListener(
@@ -55,6 +118,103 @@ export default function UnlockScreen({ navigation }: Props) {
     };
     init();
   }, []);
+
+  /* ── Drive animations from isUnlocking state ── */
+  useEffect(() => {
+    if (isUnlocking) {
+      // Dot wave
+      unlockingAnim.value = withTiming(1, { duration: 300 });
+      waveProgress.value = withRepeat(
+        withTiming(1, { duration: 1400, easing: Easing.linear }),
+        -1
+      );
+
+      // Overlay fade in
+      overlayOpacity.value = withTiming(1, { duration: 350, easing: Easing.out(Easing.ease) });
+
+      // Central glow pulse
+      glowOpacity.value = withTiming(0.4, { duration: 500 });
+      glowScale.value = withRepeat(
+        withSequence(
+          withTiming(1.25, { duration: 1200, easing: Easing.inOut(Easing.ease) }),
+          withTiming(0.85, { duration: 1200, easing: Easing.inOut(Easing.ease) })
+        ),
+        -1, true
+      );
+
+      // Expanding ripple rings
+      ripple1Progress.value = withRepeat(
+        withTiming(1, { duration: 2200, easing: Easing.out(Easing.cubic) }),
+        -1
+      );
+      ripple2Progress.value = withDelay(1100, withRepeat(
+        withTiming(1, { duration: 2200, easing: Easing.out(Easing.cubic) }),
+        -1
+      ));
+
+      // Icon breathe
+      iconScale.value = withRepeat(
+        withSequence(
+          withTiming(1.08, { duration: 1400, easing: Easing.inOut(Easing.ease) }),
+          withTiming(0.95, { duration: 1400, easing: Easing.inOut(Easing.ease) })
+        ),
+        -1, true
+      );
+
+      // Text pulse
+      textOpacity.value = withDelay(200, withRepeat(
+        withSequence(
+          withTiming(1, { duration: 1200, easing: Easing.inOut(Easing.ease) }),
+          withTiming(0.3, { duration: 1200, easing: Easing.inOut(Easing.ease) })
+        ),
+        -1, true
+      ));
+    } else {
+      // Reset all animations
+      unlockingAnim.value = withTiming(0, { duration: 200 });
+      cancelAnimation(waveProgress);
+      waveProgress.value = 0;
+      overlayOpacity.value = withTiming(0, { duration: 200 });
+      glowOpacity.value = withTiming(0, { duration: 200 });
+      cancelAnimation(glowScale);
+      glowScale.value = 1;
+      cancelAnimation(ripple1Progress);
+      cancelAnimation(ripple2Progress);
+      ripple1Progress.value = 0;
+      ripple2Progress.value = 0;
+      cancelAnimation(iconScale);
+      iconScale.value = 1;
+      textOpacity.value = withTiming(0, { duration: 200 });
+    }
+  }, [isUnlocking]);
+
+  /* ── Animated styles ── */
+  const overlayAnimStyle = useAnimatedStyle(() => ({
+    opacity: overlayOpacity.value,
+  }));
+
+  const glowAnimStyle = useAnimatedStyle(() => ({
+    opacity: glowOpacity.value,
+    transform: [{ scale: glowScale.value }],
+  }));
+
+  const ripple1Style = useAnimatedStyle(() => ({
+    transform: [{ scale: ripple1Progress.value * 3 }],
+    opacity: (1 - ripple1Progress.value) * 0.5,
+  }));
+
+  const ripple2Style = useAnimatedStyle(() => ({
+    transform: [{ scale: ripple2Progress.value * 3 }],
+    opacity: (1 - ripple2Progress.value) * 0.35,
+  }));
+
+  const iconAnimStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: iconScale.value }],
+  }));
+
+  const textAnimStyle = useAnimatedStyle(() => ({
+    opacity: textOpacity.value,
+  }));
 
   const tryBiometric = async () => {
     try {
@@ -129,11 +289,11 @@ export default function UnlockScreen({ navigation }: Props) {
 
     try {
       const success = await unlockWithPin(enteredPin);
-      
+
       if (success) {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         unlock();
-        
+
         // Start prefetching portfolio data immediately (don't await)
         getActiveWallet().then(wallet => {
           if (wallet) {
@@ -142,7 +302,7 @@ export default function UnlockScreen({ navigation }: Props) {
             prefetchPortfolioCache(evmAddr, solAddr);
           }
         });
-        
+
         // Navigate immediately for instant response
         navigation.reset({
           index: 0,
@@ -159,7 +319,7 @@ export default function UnlockScreen({ navigation }: Props) {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         setAttempts(prev => prev + 1);
         setPin("");
-        
+
         if (attempts >= 4) {
           Alert.alert(
             "Too Many Attempts",
@@ -173,7 +333,7 @@ export default function UnlockScreen({ navigation }: Props) {
     } catch (error) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       setPin("");
-      
+
       if (error instanceof VaultCorruptedError) {
         Alert.alert(
           "Wallet Data Corrupted",
@@ -210,7 +370,7 @@ export default function UnlockScreen({ navigation }: Props) {
           style={styles.logo}
           resizeMode="contain"
         />
-        
+
         <ThemedText type="h2" style={styles.title}>
           Welcome Back
         </ThemedText>
@@ -220,17 +380,15 @@ export default function UnlockScreen({ navigation }: Props) {
 
         <View style={styles.dotsContainer}>
           {Array.from({ length: PIN_LENGTH }).map((_, index) => (
-            <View
+            <AnimatedDot
               key={index}
-              style={[
-                styles.dot,
-                { 
-                  backgroundColor: index < pin.length 
-                    ? theme.accent 
-                    : theme.backgroundDefault,
-                  borderColor: theme.border,
-                },
-              ]}
+              index={index}
+              filled={index < pin.length}
+              waveProgress={waveProgress}
+              unlockingAnim={unlockingAnim}
+              accentColor={theme.accent}
+              defaultBgColor={theme.backgroundDefault}
+              borderColor={theme.border}
             />
           ))}
         </View>
@@ -272,10 +430,34 @@ export default function UnlockScreen({ navigation }: Props) {
         )}
       </View>
 
+      {/* ── Unlock animation overlay ── */}
       {isUnlocking && (
-        <View style={styles.processingOverlay}>
-          <ThemedText type="body">Unlocking...</ThemedText>
-        </View>
+        <Animated.View style={[styles.animOverlay, overlayAnimStyle]}>
+          {/* Expanding ripple rings */}
+          <Animated.View
+            style={[styles.rippleRing, { borderColor: theme.accent }, ripple1Style]}
+          />
+          <Animated.View
+            style={[styles.rippleRing, { borderColor: theme.accent }, ripple2Style]}
+          />
+
+          {/* Pulsing glow orb */}
+          <Animated.View
+            style={[styles.glowOrb, { backgroundColor: theme.accent }, glowAnimStyle]}
+          />
+
+          {/* Shield icon */}
+          <Animated.View style={iconAnimStyle}>
+            <Feather name="shield" size={52} color={theme.accent} />
+          </Animated.View>
+
+          {/* Unlocking text */}
+          <Animated.View style={[styles.unlockTextWrap, textAnimStyle]}>
+            <ThemedText type="h4" style={{ color: "#FFFFFF" }}>
+              Unlocking...
+            </ThemedText>
+          </Animated.View>
+        </Animated.View>
       )}
     </ThemedView>
   );
@@ -341,10 +523,27 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  processingOverlay: {
+  /* ── Unlock animation overlay ── */
+  animOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0,0,0,0.7)",
+    backgroundColor: "rgba(10, 14, 19, 0.92)",
     alignItems: "center",
     justifyContent: "center",
+  },
+  rippleRing: {
+    position: "absolute",
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    borderWidth: 2,
+  },
+  glowOrb: {
+    position: "absolute",
+    width: 160,
+    height: 160,
+    borderRadius: 80,
+  },
+  unlockTextWrap: {
+    marginTop: Spacing["2xl"],
   },
 });
