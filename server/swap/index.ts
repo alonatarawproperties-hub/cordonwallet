@@ -92,10 +92,12 @@ swapRouter.get("/health", async (_req: Request, res: Response) => {
 swapRouter.get("/platform-fee-status", async (_req: Request, res: Response) => {
   const feeStatus = getPlatformFeeStatus();
   let note: string;
-  if (feeStatus.enabled) {
-    note = `Platform fee of ${feeStatus.feeBps}bps active. Fees go to treasury ATAs on ${feeStatus.treasuryWallet.slice(0, 8)}...`;
+  if (feeStatus.forceDisabled) {
+    note = "Platform fee is FORCED OFF (temporary kill-switch). Success fee after swap still applies.";
+  } else if (feeStatus.enabled) {
+    note = `Platform fee of ${feeStatus.feeBps}bps will be applied when fee accounts exist`;
   } else {
-    note = "Platform fee is disabled. Set CORDON_PLATFORM_FEE_ENABLED=true to enable.";
+    note = "Platform fee is disabled. Set CORDON_PLATFORM_FEE_ENABLED=true and CORDON_REFERRAL_ACCOUNT to enable.";
   }
   res.json({
     ok: true,

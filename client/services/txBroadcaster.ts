@@ -107,7 +107,7 @@ async function sendWithRetry(
   skipPreflight: boolean = false
 ): Promise<TransactionSignature> {
   let lastError: Error | null = null;
-
+  
   for (let i = 0; i < maxRetries; i++) {
     try {
       const signature = await connection.sendRawTransaction(signedTx, {
@@ -119,79 +119,64 @@ async function sendWithRetry(
     } catch (error: any) {
       lastError = error;
       // Don't retry blockhash/expired errors - they need a fresh transaction
-      if (error.message?.includes("blockhash") ||
+      if (error.message?.includes("blockhash") || 
           error.message?.includes("not found") ||
           error.message?.includes("expired")) {
         throw error;
       }
-      // Don't retry program errors - the transaction is genuinely invalid
-      if (error.message?.includes("0x1788") ||
-          error.message?.includes("0x1771") ||
-          error.message?.includes("0x177e") ||
-          error.message?.includes("custom program error") ||
-          error.message?.includes("insufficient") ||
-          error.message?.includes("Transaction simulation failed")) {
+      // Don't retry 0x1788 errors when preflight is enabled - let caller handle
+      if (error.message?.includes("0x1788")) {
         throw error;
       }
       await new Promise(r => setTimeout(r, 100 * (i + 1)));
     }
   }
-
+  
   throw lastError || new Error("Failed to send transaction");
 }
 
-function checkStatusResult(
-  status: SignatureStatus | null,
-  targetStatus: Commitment
-): { done: boolean; confirmed: boolean } {
-  if (!status) return { done: false, confirmed: false };
-  if (status.err) return { done: true, confirmed: false };
-
-  const confStatus = status.confirmationStatus as string | undefined;
-  if (confStatus === "finalized") return { done: true, confirmed: true };
-  if (targetStatus === "confirmed" && (confStatus === "confirmed" || confStatus === "finalized")) {
-    return { done: true, confirmed: true };
-  }
-  if (targetStatus === "processed" && confStatus) {
-    return { done: true, confirmed: true };
-  }
-  return { done: false, confirmed: false };
-}
-
 async function waitForStatus(
-  connections: Connection[],
+  connection: Connection,
   signature: string,
   targetStatus: Commitment,
   timeoutMs: number
 ): Promise<{ status: SignatureStatus | null; confirmed: boolean }> {
   const start = Date.now();
-  let pollCount = 0;
-
+  
   while (Date.now() - start < timeoutMs) {
-    // After 5 seconds, also search transaction history in case we missed it
-    const searchHistory = (Date.now() - start) > 5000;
-
-    const results = await Promise.all(
-      connections.map(conn =>
-        conn.getSignatureStatus(signature, { searchTransactionHistory: searchHistory })
-          .then(r => r.value)
-          .catch(() => null)
-      )
-    );
-
-    for (const status of results) {
-      if (!status) continue;
-      const check = checkStatusResult(status, targetStatus);
-      if (check.done) {
-        return { status, confirmed: check.confirmed };
+    try {
+      const response = await connection.getSignatureStatus(signature, {
+        searchTransactionHistory: false,
+      });
+      
+      const status = response.value;
+      
+      if (status?.err) {
+        return { status, confirmed: false };
       }
+      
+      const confStatus = status?.confirmationStatus as string | undefined;
+      
+      if (confStatus === "finalized") {
+        return { status, confirmed: true };
+      }
+      
+      if (targetStatus === "confirmed") {
+        if (confStatus === "confirmed" || confStatus === "finalized") {
+          return { status, confirmed: true };
+        }
+      }
+      
+      if (targetStatus === "processed" && confStatus) {
+        return { status, confirmed: true };
+      }
+    } catch (error) {
+      console.warn("[Broadcaster] Status check error:", error);
     }
-
-    pollCount++;
-    // Poll every 500ms (not 200ms) to avoid hammering RPCs
-    await new Promise(r => setTimeout(r, 500));
+    
+    await new Promise(r => setTimeout(r, 200));
   }
-
+  
   return { status: null, confirmed: false };
 }
 
@@ -202,93 +187,39 @@ export async function broadcastTransaction(
   const speedConfig = SPEED_CONFIGS[config.mode];
   const primaryConn = getPrimaryConnection();
   const fallbackConn = getFallbackConnection();
-
+  
   let signature: string = "";
   let usedFallback = false;
   let rebroadcastCount = 0;
   const startTime = Date.now();
-
+  
+  const skipPreflight = config.skipPreflight ?? true; // Default to skip for DEX swaps
+  
   try {
     config.onStatusChange?.("submitted", "");
-
-    // FIRST attempt: use preflight to catch clearly-invalid transactions instantly
-    // (insufficient funds, expired blockhash, wrong signer).
-    // But for DEX swaps, simulation can fail on stale pool state even though the
-    // transaction would land on-chain. So we only hard-fail on unrecoverable errors;
-    // for program/simulation errors we fall through to skipPreflight.
-    try {
-      signature = await sendWithRetry(primaryConn, signedTxBytes, 1, false);
-      console.log(`[Broadcaster] Primary submit with preflight: ${signature}`);
-    } catch (preflightError: any) {
-      const errMsg = preflightError.message || "";
-      console.warn(`[Broadcaster] Preflight failed: ${errMsg}`);
-
-      // Only hard-fail on errors that are clearly unrecoverable and NOT stale-state:
-      const isInsufficientFunds = errMsg.includes("insufficient lamports") ||
-        errMsg.includes("insufficient sol") ||
-        errMsg.includes("not enough sol");
-      const isBlockhashExpired = errMsg.includes("blockhash") && errMsg.includes("not found");
-
-      if (isInsufficientFunds || isBlockhashExpired) {
-        console.error(`[Broadcaster] Fatal preflight error: ${errMsg}`);
-        return {
-          signature: "",
-          status: "failed",
-          error: errMsg,
-          rebroadcastCount: 0,
-          usedFallback: false,
-        };
-      }
-
-      // For all other errors (simulation failed, custom program error, stale state),
-      // retry WITHOUT preflight — the transaction may still land on-chain.
-      console.log("[Broadcaster] Retrying without preflight (may be stale simulation)...");
-      try {
-        signature = await sendWithRetry(primaryConn, signedTxBytes, 2, true);
-        console.log(`[Broadcaster] Primary submit (no preflight): ${signature}`);
-      } catch (retryError: any) {
-        // Primary fully failed, try fallback
-        try {
-          signature = await sendWithRetry(fallbackConn, signedTxBytes, 2, true);
-          usedFallback = true;
-          console.log(`[Broadcaster] Fallback submit: ${signature}`);
-        } catch (fallbackError: any) {
-          // Everything failed — return the original preflight error (most informative)
-          return {
-            signature: "",
-            status: "failed",
-            error: errMsg || fallbackError.message || "Failed to submit transaction",
-            rebroadcastCount: 0,
-            usedFallback: true,
-          };
-        }
-      }
-    }
-
-    // Also send to fallback for redundancy (fire and forget)
-    if (!usedFallback) {
-      fallbackConn.sendRawTransaction(signedTxBytes, {
-        skipPreflight: true,
-        preflightCommitment: "confirmed",
-        maxRetries: 0,
-      }).then(() => {
-        console.log("[Broadcaster] Also sent to fallback");
-      }).catch(() => {});
-    }
-
+    signature = await sendWithRetry(primaryConn, signedTxBytes, 3, skipPreflight);
     config.onStatusChange?.("submitted", signature);
-  } catch (submitError: any) {
-    return {
-      signature: "",
-      status: "failed",
-      error: submitError.message || "Failed to submit transaction",
-      rebroadcastCount: 0,
-      usedFallback: false,
-    };
+    console.log(`[Broadcaster] Primary submit: ${signature}${skipPreflight ? " (preflight skipped)" : ""}`);
+  } catch (primaryError: any) {
+    console.warn("[Broadcaster] Primary submit failed, trying fallback:", primaryError.message);
+    
+    try {
+      signature = await sendWithRetry(fallbackConn, signedTxBytes, 3, skipPreflight);
+      usedFallback = true;
+      config.onStatusChange?.("submitted", signature);
+      console.log(`[Broadcaster] Fallback submit: ${signature}`);
+    } catch (fallbackError: any) {
+      return {
+        signature: "",
+        status: "failed",
+        error: fallbackError.message || "Failed to submit transaction",
+        rebroadcastCount: 0,
+        usedFallback: true,
+      };
+    }
   }
-
-  // Quick initial status check
-  const initialCheck = await waitForStatus([primaryConn, fallbackConn], signature, "processed", 500);
+  
+  const initialCheck = await waitForStatus(primaryConn, signature, "processed", 500);
   if (initialCheck.status?.err) {
     return {
       signature,
@@ -298,62 +229,65 @@ export async function broadcastTransaction(
       usedFallback,
     };
   }
-  if (initialCheck.confirmed) {
-    const confirmationTime = Date.now() - startTime;
-    config.onStatusChange?.("confirmed", signature);
-    return {
-      signature,
-      status: "confirmed",
-      confirmationTime,
-      rebroadcastCount,
-      usedFallback,
-    };
+  
+  if (!initialCheck.confirmed && !usedFallback) {
+    try {
+      await sendWithRetry(fallbackConn, signedTxBytes, 1);
+      usedFallback = true;
+      console.log("[Broadcaster] Also sent to fallback for redundancy");
+    } catch {
+    }
   }
-
-  let rebroadcastDone = false;
-
+  
   const rebroadcastLoop = async () => {
     const maxDuration = speedConfig.maxRebroadcastDurationMs;
     const interval = speedConfig.rebroadcastIntervalMs;
     const loopStart = Date.now();
-
-    while (Date.now() - loopStart < maxDuration && !rebroadcastDone) {
+    
+    while (Date.now() - loopStart < maxDuration) {
       await new Promise(r => setTimeout(r, interval));
-
-      if (rebroadcastDone) return;
-
+      
+      const status = await waitForStatus(primaryConn, signature, "processed", 300);
+      if (status.confirmed || status.status?.err) {
+        return;
+      }
+      
       rebroadcastCount++;
-
-      // Rebroadcast to both RPCs (skipPreflight for speed)
-      const sends: Promise<void>[] = [
-        primaryConn.sendRawTransaction(signedTxBytes, {
+      config.onRebroadcast?.(rebroadcastCount);
+      
+      try {
+        await primaryConn.sendRawTransaction(signedTxBytes, {
           skipPreflight: true,
           preflightCommitment: "confirmed",
           maxRetries: 0,
-        }).then(() => { console.log(`[Broadcaster] Rebroadcast ${rebroadcastCount} (primary)`); }).catch(() => {}),
-        fallbackConn.sendRawTransaction(signedTxBytes, {
-          skipPreflight: true,
-          preflightCommitment: "confirmed",
-          maxRetries: 0,
-        }).then(() => { console.log(`[Broadcaster] Rebroadcast ${rebroadcastCount} (fallback)`); }).catch(() => {}),
-      ];
-
-      await Promise.all(sends);
+        });
+        console.log(`[Broadcaster] Rebroadcast ${rebroadcastCount}`);
+      } catch {
+      }
+      
+      if (config.mode === "turbo" && rebroadcastCount % 2 === 0) {
+        try {
+          await fallbackConn.sendRawTransaction(signedTxBytes, {
+            skipPreflight: true,
+            preflightCommitment: "confirmed",
+            maxRetries: 0,
+          });
+        } catch {
+        }
+      }
     }
   };
-
+  
   rebroadcastLoop().catch(console.error);
-
+  
   const targetCommitment = speedConfig.completionLevel === "confirmed" ? "confirmed" : "processed";
-  // Wait for the full rebroadcast window + 10s grace — blockhash is valid ~60s
-  const waitTimeout = speedConfig.maxRebroadcastDurationMs + 10000;
-
-  const result = await waitForStatus([primaryConn, fallbackConn], signature, targetCommitment, waitTimeout);
-  rebroadcastDone = true;
-
+  const waitTimeout = speedConfig.maxRebroadcastDurationMs + 5000;
+  
+  const result = await waitForStatus(primaryConn, signature, targetCommitment, waitTimeout);
+  
   if (result.status?.err) {
     const errorStr = JSON.stringify(result.status.err);
-
+    
     let errorCategory = "unknown";
     if (errorStr.includes("SlippageToleranceExceeded") || errorStr.includes("0x1771")) {
       errorCategory = "slippage";
@@ -362,12 +296,12 @@ export async function broadcastTransaction(
     } else if (errorStr.includes("blockhash") || errorStr.includes("expired")) {
       errorCategory = "blockhash_expired";
     }
-
+    
     return {
       signature,
       status: "failed",
-      error: errorCategory === "slippage"
-        ? "Slippage tolerance exceeded. Please retry with higher slippage."
+      error: errorCategory === "slippage" 
+        ? "Slippage tolerance exceeded. Please retry with higher slippage." 
         : errorCategory === "insufficient_funds"
         ? "Insufficient funds for this swap."
         : errorCategory === "blockhash_expired"
@@ -378,7 +312,7 @@ export async function broadcastTransaction(
       usedFallback,
     };
   }
-
+  
   if (!result.confirmed) {
     return {
       signature,
@@ -388,16 +322,16 @@ export async function broadcastTransaction(
       usedFallback,
     };
   }
-
+  
   const confirmationTime = Date.now() - startTime;
-  const finalStatus: TxStatus = result.status?.confirmationStatus === "finalized"
-    ? "finalized"
-    : result.status?.confirmationStatus === "confirmed"
-    ? "confirmed"
+  const finalStatus: TxStatus = result.status?.confirmationStatus === "finalized" 
+    ? "finalized" 
+    : result.status?.confirmationStatus === "confirmed" 
+    ? "confirmed" 
     : "processed";
-
+  
   config.onStatusChange?.(finalStatus, signature);
-
+  
   return {
     signature,
     status: finalStatus,
@@ -415,7 +349,7 @@ export function classifyError(error: string): {
   needsRebuild: boolean;
 } {
   const errorLower = error.toLowerCase();
-
+  
   if (errorLower.includes("slippage") || errorLower.includes("0x1771")) {
     return {
       category: "slippage",
@@ -424,7 +358,7 @@ export function classifyError(error: string): {
       needsRebuild: true,
     };
   }
-
+  
   // Token-2022 compatibility error
   if (errorLower.includes("0x177e") || errorLower.includes("incorrecttokenprogramid")) {
     return {
@@ -434,7 +368,7 @@ export function classifyError(error: string): {
       needsRebuild: true,
     };
   }
-
+  
   // 0x1788 = InvalidAccountData - usually stale route data, pool state changed, or insufficient SOL for WSOL rent
   if (errorLower.includes("0x1788") || errorLower.includes("invalidaccountdata")) {
     return {
@@ -444,10 +378,10 @@ export function classifyError(error: string): {
       needsRebuild: true,
     };
   }
-
+  
   // Be specific about insufficient funds - 0x1 by itself (word boundary) or explicit text
   // Also handle lamports-related errors which indicate SOL fee issues
-  if (errorLower.includes("insufficient lamports") ||
+  if (errorLower.includes("insufficient lamports") || 
       errorLower.includes("insufficient sol") ||
       errorLower.includes("not enough sol")) {
     return {
@@ -457,8 +391,8 @@ export function classifyError(error: string): {
       needsRebuild: false,
     };
   }
-
-  if (errorLower.includes("insufficient") ||
+  
+  if (errorLower.includes("insufficient") || 
       /\b0x1\b/.test(errorLower) ||
       errorLower.includes("custom program error: 0x1\"") ||
       errorLower.includes("custom program error: 1\"")) {
@@ -469,7 +403,7 @@ export function classifyError(error: string): {
       needsRebuild: false,
     };
   }
-
+  
   if (errorLower.includes("blockhash") || errorLower.includes("expired") || errorLower.includes("not found")) {
     return {
       category: "blockhash_expired",
@@ -478,7 +412,7 @@ export function classifyError(error: string): {
       needsRebuild: true,
     };
   }
-
+  
   if (errorLower.includes("timeout") || errorLower.includes("econnrefused")) {
     return {
       category: "rpc_timeout",
@@ -487,17 +421,7 @@ export function classifyError(error: string): {
       needsRebuild: false,
     };
   }
-
-  // Catch simulation failure messages for better UX
-  if (errorLower.includes("simulation failed") || errorLower.includes("program error")) {
-    return {
-      category: "unknown",
-      userMessage: "Transaction rejected by the network. The swap route may be stale — please try again.",
-      canRetry: true,
-      needsRebuild: true,
-    };
-  }
-
+  
   return {
     category: "unknown",
     userMessage: error,
