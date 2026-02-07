@@ -739,151 +739,183 @@ export default function SwapScreen({ route }: Props) {
           return;
         }
       }
-      
-      // For Pump routes, ALWAYS rebuild the transaction fresh — bonding curve
-      // state moves fast and the transaction from executeSwap() is likely stale.
-      // Never fall back to the original tx: stale blockhashes cause the tx to be
-      // silently dropped, leaving the user stuck at "Submitting..." for 30+ seconds.
-      let txBase64 = pendingSwap.swapResponse.swapTransaction;
-      let activeRoute: SwapRoute = pendingSwap.route;
-      let freshQuoteForSubmit: QuoteResponse | null = null;
-      if (pendingSwap.route === "pump" && pumpMeta) {
-        setSwapStatus("Building fresh tx...");
-        const isBuying = inputToken.mint === SOL_MINT;
-        const capSol = customCapSol ?? SPEED_CONFIGS[speed].capSol;
-        const freshBuild = await buildPump({
-          userPublicKey: solanaAddr,
-          mint: pumpMeta.mint,
-          side: isBuying ? "buy" : "sell",
-          amountSol: isBuying ? parseFloat(inputAmount) : undefined,
-          amountTokens: isBuying ? undefined : parseFloat(inputAmount),
-          slippageBps,
-          speedMode: speed,
-          maxPriorityFeeLamports: capSol * LAMPORTS_PER_SOL,
-        });
-        if (freshBuild.ok && freshBuild.swapTransactionBase64) {
-          txBase64 = freshBuild.swapTransactionBase64;
-          console.log("[Swap] Rebuilt fresh Pump tx at submit time");
-        } else if ((freshBuild as any).code === "TOKEN_GRADUATED") {
-          // Token graduated from bonding curve — auto-fallback to Jupiter
-          console.log("[Swap] Token graduated, falling back to Jupiter at submit time");
-          await addDebugLog("info", "Token graduated at submit, using Jupiter", {});
-          setSwapStatus("Token graduated, using Jupiter...");
-          const inputAmountLamports = Math.floor(
-            parseFloat(inputAmount) * Math.pow(10, inputToken.decimals)
-          ).toString();
-          freshQuoteForSubmit = await getQuote({
-            inputMint: inputToken.mint,
-            outputMint: outputToken.mint,
-            amount: inputAmountLamports,
-            slippageBps,
-            swapMode: "ExactIn",
-          });
-          const jupiterSwap = await buildSwapTransaction(freshQuoteForSubmit, solanaAddr, speed, capSol);
-          txBase64 = jupiterSwap.swapTransaction;
-          activeRoute = "jupiter";
 
-          // Run security validation on the new Jupiter tx
-          const secCheck = decodeAndValidateSwapTx(txBase64, solanaAddr, outputToken.mint, "jupiter");
-          if (!secCheck.safe) {
-            await addDebugLog("error", "Jupiter fallback security check failed", secCheck);
-            throw new Error("Security check failed on Jupiter fallback: " + secCheck.errors.join(", "));
-          }
-          if (isDrainerTransaction(txBase64, solanaAddr)) {
-            await addDebugLog("error", "Drainer detected in Jupiter fallback");
-            throw new Error("Suspicious transaction detected. Swap blocked for safety.");
-          }
-        } else {
-          const msg = (freshBuild as any).message || "Failed to build transaction. Please try again.";
-          throw new Error(msg);
+      // --- Build, sign, broadcast with auto-retry for Pump routes ---
+      // Pump.fun txs frequently expire because bonding curve state changes
+      // between build and validator processing. Phantom/Trust auto-retry
+      // transparently — we do the same (up to 3 attempts).
+      const isPumpRoute = pendingSwap.route === "pump" && pumpMeta;
+      const maxAttempts = isPumpRoute ? 3 : 1;
+      const isBuying = inputToken.mint === SOL_MINT;
+      const capSol = customCapSol ?? SPEED_CONFIGS[speed].capSol;
+      // Boost priority fee for Pump routes — bonding curve txs need higher
+      // priority to land before state changes. Use at least "fast" tier.
+      const pumpCapSol = Math.max(capSol, SPEED_CONFIGS.fast.capSol);
+      const effectiveCapSol = isPumpRoute ? pumpCapSol : capSol;
+
+      let lastResult: any = null;
+      let lastRecord: any = null;
+      let activeRoute: SwapRoute = pendingSwap.route;
+
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        if (attempt > 1) {
+          setSwapStatus(`Retrying (${attempt}/${maxAttempts})...`);
+          console.log(`[Swap] Auto-retry attempt ${attempt}/${maxAttempts}`);
+          await addDebugLog("info", `Pump auto-retry attempt ${attempt}`, {});
         }
-        setSwapStatus("Signing...");
+
+        // Build fresh transaction for each attempt
+        let txBase64 = pendingSwap.swapResponse.swapTransaction;
+        let freshQuoteForSubmit: QuoteResponse | null = null;
+        activeRoute = pendingSwap.route;
+
+        if (isPumpRoute) {
+          setSwapStatus(attempt === 1 ? "Building fresh tx..." : `Rebuilding tx (${attempt}/${maxAttempts})...`);
+          const freshBuild = await buildPump({
+            userPublicKey: solanaAddr,
+            mint: pumpMeta!.mint,
+            side: isBuying ? "buy" : "sell",
+            amountSol: isBuying ? parseFloat(inputAmount) : undefined,
+            amountTokens: isBuying ? undefined : parseFloat(inputAmount),
+            slippageBps,
+            speedMode: speed,
+            maxPriorityFeeLamports: effectiveCapSol * LAMPORTS_PER_SOL,
+          });
+          if (freshBuild.ok && freshBuild.swapTransactionBase64) {
+            txBase64 = freshBuild.swapTransactionBase64;
+            console.log(`[Swap] Fresh Pump tx built (attempt ${attempt})`);
+          } else if ((freshBuild as any).code === "TOKEN_GRADUATED") {
+            // Token graduated from bonding curve — auto-fallback to Jupiter
+            console.log("[Swap] Token graduated, falling back to Jupiter at submit time");
+            await addDebugLog("info", "Token graduated at submit, using Jupiter", {});
+            setSwapStatus("Token graduated, using Jupiter...");
+            const inputAmountLamports = Math.floor(
+              parseFloat(inputAmount) * Math.pow(10, inputToken.decimals)
+            ).toString();
+            freshQuoteForSubmit = await getQuote({
+              inputMint: inputToken.mint,
+              outputMint: outputToken.mint,
+              amount: inputAmountLamports,
+              slippageBps,
+              swapMode: "ExactIn",
+            });
+            const jupiterSwap = await buildSwapTransaction(freshQuoteForSubmit, solanaAddr, speed, capSol);
+            txBase64 = jupiterSwap.swapTransaction;
+            activeRoute = "jupiter";
+
+            // Run security validation on the new Jupiter tx
+            const secCheck = decodeAndValidateSwapTx(txBase64, solanaAddr, outputToken.mint, "jupiter");
+            if (!secCheck.safe) {
+              await addDebugLog("error", "Jupiter fallback security check failed", secCheck);
+              throw new Error("Security check failed on Jupiter fallback: " + secCheck.errors.join(", "));
+            }
+            if (isDrainerTransaction(txBase64, solanaAddr)) {
+              await addDebugLog("error", "Drainer detected in Jupiter fallback");
+              throw new Error("Suspicious transaction detected. Swap blocked for safety.");
+            }
+          } else {
+            const msg = (freshBuild as any).message || "Failed to build transaction. Please try again.";
+            throw new Error(msg);
+          }
+        }
+
+        setSwapStatus(attempt === 1 ? "Signing..." : `Signing (${attempt}/${maxAttempts})...`);
+        const txBuffer = Buffer.from(txBase64, "base64");
+        const transaction = VersionedTransaction.deserialize(txBuffer);
+        transaction.sign([keypair]);
+        const signedBytes = transaction.serialize();
+
+        if (attempt === 1) {
+          timings.tapToSubmittedMs = Date.now() - tapStart;
+        }
+
+        setSwapStatus("Submitting...");
+
+        // Use fresh Jupiter quote if we fell back from graduated Pump, otherwise use pending quote
+        const activeQuote = freshQuoteForSubmit || pendingSwap.quote;
+        const outAmount = activeQuote
+          ? formatBaseUnits(activeQuote.outAmount, outputToken.decimals)
+          : "0";
+        const minReceived = activeQuote
+          ? formatBaseUnits(activeQuote.otherAmountThreshold, outputToken.decimals)
+          : "0";
+
+        const routeLabel = activeRoute === "pump" ? "Pump.fun" :
+          (activeQuote ? formatRoute(activeQuote) : "Jupiter");
+
+        const record = await addSwapRecord({
+          timestamp: Date.now(),
+          inputMint: inputToken.mint,
+          outputMint: outputToken.mint,
+          inputSymbol: inputToken.symbol,
+          outputSymbol: outputToken.symbol,
+          inputAmount,
+          outputAmount: outAmount,
+          minReceived,
+          slippageBps,
+          mode: speed,
+          capSol: effectiveCapSol,
+          signature: "",
+          status: "submitted",
+          timings,
+          route: routeLabel,
+          priceImpactPct: activeQuote ? parseFloat(activeQuote.priceImpactPct) : 0,
+        });
+        lastRecord = record;
+
+        const submitStart = Date.now();
+
+        const result = await broadcastTransaction(signedBytes, {
+          mode: speed,
+          maxWaitMs: activeRoute === "pump" ? 12_000 : undefined,
+          onStatusChange: (status, sig) => {
+            if (sig && record.signature !== sig) {
+              updateSwapStatus(record.id, status, { signature: sig });
+            }
+            if (status === "submitted" && sig) {
+              setSwapStatus("Confirming...");
+            } else if (status === "processed") {
+              setSwapStatus("Processing...");
+              timings.submittedToProcessedMs = Date.now() - submitStart;
+            } else if (status === "confirmed" || status === "finalized") {
+              setSwapStatus("Confirmed!");
+              timings.processedToConfirmedMs = Date.now() - submitStart - (timings.submittedToProcessedMs || 0);
+              timings.totalMs = Date.now() - tapStart;
+            }
+          },
+          onRebroadcast: (count) => {
+            setSwapStatus(attempt > 1
+              ? `Retrying (${attempt}/${maxAttempts})...`
+              : `Rebroadcasting (${count})...`);
+          },
+        });
+
+        await updateSwapStatus(record.id, result.status, {
+          signature: result.signature,
+          failureReason: result.error,
+          failureCategory: result.error ? classifyError(result.error).category : undefined,
+          timings: { ...timings, totalMs: Date.now() - tapStart },
+        });
+
+        lastResult = { ...result, outAmount, record };
+
+        // If confirmed or failed with a real error, stop retrying
+        if (result.status === "confirmed" || result.status === "finalized") {
+          break;
+        }
+        if (result.status === "failed") {
+          // Real on-chain failure (slippage, insufficient funds) — don't retry
+          break;
+        }
+        // "expired" — retry with fresh tx (loop continues)
+        if (attempt < maxAttempts) {
+          console.log(`[Swap] Attempt ${attempt} expired, will retry with fresh tx`);
+        }
       }
 
-      const txBuffer = Buffer.from(txBase64, "base64");
-      const transaction = VersionedTransaction.deserialize(txBuffer);
-
-      // Sign with the user's keypair — do NOT modify the message (e.g. blockhash)
-      // after deserialization.  The transaction was just built (Pump txs are rebuilt
-      // fresh above, Jupiter txs were built seconds ago) so the blockhash is valid.
-      // Mutating recentBlockhash on a VersionedTransaction invalidates any existing
-      // signatures and can cause validators to silently drop the tx.
-      transaction.sign([keypair]);
-
-      const signedBytes = transaction.serialize();
-      timings.tapToSubmittedMs = Date.now() - tapStart;
-
-      setSwapStatus("Submitting...");
-
-      // Use fresh Jupiter quote if we fell back from graduated Pump, otherwise use pending quote
-      const activeQuote = freshQuoteForSubmit || pendingSwap.quote;
-      const outAmount = activeQuote
-        ? formatBaseUnits(activeQuote.outAmount, outputToken.decimals)
-        : "0";
-      const minReceived = activeQuote
-        ? formatBaseUnits(activeQuote.otherAmountThreshold, outputToken.decimals)
-        : "0";
-
-      const capSol = customCapSol ?? SPEED_CONFIGS[speed].capSol;
-      const routeLabel = activeRoute === "pump" ? "Pump.fun" :
-        (activeQuote ? formatRoute(activeQuote) : "Jupiter");
-
-      const record = await addSwapRecord({
-        timestamp: Date.now(),
-        inputMint: inputToken.mint,
-        outputMint: outputToken.mint,
-        inputSymbol: inputToken.symbol,
-        outputSymbol: outputToken.symbol,
-        inputAmount,
-        outputAmount: outAmount,
-        minReceived,
-        slippageBps,
-        mode: speed,
-        capSol,
-        signature: "",
-        status: "submitted",
-        timings,
-        route: routeLabel,
-        priceImpactPct: activeQuote ? parseFloat(activeQuote.priceImpactPct) : 0,
-      });
-
-      const submitStart = Date.now();
-
-      // Pump.fun txs land in ~5s or not at all. Cap the wait to 15s to avoid
-      // leaving the user stuck on "Confirming..." for 30+ seconds.
-      const isPumpRoute = activeRoute === "pump";
-
-      const result = await broadcastTransaction(signedBytes, {
-        mode: speed,
-        maxWaitMs: isPumpRoute ? 15_000 : undefined,
-        onStatusChange: (status, sig) => {
-          if (sig && record.signature !== sig) {
-            updateSwapStatus(record.id, status, { signature: sig });
-          }
-          if (status === "submitted" && sig) {
-            // Tx was accepted by the RPC — update from "Submitting..." so user
-            // sees forward progress instead of a frozen screen.
-            setSwapStatus("Confirming...");
-          } else if (status === "processed") {
-            setSwapStatus("Processing...");
-            timings.submittedToProcessedMs = Date.now() - submitStart;
-          } else if (status === "confirmed" || status === "finalized") {
-            setSwapStatus("Confirmed!");
-            timings.processedToConfirmedMs = Date.now() - submitStart - (timings.submittedToProcessedMs || 0);
-            timings.totalMs = Date.now() - tapStart;
-          }
-        },
-        onRebroadcast: (count) => {
-          setSwapStatus(`Rebroadcasting (${count})...`);
-        },
-      });
-
-      await updateSwapStatus(record.id, result.status, {
-        signature: result.signature,
-        failureReason: result.error,
-        failureCategory: result.error ? classifyError(result.error).category : undefined,
-        timings: { ...timings, totalMs: Date.now() - tapStart },
-      });
+      // --- Handle final result ---
+      const result = lastResult;
+      const outAmount = result.outAmount;
 
       await Haptics.notificationAsync(
         result.status === "confirmed" || result.status === "finalized"
@@ -903,7 +935,7 @@ export default function SwapScreen({ route }: Props) {
             // Fee will be retried later via pending queue
           });
         }
-        
+
         showAlert(
           "Swap Successful",
           `Swapped ${inputAmount} ${inputToken.symbol} for ${outAmount} ${outputToken.symbol}`,
@@ -921,7 +953,9 @@ export default function SwapScreen({ route }: Props) {
       } else if (result.status === "expired") {
         showAlert(
           "Transaction Expired",
-          "The transaction may still land. Check the explorer.",
+          isPumpRoute
+            ? `Failed after ${maxAttempts} attempts. The token may be too volatile. Try increasing slippage or using Turbo speed.`
+            : "The transaction may still land. Check the explorer.",
           [
             { text: "View", onPress: () => {
               const url = getExplorerUrl(result.signature);
@@ -933,10 +967,10 @@ export default function SwapScreen({ route }: Props) {
       } else {
         const classified = classifyError(result.error || "");
         console.log("[Swap] Failed with error:", result.error, "classified:", classified.category);
-        await addDebugLog("error", "Swap failed", { 
-          error: result.error, 
+        await addDebugLog("error", "Swap failed", {
+          error: result.error,
           category: classified.category,
-          userMessage: classified.userMessage 
+          userMessage: classified.userMessage
         });
         showAlert("Swap Failed", classified.userMessage, [
           ...(classified.canRetry ? [{ text: "Retry", onPress: handleSwapPress }] : []),

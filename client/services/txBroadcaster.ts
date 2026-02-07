@@ -31,8 +31,7 @@ export interface BroadcastConfig {
   onStatusChange?: (status: TxStatus, signature: string) => void;
   onRebroadcast?: (count: number) => void;
   skipPreflight?: boolean;
-  /** Override the max wait duration (ms). Useful for Pump.fun txs that land in
-   *  ~5s or not at all — avoids making the user wait 30+ seconds. */
+  /** Override the max wait duration (ms). */
   maxWaitMs?: number;
 }
 
@@ -42,6 +41,11 @@ interface RpcHealth {
   healthy: boolean;
   lastCheck: number;
 }
+
+// Jito Block Engine endpoints — sends tx directly to validators with MEV
+// protection. This is what every fast trading bot uses. ~95% of Solana
+// validators run the Jito client so coverage is near-universal.
+const JITO_BLOCK_ENGINE = "https://mainnet.block-engine.jito.wtf/api/v1/transactions";
 
 let primaryConnection: Connection | null = null;
 let fallbackConnection: Connection | null = null;
@@ -103,6 +107,48 @@ export function getRpcHealth(): typeof rpcHealthCache {
   return rpcHealthCache;
 }
 
+// --- Jito Block Engine submission ---
+// Sends directly to Jito's block engine which forwards to validators via
+// staked connections. This bypasses the standard RPC mempool and gives
+// MEV protection + much higher landing rates.
+async function sendViaJito(
+  signedTx: Uint8Array
+): Promise<{ signature?: string; error?: string }> {
+  try {
+    const base64Tx = Buffer.from(signedTx).toString("base64");
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+
+    const response = await fetch(JITO_BLOCK_ENGINE, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "sendTransaction",
+        params: [
+          base64Tx,
+          { encoding: "base64" },
+        ],
+      }),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeout);
+    const data = await response.json();
+
+    if (data.result) {
+      return { signature: data.result };
+    }
+    if (data.error) {
+      return { error: data.error.message || JSON.stringify(data.error) };
+    }
+    return { error: "No result from Jito" };
+  } catch (err: any) {
+    return { error: err.name === "AbortError" ? "Jito timeout" : err.message };
+  }
+}
+
 async function sendWithRetry(
   connection: Connection,
   signedTx: Uint8Array,
@@ -110,7 +156,7 @@ async function sendWithRetry(
   skipPreflight: boolean = false
 ): Promise<TransactionSignature> {
   let lastError: Error | null = null;
-  
+
   for (let i = 0; i < maxRetries; i++) {
     try {
       const signature = await connection.sendRawTransaction(signedTx, {
@@ -122,7 +168,7 @@ async function sendWithRetry(
     } catch (error: any) {
       lastError = error;
       // Don't retry blockhash/expired errors - they need a fresh transaction
-      if (error.message?.includes("blockhash") || 
+      if (error.message?.includes("blockhash") ||
           error.message?.includes("not found") ||
           error.message?.includes("expired")) {
         throw error;
@@ -134,7 +180,7 @@ async function sendWithRetry(
       await new Promise(r => setTimeout(r, 100 * (i + 1)));
     }
   }
-  
+
   throw lastError || new Error("Failed to send transaction");
 }
 
@@ -145,41 +191,41 @@ async function waitForStatus(
   timeoutMs: number
 ): Promise<{ status: SignatureStatus | null; confirmed: boolean }> {
   const start = Date.now();
-  
+
   while (Date.now() - start < timeoutMs) {
     try {
       const response = await connection.getSignatureStatus(signature, {
         searchTransactionHistory: false,
       });
-      
+
       const status = response.value;
-      
+
       if (status?.err) {
         return { status, confirmed: false };
       }
-      
+
       const confStatus = status?.confirmationStatus as string | undefined;
-      
+
       if (confStatus === "finalized") {
         return { status, confirmed: true };
       }
-      
+
       if (targetStatus === "confirmed") {
         if (confStatus === "confirmed" || confStatus === "finalized") {
           return { status, confirmed: true };
         }
       }
-      
+
       if (targetStatus === "processed" && confStatus) {
         return { status, confirmed: true };
       }
     } catch (error) {
       console.warn("[Broadcaster] Status check error:", error);
     }
-    
+
     await new Promise(r => setTimeout(r, 200));
   }
-  
+
   return { status: null, confirmed: false };
 }
 
@@ -196,36 +242,56 @@ export async function broadcastTransaction(
   let rebroadcastCount = 0;
   const startTime = Date.now();
 
-  const skipPreflight = config.skipPreflight ?? true; // Default to skip for DEX swaps
+  // Always skip preflight for speed — Jito handles this better anyway
+  const skipPreflight = config.skipPreflight ?? true;
 
-  // --- Phase 1: Submit to RPCs ---
-  try {
-    config.onStatusChange?.("submitted", "");
-    signature = await sendWithRetry(primaryConn, signedTxBytes, 3, skipPreflight);
-    config.onStatusChange?.("submitted", signature);
-    console.log(`[Broadcaster] Primary submit: ${signature}${skipPreflight ? " (preflight skipped)" : ""}`);
-  } catch (primaryError: any) {
-    console.warn("[Broadcaster] Primary submit failed, trying fallback:", primaryError.message);
+  // --- Phase 1: Blast tx to Jito + all RPCs simultaneously ---
+  // This is how fast TG bots work. Fire to every endpoint at once,
+  // take the first signature that comes back.
+  config.onStatusChange?.("submitted", "");
 
-    try {
-      signature = await sendWithRetry(fallbackConn, signedTxBytes, 3, skipPreflight);
-      usedFallback = true;
-      config.onStatusChange?.("submitted", signature);
-      console.log(`[Broadcaster] Fallback submit: ${signature}`);
-    } catch (fallbackError: any) {
-      return {
-        signature: "",
-        status: "failed",
-        error: fallbackError.message || "Failed to submit transaction",
-        rebroadcastCount: 0,
-        usedFallback: true,
-      };
-    }
+  const jitoPromise = sendViaJito(signedTxBytes);
+  const primaryPromise = sendWithRetry(primaryConn, signedTxBytes, 2, skipPreflight)
+    .then(sig => ({ signature: sig, error: undefined }))
+    .catch(err => ({ signature: undefined, error: err.message }));
+  const fallbackPromise = sendWithRetry(fallbackConn, signedTxBytes, 1, skipPreflight)
+    .then(sig => ({ signature: sig, error: undefined }))
+    .catch(err => ({ signature: undefined, error: err.message }));
+
+  // Wait for all submissions to complete (they run in parallel)
+  const [jitoResult, primaryResult, fallbackResult] = await Promise.all([
+    jitoPromise,
+    primaryPromise,
+    fallbackPromise,
+  ]);
+
+  // Take the first valid signature
+  if (jitoResult.signature) {
+    signature = jitoResult.signature;
+    console.log(`[Broadcaster] Jito submit: ${signature}`);
+  } else if (primaryResult.signature) {
+    signature = primaryResult.signature;
+    console.log(`[Broadcaster] Primary submit: ${signature}`);
+  } else if (fallbackResult.signature) {
+    signature = fallbackResult.signature;
+    usedFallback = true;
+    console.log(`[Broadcaster] Fallback submit: ${signature}`);
+  } else {
+    // All three failed
+    const error = jitoResult.error || primaryResult.error || fallbackResult.error || "All endpoints failed";
+    console.error("[Broadcaster] All endpoints failed:", { jito: jitoResult.error, primary: primaryResult.error, fallback: fallbackResult.error });
+    return {
+      signature: "",
+      status: "failed",
+      error,
+      rebroadcastCount: 0,
+      usedFallback: false,
+    };
   }
 
-  // --- Phase 2: Early failure detection ---
-  // Check status quickly. If the tx already errored on-chain, return immediately
-  // instead of waiting the full timeout.
+  config.onStatusChange?.("submitted", signature);
+
+  // --- Phase 2: Quick status check ---
   const initialCheck = await waitForStatus(primaryConn, signature, "processed", 500);
   if (initialCheck.status?.err) {
     return {
@@ -237,7 +303,6 @@ export async function broadcastTransaction(
     };
   }
 
-  // If already confirmed in the initial check, return immediately
   if (initialCheck.confirmed) {
     const confStatus = initialCheck.status?.confirmationStatus as string | undefined;
     const earlyStatus: TxStatus = confStatus === "finalized" ? "finalized"
@@ -253,45 +318,7 @@ export async function broadcastTransaction(
     };
   }
 
-  // Also send to fallback for redundancy if primary succeeded
-  if (!usedFallback) {
-    try {
-      await sendWithRetry(fallbackConn, signedTxBytes, 1);
-      usedFallback = true;
-      console.log("[Broadcaster] Also sent to fallback for redundancy");
-    } catch {
-    }
-  }
-
-  // --- Phase 3: Simulate to detect doomed transactions early ---
-  // If skipPreflight was used, run a simulation now to catch errors that would
-  // cause the tx to be silently dropped (expired blockhash, program errors).
-  // This avoids waiting 30+ seconds for a tx that will never land.
-  if (skipPreflight) {
-    try {
-      const simResult = await primaryConn.simulateTransaction(
-        VersionedTransaction.deserialize(signedTxBytes),
-        { commitment: "confirmed", replaceRecentBlockhash: false }
-      );
-      if (simResult.value.err) {
-        const simError = JSON.stringify(simResult.value.err);
-        console.warn("[Broadcaster] Simulation failed, tx is doomed:", simError);
-        return {
-          signature,
-          status: "failed",
-          error: simError,
-          rebroadcastCount,
-          usedFallback,
-        };
-      }
-      console.log("[Broadcaster] Simulation passed, tx should land");
-    } catch (simErr: any) {
-      // Simulation RPC call failed (network issue) - continue waiting normally
-      console.warn("[Broadcaster] Simulation check failed (non-fatal):", simErr.message);
-    }
-  }
-
-  // --- Phase 4: Rebroadcast loop + confirmation wait ---
+  // --- Phase 3: Rebroadcast loop (Jito + RPCs) ---
   const rebroadcastLoop = async () => {
     const maxDuration = config.maxWaitMs
       ? Math.min(config.maxWaitMs, speedConfig.maxRebroadcastDurationMs)
@@ -310,25 +337,22 @@ export async function broadcastTransaction(
       rebroadcastCount++;
       config.onRebroadcast?.(rebroadcastCount);
 
-      try {
-        await primaryConn.sendRawTransaction(signedTxBytes, {
+      // Rebroadcast to Jito + primary simultaneously
+      sendViaJito(signedTxBytes).catch(() => {});
+      primaryConn.sendRawTransaction(signedTxBytes, {
+        skipPreflight: true,
+        preflightCommitment: "confirmed",
+        maxRetries: 0,
+      }).catch(() => {});
+
+      console.log(`[Broadcaster] Rebroadcast ${rebroadcastCount} (Jito + primary)`);
+
+      if (config.mode === "turbo" || rebroadcastCount % 2 === 0) {
+        fallbackConn.sendRawTransaction(signedTxBytes, {
           skipPreflight: true,
           preflightCommitment: "confirmed",
           maxRetries: 0,
-        });
-        console.log(`[Broadcaster] Rebroadcast ${rebroadcastCount}`);
-      } catch {
-      }
-
-      if (config.mode === "turbo" && rebroadcastCount % 2 === 0) {
-        try {
-          await fallbackConn.sendRawTransaction(signedTxBytes, {
-            skipPreflight: true,
-            preflightCommitment: "confirmed",
-            maxRetries: 0,
-          });
-        } catch {
-        }
+        }).catch(() => {});
       }
     }
   };
@@ -404,7 +428,7 @@ export function classifyError(error: string): {
   needsRebuild: boolean;
 } {
   const errorLower = error.toLowerCase();
-  
+
   if (errorLower.includes("slippage") || errorLower.includes("0x1771")) {
     return {
       category: "slippage",
@@ -413,7 +437,7 @@ export function classifyError(error: string): {
       needsRebuild: true,
     };
   }
-  
+
   // Token-2022 compatibility error
   if (errorLower.includes("0x177e") || errorLower.includes("incorrecttokenprogramid")) {
     return {
@@ -423,7 +447,7 @@ export function classifyError(error: string): {
       needsRebuild: true,
     };
   }
-  
+
   // 0x1788 = InvalidAccountData - usually stale route data, pool state changed, or insufficient SOL for WSOL rent
   if (errorLower.includes("0x1788") || errorLower.includes("invalidaccountdata")) {
     return {
@@ -433,10 +457,10 @@ export function classifyError(error: string): {
       needsRebuild: true,
     };
   }
-  
+
   // Be specific about insufficient funds - 0x1 by itself (word boundary) or explicit text
   // Also handle lamports-related errors which indicate SOL fee issues
-  if (errorLower.includes("insufficient lamports") || 
+  if (errorLower.includes("insufficient lamports") ||
       errorLower.includes("insufficient sol") ||
       errorLower.includes("not enough sol")) {
     return {
@@ -446,8 +470,8 @@ export function classifyError(error: string): {
       needsRebuild: false,
     };
   }
-  
-  if (errorLower.includes("insufficient") || 
+
+  if (errorLower.includes("insufficient") ||
       /\b0x1\b/.test(errorLower) ||
       errorLower.includes("custom program error: 0x1\"") ||
       errorLower.includes("custom program error: 1\"")) {
@@ -458,7 +482,7 @@ export function classifyError(error: string): {
       needsRebuild: false,
     };
   }
-  
+
   if (errorLower.includes("blockhash") || errorLower.includes("expired") || errorLower.includes("not found")) {
     return {
       category: "blockhash_expired",
@@ -467,7 +491,7 @@ export function classifyError(error: string): {
       needsRebuild: true,
     };
   }
-  
+
   if (errorLower.includes("timeout") || errorLower.includes("econnrefused")) {
     return {
       category: "rpc_timeout",
@@ -476,7 +500,7 @@ export function classifyError(error: string): {
       needsRebuild: false,
     };
   }
-  
+
   return {
     category: "unknown",
     userMessage: error,
