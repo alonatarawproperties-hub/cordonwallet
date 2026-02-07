@@ -55,6 +55,36 @@ export const SPEED_CONFIGS: Record<SwapSpeed, {
 
 export const LAMPORTS_PER_SOL = 1_000_000_000;
 
+// Jito Block Engine — the 8 official tip accounts
+// Validators running Jito client (~95% of network) check these for bundle tips
+export const JITO_TIP_ACCOUNTS = [
+  "96gYZGLnJYVFmbjzopPSU6QiEV5fGqZNyN9nmNhvrZU5",
+  "HFqU5x63VTqvQss8hp11i4bVqkfRtX7wcVPi3jPo2Wrd",
+  "Cw8CFyM9FkoMi7K7Crf6HNQqf4uEMzpKw6QNghXLvLkY",
+  "ADaUMid9yfUytqMBgopwjb2DTLSLp7TDz1LKQTE2zcKZ",
+  "DfXygSm4jCyNCybVYYK6DwvWqjKee8pbDmJGcLWNDXjh",
+  "ADuUkR4vqLUMWXxW9gh6D6L8pMSawimctcNZ5pGwDcEt",
+  "DttWaMuVvTiduZRnguLF7jNxTgiMBZ1hyAumKUiL2KRL",
+  "3AVi9Tg9Uo68tJfuvoKvqKNWKkC5wPdSSdeBnizKZ6jT",
+];
+
+// Jito tip per speed tier (lamports) — paid to validators for bundle inclusion
+export const JITO_TIP_LAMPORTS: Record<SwapSpeed, number> = {
+  standard: 100_000,    // 0.0001 SOL — enough to win most auctions
+  fast: 500_000,        // 0.0005 SOL — competitive
+  turbo: 2_000_000,     // 0.002 SOL  — aggressive, near-guaranteed inclusion
+};
+
+// Jito block engine endpoints — multiple regions for redundancy
+// Send to all simultaneously, first to land wins
+export const JITO_ENDPOINTS = [
+  "https://mainnet.block-engine.jito.wtf",
+  "https://ny.mainnet.block-engine.jito.wtf",
+  "https://amsterdam.mainnet.block-engine.jito.wtf",
+  "https://frankfurt.mainnet.block-engine.jito.wtf",
+  "https://tokyo.mainnet.block-engine.jito.wtf",
+];
+
 export const SOL_MINT = "So11111111111111111111111111111111111111112";
 export const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 export const USDT_MINT = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB";
