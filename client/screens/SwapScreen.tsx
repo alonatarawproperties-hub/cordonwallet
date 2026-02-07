@@ -21,7 +21,7 @@ import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { NativeStackNavigationProp, NativeStackScreenProps } from "@react-navigation/native-stack";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import { VersionedTransaction, Keypair } from "@solana/web3.js";
+import { VersionedTransaction, Transaction, Keypair, SystemProgram, PublicKey } from "@solana/web3.js";
 import bs58 from "bs58";
 
 import { useTheme } from "@/hooks/useTheme";
@@ -47,6 +47,8 @@ import {
   LAMPORTS_PER_SOL,
   ADV_MAX_CAP_SOL,
   RPC_PRIMARY,
+  JITO_TIP_ACCOUNTS,
+  JITO_TIP_LAMPORTS,
 } from "@/constants/solanaSwap";
 import { Connection } from "@solana/web3.js";
 import { getQuoteEngine, QuoteEngineState, SwapRoute, PumpMeta } from "@/lib/quoteEngine";
@@ -825,6 +827,22 @@ export default function SwapScreen({ route }: Props) {
         transaction.sign([keypair]);
         const signedBytes = transaction.serialize();
 
+        // Build Jito tip transaction — this is what makes TG bots fast.
+        // Validators running Jito (~95%) prioritize bundles that include a tip.
+        // Tip tx is separate from swap tx; sent as an atomic Jito bundle.
+        const tipAccount = JITO_TIP_ACCOUNTS[Math.floor(Math.random() * JITO_TIP_ACCOUNTS.length)];
+        const tipLamports = JITO_TIP_LAMPORTS[speed];
+        const tipTx = new Transaction();
+        tipTx.add(SystemProgram.transfer({
+          fromPubkey: keypair.publicKey,
+          toPubkey: new PublicKey(tipAccount),
+          lamports: tipLamports,
+        }));
+        tipTx.recentBlockhash = transaction.message.recentBlockhash;
+        tipTx.feePayer = keypair.publicKey;
+        tipTx.sign(keypair);
+        const tipTxBytes = tipTx.serialize();
+
         if (attempt === 1) {
           timings.tapToSubmittedMs = Date.now() - tapStart;
         }
@@ -888,7 +906,7 @@ export default function SwapScreen({ route }: Props) {
               ? `Retrying (${attempt}/${maxAttempts})...`
               : `Rebroadcasting (${count})...`);
           },
-        });
+        }, tipTxBytes);
 
         await updateSwapStatus(record.id, result.status, {
           signature: result.signature,
