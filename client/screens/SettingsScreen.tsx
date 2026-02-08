@@ -498,6 +498,18 @@ export default function SettingsScreen() {
                 thumbColor="#fff"
               />
             </View>
+            <Pressable
+              style={[styles.debugRow, { borderTopWidth: 1, borderTopColor: theme.border }]}
+              onPress={() => navigation.navigate("SwapDebug")}
+            >
+              <View style={{ flex: 1 }}>
+                <ThemedText type="body" style={{ fontWeight: "500" }}>Swap Debug Logs</ThemedText>
+                <ThemedText type="caption" style={{ color: theme.textSecondary }}>
+                  View recent swap build/send logs
+                </ThemedText>
+              </View>
+              <Feather name="chevron-right" size={18} color={theme.textSecondary} />
+            </Pressable>
             <View style={[styles.debugRow, { borderTopWidth: 1, borderTopColor: theme.border, marginTop: Spacing.sm, paddingTop: Spacing.sm }]}>
               <ThemedText type="caption" style={{ color: theme.textSecondary }}>Chain ID</ThemedText>
               <ThemedText type="small" style={{ fontFamily: "monospace" }}>{chainId}</ThemedText>
