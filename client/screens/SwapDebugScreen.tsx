@@ -19,6 +19,8 @@ import { ThemedView } from "@/components/ThemedView";
 import {
   getSwapHistory,
   calculateSwapStats,
+  getDebugLogs,
+  clearDebugLogs,
 } from "@/services/swapStore";
 import {
   JUPITER_API_URL,
@@ -44,6 +46,7 @@ export default function SwapDebugScreen() {
 
   const [metrics, setMetrics] = useState<SwapMetrics | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [logs, setLogs] = useState<string[]>([]);
 
   const loadMetrics = useCallback(async () => {
     const history = await getSwapHistory();
@@ -55,6 +58,14 @@ export default function SwapDebugScreen() {
       averageConfirmationTime: stats.avgConfirmationMs,
       totalFeesSpent: history.reduce((acc, r) => acc + r.capSol, 0),
     });
+    const debugLogs = await getDebugLogs();
+    setLogs(
+      debugLogs.map((entry) => {
+        const ts = new Date(entry.timestamp).toLocaleTimeString();
+        const data = entry.data ? ` ${JSON.stringify(entry.data)}` : "";
+        return `[${ts}] ${entry.level.toUpperCase()}: ${entry.message}${data}`;
+      })
+    );
   }, []);
 
   useEffect(() => {
@@ -70,6 +81,16 @@ export default function SwapDebugScreen() {
   const copyToClipboard = async (text: string) => {
     await Clipboard.setStringAsync(text);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  };
+
+  const handleCopyLogs = async () => {
+    if (logs.length === 0) return;
+    await copyToClipboard(logs.join("\n"));
+  };
+
+  const handleClearLogs = async () => {
+    await clearDebugLogs();
+    await loadMetrics();
   };
 
   const renderConfigSection = () => (
@@ -229,6 +250,35 @@ export default function SwapDebugScreen() {
     </View>
   );
 
+  const renderLogsSection = () => (
+    <View style={[styles.section, { backgroundColor: theme.backgroundSecondary }]}>
+      <View style={styles.sectionHeaderRow}>
+        <ThemedText type="h4">Swap Debug Logs</ThemedText>
+        <View style={styles.sectionHeaderActions}>
+          <Pressable onPress={handleCopyLogs} disabled={logs.length === 0}>
+            <Feather name="copy" size={16} color={logs.length ? theme.accent : theme.textSecondary} />
+          </Pressable>
+          <Pressable onPress={handleClearLogs} disabled={logs.length === 0}>
+            <Feather name="trash-2" size={16} color={logs.length ? theme.warning : theme.textSecondary} />
+          </Pressable>
+        </View>
+      </View>
+      {logs.length === 0 ? (
+        <ThemedText type="caption" style={{ color: theme.textSecondary }}>
+          No logs yet. Run a swap to generate logs.
+        </ThemedText>
+      ) : (
+        <View style={[styles.logsContainer, { backgroundColor: theme.backgroundTertiary }]}>
+          {logs.map((line, index) => (
+            <ThemedText key={`${line}-${index}`} type="caption" style={{ color: theme.textSecondary }}>
+              {line}
+            </ThemedText>
+          ))}
+        </View>
+      )}
+    </View>
+  );
+
   return (
     <ThemedView style={styles.container}>
       <ScrollView
@@ -244,6 +294,7 @@ export default function SwapDebugScreen() {
         {renderConfigSection()}
         {renderSpeedConfigs()}
         {renderSecuritySection()}
+        {renderLogsSection()}
       </ScrollView>
     </ThemedView>
   );
@@ -296,6 +347,22 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     gap: Spacing.sm,
+  },
+  sectionHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: Spacing.md,
+  },
+  sectionHeaderActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+  },
+  logsContainer: {
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+    gap: Spacing.xs,
   },
   metricCard: {
     flex: 1,
