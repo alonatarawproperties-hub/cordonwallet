@@ -45,6 +45,7 @@ import {
   USDC_MINT,
   LAMPORTS_PER_SOL,
   RPC_PRIMARY,
+  RPC_FALLBACK,
 } from "@/constants/solanaSwap";
 import { Connection } from "@solana/web3.js";
 import { getQuoteEngine, QuoteEngineState, SwapRoute, PumpMeta } from "@/lib/quoteEngine";
@@ -62,7 +63,11 @@ import {
   calculatePriceImpact,
   QuoteResponse,
 } from "@/services/jupiter";
-import { instantBuild, instantSend } from "@/services/solanaSwapApi";
+import {
+  routeQuote,
+  buildJupiter,
+  buildPump,
+} from "@/services/solanaSwapApi";
 import { classifyError, getExplorerUrl } from "@/services/txBroadcaster";
 import { addSwapRecord, addDebugLog } from "@/services/swapStore";
 import { getApiUrl, getApiHeaders } from "@/lib/query-client";
@@ -579,6 +584,7 @@ export default function SwapScreen({ route }: Props) {
   const canSwap = !!inputToken && !!outputToken && !!inputAmount && parseFloat(inputAmount) > 0 && !insufficientSolForFees;
 
   // ── INSTANT SWAP: TG-bot style — one tap, done ──
+  // Uses existing server endpoints + client-side blockhash fix + parallel RPC send
   const executeInstantSwap = async () => {
     if (!inputToken || !outputToken || !activeWallet || !inputAmount || parseFloat(inputAmount) <= 0) return;
 
@@ -589,7 +595,7 @@ export default function SwapScreen({ route }: Props) {
     }
 
     setIsSwapping(true);
-    setSwapStatus("Sending...");
+    setSwapStatus("Building...");
 
     let keypair: Keypair | null = null;
 
@@ -617,44 +623,117 @@ export default function SwapScreen({ route }: Props) {
         return;
       }
 
-      // 2. Instant build — ONE call: route + quote + build tx
       const amountBaseUnits = parseTokenAmount(inputAmount, inputToken.decimals).toString();
-      const buildResult = await instantBuild({
-        userPublicKey: solanaAddr,
+
+      // 2. Route detection + quote via existing endpoint
+      const rqResult = await routeQuote({
         inputMint: inputToken.mint,
         outputMint: outputToken.mint,
         amount: amountBaseUnits,
         slippageBps,
-        speedMode: speed,
       });
 
-      if (!buildResult.ok || !buildResult.swapTransactionBase64) {
-        throw new Error(buildResult.message || "Failed to build swap");
+      if (!rqResult.ok) {
+        throw new Error(rqResult.message || "No swap route available");
       }
 
-      // 3. Sign locally (~10ms)
+      // 3. Build transaction via existing endpoint
+      let buildResult;
+      if (rqResult.route === "pump" && rqResult.pumpMeta?.isBondingCurve) {
+        const isBuying = inputToken.mint === SOL_MINT;
+        buildResult = await buildPump({
+          userPublicKey: solanaAddr,
+          mint: isBuying ? outputToken.mint : inputToken.mint,
+          side: isBuying ? "buy" : "sell",
+          amountSol: isBuying ? parseInt(amountBaseUnits) / 1_000_000_000 : undefined,
+          amountTokens: !isBuying ? parseInt(amountBaseUnits) : undefined,
+          slippageBps,
+          speedMode: speed,
+        });
+      } else {
+        // Jupiter route — need the quote object
+        if (!rqResult.quoteResponse) {
+          throw new Error("No quote received from route detection");
+        }
+        buildResult = await buildJupiter({
+          userPublicKey: solanaAddr,
+          quote: rqResult.quoteResponse,
+          speedMode: speed,
+          wrapAndUnwrapSol: true,
+        });
+      }
+
+      if (!buildResult.ok || !buildResult.swapTransactionBase64) {
+        throw new Error(buildResult.message || "Failed to build transaction");
+      }
+
+      setSwapStatus("Sending...");
+
+      // 4. Client-side blockhash fix: replace blockhash with fresh one from OUR RPC
+      //    This prevents "Blockhash not found" when Jupiter/Pump uses different RPCs
       const txBuffer = Buffer.from(buildResult.swapTransactionBase64, "base64");
       const transaction = VersionedTransaction.deserialize(txBuffer);
+
+      const connection = new Connection(RPC_PRIMARY, { commitment: "confirmed" });
+      const { blockhash } = await connection.getLatestBlockhash("confirmed");
+      transaction.message.recentBlockhash = blockhash;
+
+      // 5. Sign locally (~10ms)
       transaction.sign([keypair]);
       const signedBytes = transaction.serialize();
       const signedBase64 = Buffer.from(signedBytes).toString("base64");
 
-      // 4. Instant send — Jito + RPCs in parallel, returns immediately
-      const sendResult = await instantSend({
-        signedTransactionBase64: signedBase64,
-        speedMode: speed,
-      });
+      // 6. Send to RPC directly — fire and forget
+      //    Send to primary RPC + fallback RPC in parallel for redundancy
+      const sendRaw = async (rpcUrl: string): Promise<string | null> => {
+        try {
+          const resp = await fetch(rpcUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              jsonrpc: "2.0",
+              id: 1,
+              method: "sendTransaction",
+              params: [
+                signedBase64,
+                { encoding: "base64", skipPreflight: true, maxRetries: 5 },
+              ],
+            }),
+          });
+          const data = await resp.json();
+          if (data.result) return data.result;
+          if (data.error) console.warn("[Send]", rpcUrl.slice(0, 30), data.error.message);
+          return null;
+        } catch (e: any) {
+          console.warn("[Send] failed:", e.message);
+          return null;
+        }
+      };
 
-      if (!sendResult.ok || !sendResult.signature) {
-        throw new Error(sendResult.message || "Failed to send transaction");
+      const [sig1, sig2] = await Promise.all([
+        sendRaw(RPC_PRIMARY),
+        RPC_FALLBACK !== RPC_PRIMARY ? sendRaw(RPC_FALLBACK) : Promise.resolve(null),
+      ]);
+
+      const signature = sig1 || sig2;
+      if (!signature) {
+        throw new Error("Failed to send transaction to RPC");
       }
 
-      // 5. Done! Show result immediately
+      // 7. Done! Show result immediately
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
-      const outDisplay = buildResult.quote?.outAmount && outputToken
-        ? formatBaseUnits(buildResult.quote.outAmount, outputToken.decimals)
+      const outDisplay = rqResult.normalized?.outAmount && outputToken
+        ? formatBaseUnits(rqResult.normalized.outAmount, outputToken.decimals)
         : "";
+
+      const routeLabel = rqResult.route === "pump"
+        ? "Pump.fun"
+        : rqResult.quoteResponse?.routePlan
+            ?.map((r: any) => r.swapInfo?.label || r.label)
+            .filter(Boolean)
+            .slice(0, 2)
+            .join(" → ") || "Jupiter";
 
       // Record swap history
       await addSwapRecord({
@@ -665,22 +744,22 @@ export default function SwapScreen({ route }: Props) {
         outputSymbol: outputToken.symbol,
         inputAmount,
         outputAmount: outDisplay,
-        minReceived: buildResult.quote?.minOut
-          ? formatBaseUnits(buildResult.quote.minOut, outputToken.decimals)
+        minReceived: rqResult.normalized?.minOut
+          ? formatBaseUnits(rqResult.normalized.minOut, outputToken.decimals)
           : "0",
         slippageBps,
         mode: speed,
         capSol: customCapSol ?? SPEED_CONFIGS[speed].capSol,
-        signature: sendResult.signature,
+        signature,
         status: "submitted",
         timings: {},
-        route: buildResult.quote?.routeLabel || buildResult.route || "Unknown",
-        priceImpactPct: buildResult.quote?.priceImpactPct || 0,
+        route: routeLabel,
+        priceImpactPct: rqResult.normalized?.priceImpactPct || 0,
       });
 
       // Charge success fee silently in background
       if (successFeeLamports > 0 && activeWallet?.id && solanaAddr) {
-        tryChargeSuccessFeeNow(activeWallet.id, solanaAddr, successFeeLamports, sendResult.signature).catch(() => {});
+        tryChargeSuccessFeeNow(activeWallet.id, solanaAddr, successFeeLamports, signature).catch(() => {});
       }
 
       showAlert(
@@ -690,7 +769,7 @@ export default function SwapScreen({ route }: Props) {
           : `Sent ${inputAmount} ${inputToken.symbol} swap`,
         [
           { text: "View", onPress: () => {
-            const url = getExplorerUrl(sendResult.signature!);
+            const url = getExplorerUrl(signature);
             import("expo-web-browser").then(m => m.openBrowserAsync(url));
           }},
           { text: "OK" },
