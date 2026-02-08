@@ -702,10 +702,16 @@ export default function SwapScreen({ route }: Props) {
       refreshPortfolio();
     } catch (error: any) {
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      await addDebugLog("error", "Instant swap failed", { error: error.message });
+      const rawMsg = error.message || "Unknown error";
+      await addDebugLog("error", "Instant swap failed", { error: rawMsg });
+      console.error("[SwapScreen] Instant swap error:", rawMsg);
 
-      const classified = classifyError(error.message || "");
-      showAlert("Swap Failed", classified.userMessage || error.message, [
+      const classified = classifyError(rawMsg);
+      // Show raw error so we can actually debug what's happening
+      const displayMsg = classified.category === "unknown"
+        ? rawMsg
+        : `${classified.userMessage}\n\n(${rawMsg.slice(0, 120)})`;
+      showAlert("Swap Failed", displayMsg, [
         ...(classified.canRetry ? [{ text: "Retry", onPress: () => executeInstantSwap() }] : []),
         { text: "OK" },
       ]);

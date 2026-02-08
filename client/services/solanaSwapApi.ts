@@ -110,13 +110,19 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const baseUrl = getApiUrl();
   const url = `${baseUrl}${BASE_PATH}${path}`;
 
-  const response = await fetch(url, {
-    ...options,
-    headers: getApiHeaders({
-      "Content-Type": "application/json",
-      ...(options?.headers as Record<string, string>),
-    }),
-  });
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      ...options,
+      headers: getApiHeaders({
+        "Content-Type": "application/json",
+        ...(options?.headers as Record<string, string>),
+      }),
+    });
+  } catch (fetchErr: any) {
+    // Network error — server unreachable
+    throw new Error(`Network error: ${fetchErr.message || "Cannot reach server"}`);
+  }
 
   // Guard against non-JSON responses (HTML error pages, 404s, etc.)
   const contentType = response.headers.get("content-type") || "";
@@ -124,8 +130,8 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
     const text = await response.text().catch(() => "");
     throw new Error(
       response.status === 404
-        ? `Endpoint not found: ${path}`
-        : `Server error (${response.status}): ${text.slice(0, 100)}`
+        ? `API endpoint unavailable: ${path} (404)`
+        : `Server error ${response.status}: ${text.slice(0, 120)}`
     );
   }
 

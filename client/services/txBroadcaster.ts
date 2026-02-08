@@ -459,10 +459,22 @@ export function classifyError(error: string): {
     };
   }
   
-  if (errorLower.includes("blockhash") || errorLower.includes("expired") || errorLower.includes("not found")) {
+  if (errorLower.includes("blockhash") ||
+      errorLower.includes("block height exceeded") ||
+      (errorLower.includes("expired") && !errorLower.includes("endpoint"))) {
     return {
       category: "blockhash_expired",
       userMessage: "Transaction expired. Please try again.",
+      canRetry: true,
+      needsRebuild: true,
+    };
+  }
+
+  // Endpoint or route not found — show the actual error, don't mask it
+  if (errorLower.includes("not found") || errorLower.includes("no route")) {
+    return {
+      category: "unknown",
+      userMessage: error,
       canRetry: true,
       needsRebuild: true,
     };
