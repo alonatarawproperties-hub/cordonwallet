@@ -254,6 +254,7 @@ export interface InstantBuildParams {
   amount: string;
   slippageBps?: number;
   speedMode?: SpeedMode;
+  maxPriorityFeeLamports?: number;
 }
 
 export interface InstantBuildResult {
