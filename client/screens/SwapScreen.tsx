@@ -820,14 +820,15 @@ export default function SwapScreen({ route }: Props) {
       }
 
       // ── 5. Poll for confirmation ──
-      // Pump trades land in ~5s or not at all — use shorter timeout.
+      // Fast-swap UX: if it doesn't confirm quickly, stop waiting and show "Submitted".
+      // Pump trades land fast or not at all — use a slightly longer window than Jupiter.
       // Poll faster initially (1s) then back off (2s).
       // Race server API + client-direct RPC for fastest detection.
       const isPumpTrade = usedRoute === "pump";
       const FAST_POLL_MS = 1000;
       const SLOW_POLL_MS = 2000;
       const FAST_WINDOW_MS = 10000;
-      const MAX_POLL_TIME = isPumpTrade ? 20000 : 60000;
+      const MAX_POLL_TIME = isPumpTrade ? 15000 : 4000;
       const pollStart = Date.now();
       let confirmed = false;
       let nullChecks = 0;

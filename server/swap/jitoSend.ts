@@ -234,7 +234,8 @@ async function rebroadcastLoop(
 ): Promise<void> {
   const start = Date.now();
   let round = 0;
-  const hasFallback = swapConfig.solanaRpcUrlFallback &&
+  const hasFallback =
+    swapConfig.solanaRpcUrlFallback &&
     swapConfig.solanaRpcUrlFallback !== swapConfig.solanaRpcUrl;
 
   while (Date.now() - start < config.maxDurationMs) {
@@ -243,11 +244,14 @@ async function rebroadcastLoop(
     round++;
 
     // Check if already confirmed
-    const confirmedPrimary = await checkConfirmation(swapConfig.solanaRpcUrl, signature);
-    const confirmedFallback = hasFallback
-      ? await checkConfirmation(swapConfig.solanaRpcUrlFallback, signature)
-      : false;
-    if (confirmedPrimary || confirmedFallback) {
+    const confirmations = await Promise.all([
+      checkConfirmation(swapConfig.solanaRpcUrl, signature),
+      hasFallback
+        ? checkConfirmation(swapConfig.solanaRpcUrlFallback, signature)
+        : Promise.resolve(false),
+    ]);
+    const confirmed = confirmations.some(Boolean);
+    if (confirmed) {
       console.log(`[Rebroadcast] TX confirmed after ${round} rounds (${Date.now() - start}ms)`);
       return;
     }
