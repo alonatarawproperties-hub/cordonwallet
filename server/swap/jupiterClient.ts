@@ -120,8 +120,8 @@ function getHeaders(baseUrl: string, method: string): Record<string, string> {
     headers["Content-Type"] = "application/json";
   }
 
-  if (isProEndpoint(baseUrl) && JUP_API_KEY) {
-    headers["Authorization"] = `Bearer ${JUP_API_KEY}`;
+  if (JUP_API_KEY) {
+    headers["x-api-key"] = JUP_API_KEY;
   }
 
   return headers;
