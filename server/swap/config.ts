@@ -5,8 +5,8 @@ export const platformFeeConfig = {
   // Enabled by default - uses treasury wallet ATAs as fee accounts (no referral program needed)
   enabled: process.env.CORDON_PLATFORM_FEE_ENABLED !== "false",
   feeBps: parseInt(process.env.CORDON_PLATFORM_FEE_BPS || "50", 10),
-  referralAccount: process.env.CORDON_REFERRAL_ACCOUNT || "",
 
+  // Manual overrides: mint -> ATA address. Auto-resolved if not specified.
   knownFeeAccounts: {} as Record<string, string>,
 };
 

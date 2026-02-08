@@ -1,4 +1,4 @@
-import { getQuote, getPlatformFeeParams, platformFeesAllowed } from "./jupiter";
+import { getQuote, resolveFeeAccount, platformFeesAllowed } from "./jupiter";
 import { swapConfig } from "./config";
 import { quoteCache, quoteDeduper, pumpDetectionCache, pumpDetectionDeduper } from "./cache";
 
@@ -23,6 +23,7 @@ export interface RouteQuoteResult {
     routePlan: any[];
   };
   fee?: FeeStatus;
+  feeAccount?: string;
 }
 
 export interface PumpMeta {
@@ -186,24 +187,23 @@ export async function getRouteQuote(params: {
     }
     
     // For non-pump tokens or graduated tokens, try Jupiter
+    // Resolve fee account BEFORE quoting so the quote reflects the fee
+    const feeAccount = await resolveFeeAccount(outputMint);
+    const includeFee = !!feeAccount;
+
     const jupiterResult = await getQuote({
       inputMint,
       outputMint,
       amount,
       slippageBps,
       swapMode: "ExactIn",
+      includePlatformFee: includeFee,
     });
-    
+
     if (jupiterResult.ok) {
-      let feeStatus: FeeStatus;
-      if (platformFeesAllowed()) {
-        const feeResult = await getPlatformFeeParams(outputMint);
-        feeStatus = feeResult.params
-          ? { mode: "platformFee", feeBps: feeResult.params.feeBps }
-          : { mode: "disabled", reason: feeResult.reason, outputMint: feeResult.normalizedMint };
-      } else {
-        feeStatus = { mode: "disabled", reason: "Platform fees disabled by config" };
-      }
+      const feeStatus: FeeStatus = feeAccount
+        ? { mode: "platformFee", feeBps: 50 }
+        : { mode: "disabled", reason: "No fee account for output mint" };
 
       const routeResult: RouteQuoteResult = {
         ok: true,
@@ -211,6 +211,7 @@ export async function getRouteQuote(params: {
         quoteResponse: jupiterResult.quote,
         normalized: jupiterResult.normalized,
         fee: feeStatus,
+        feeAccount: feeAccount || undefined,
       };
       quoteCache.set(cacheKey, routeResult);
       return routeResult;
