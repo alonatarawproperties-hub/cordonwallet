@@ -830,18 +830,25 @@ export default function SwapScreen({ route }: Props) {
         // Build Jito tip transaction — this is what makes TG bots fast.
         // Validators running Jito (~95%) prioritize bundles that include a tip.
         // Tip tx is separate from swap tx; sent as an atomic Jito bundle.
-        const tipAccount = JITO_TIP_ACCOUNTS[Math.floor(Math.random() * JITO_TIP_ACCOUNTS.length)];
-        const tipLamports = JITO_TIP_LAMPORTS[speed];
-        const tipTx = new Transaction();
-        tipTx.add(SystemProgram.transfer({
-          fromPubkey: keypair.publicKey,
-          toPubkey: new PublicKey(tipAccount),
-          lamports: tipLamports,
-        }));
-        tipTx.recentBlockhash = transaction.message.recentBlockhash;
-        tipTx.feePayer = keypair.publicKey;
-        tipTx.sign(keypair);
-        const tipTxBytes = tipTx.serialize();
+        let tipTxBytes: Uint8Array | undefined;
+        try {
+          const tipAccount = JITO_TIP_ACCOUNTS[Math.floor(Math.random() * JITO_TIP_ACCOUNTS.length)];
+          const tipLamports = JITO_TIP_LAMPORTS[speed];
+          const tipTx = new Transaction();
+          tipTx.add(SystemProgram.transfer({
+            fromPubkey: keypair.publicKey,
+            toPubkey: new PublicKey(tipAccount),
+            lamports: tipLamports,
+          }));
+          tipTx.recentBlockhash = transaction.message.recentBlockhash;
+          tipTx.feePayer = keypair.publicKey;
+          tipTx.sign(keypair);
+          // Skip client-side sig verification — validator verifies on-chain
+          tipTxBytes = tipTx.serialize({ verifySignatures: false });
+        } catch (tipErr: any) {
+          console.warn("[Swap] Tip tx build failed, broadcasting without tip:", tipErr.message);
+          await addDebugLog("warn", "Jito tip tx build failed", { error: tipErr.message });
+        }
 
         if (attempt === 1) {
           timings.tapToSubmittedMs = Date.now() - tapStart;
