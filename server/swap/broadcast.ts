@@ -179,7 +179,7 @@ export async function getTransactionStatus(signature: string): Promise<{
         jsonrpc: "2.0",
         id: 1,
         method: "getSignatureStatuses",
-        params: [[signature], { searchTransactionHistory: true }],
+        params: [[signature], { searchTransactionHistory: false }],
       }),
       signal: controller.signal,
     });
