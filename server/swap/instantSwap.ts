@@ -4,12 +4,13 @@
  * Combines route detection + quote + tx build into ONE server call.
  * Client gets back an unsigned transaction ready to sign + send.
  *
- * Critical: We replace the blockhash in the built transaction with
- * a fresh one from OUR RPC so it's always valid when we send it.
- * Jupiter/PumpPortal may use different RPCs with different blockhash views.
+ * NOTE: We do NOT modify the transaction bytes returned by Jupiter/PumpPortal.
+ * Deserializing → modifying → re-serializing versioned transactions can corrupt
+ * the bytes, causing "Invalid transaction: verification failed" from Jito and
+ * silent rejection by validators. Jupiter's blockhash is fresh enough.
  */
 
-import { Connection, VersionedTransaction } from "@solana/web3.js";
+import { Connection } from "@solana/web3.js";
 import { getQuote, buildSwapTransaction } from "./jupiter";
 import { buildPumpTransaction } from "./pump";
 import { getRouteQuote } from "./route";
@@ -19,29 +20,13 @@ import type { InstantBuildResult } from "./types";
 const SOL_MINT = "So11111111111111111111111111111111111111112";
 
 /**
- * Get a fresh blockhash from our own RPC and stamp it onto the transaction.
- * This ensures the blockhash is always valid from the perspective of our
- * sending RPCs, even if Jupiter/Pump used a different RPC or a stale hash.
+ * Get lastValidBlockHeight from our RPC (for Pump txs that don't return it).
+ * Does NOT modify the transaction.
  */
-async function stampFreshBlockhash(
-  txBase64: string
-): Promise<{ txBase64: string; lastValidBlockHeight: number }> {
-  const connection = new Connection(swapConfig.solanaRpcUrl, {
-    commitment: "confirmed",
-  });
-
-  // Get fresh blockhash from our RPC
-  const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
-
-  // Deserialize, replace blockhash, re-serialize
-  const txBuf = Buffer.from(txBase64, "base64");
-  const tx = VersionedTransaction.deserialize(txBuf);
-  tx.message.recentBlockhash = blockhash;
-
-  const newBase64 = Buffer.from(tx.serialize()).toString("base64");
-  console.log(`[InstantBuild] Stamped fresh blockhash: ${blockhash.slice(0, 12)}... (validUntil: ${lastValidBlockHeight})`);
-
-  return { txBase64: newBase64, lastValidBlockHeight };
+async function getLastValidBlockHeight(): Promise<number> {
+  const connection = new Connection(swapConfig.solanaRpcUrl, { commitment: "confirmed" });
+  const { lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
+  return lastValidBlockHeight;
 }
 
 export async function instantBuild(params: {
@@ -111,10 +96,8 @@ export async function instantBuild(params: {
       };
     }
 
-    // ── Stamp fresh blockhash from our RPC ──
-    const { txBase64: freshTx, lastValidBlockHeight } = await stampFreshBlockhash(
-      buildResult.swapTransactionBase64
-    );
+    // Get lastValidBlockHeight from our RPC (Pump doesn't return it)
+    const lastValidBlockHeight = await getLastValidBlockHeight();
 
     const elapsed = Date.now() - start;
     console.log(`[InstantBuild] Pump build done in ${elapsed}ms`);
@@ -122,7 +105,7 @@ export async function instantBuild(params: {
     return {
       ok: true,
       route: "pump",
-      swapTransactionBase64: freshTx,
+      swapTransactionBase64: buildResult.swapTransactionBase64,
       quote: {
         inAmount: amount,
         outAmount: "0", // Pump doesn't give exact output
@@ -206,11 +189,6 @@ async function buildViaJupiter(
     };
   }
 
-  // ── Stamp fresh blockhash from our RPC ──
-  const { txBase64: freshTx, lastValidBlockHeight } = await stampFreshBlockhash(
-    buildResult.swapTransactionBase64
-  );
-
   const routeLabel = jupiterQuote?.routePlan
     ?.map((r: any) => r.swapInfo?.label || r.label)
     .filter(Boolean)
@@ -223,7 +201,7 @@ async function buildViaJupiter(
   return {
     ok: true,
     route: "jupiter",
-    swapTransactionBase64: freshTx,
+    swapTransactionBase64: buildResult.swapTransactionBase64!,
     quote: {
       inAmount: jupiterQuote.inAmount || amount,
       outAmount: normalized?.outAmount || jupiterQuote.outAmount || "0",
@@ -232,6 +210,6 @@ async function buildViaJupiter(
       routeLabel,
     },
     prioritizationFeeLamports: buildResult.prioritizationFeeLamports || 0,
-    lastValidBlockHeight,
+    lastValidBlockHeight: buildResult.lastValidBlockHeight || 0,
   };
 }
