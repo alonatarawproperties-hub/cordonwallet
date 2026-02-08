@@ -45,7 +45,6 @@ import {
   USDC_MINT,
   LAMPORTS_PER_SOL,
   RPC_PRIMARY,
-  RPC_FALLBACK,
 } from "@/constants/solanaSwap";
 import { Connection } from "@solana/web3.js";
 import { getQuoteEngine, QuoteEngineState, SwapRoute, PumpMeta } from "@/lib/quoteEngine";
@@ -67,6 +66,8 @@ import {
   routeQuote,
   buildJupiter,
   buildPump,
+  sendSignedTx,
+  getStatus as getSwapStatus,
   quote as fetchJupiterQuote,
 } from "@/services/solanaSwapApi";
 import { classifyError, getExplorerUrl } from "@/services/txBroadcaster";
@@ -699,136 +700,53 @@ export default function SwapScreen({ route }: Props) {
 
       setSwapStatus("Sending...");
 
-      // 4. Client-side blockhash fix: replace blockhash with fresh one from OUR RPC
+      // 4. Sign the transaction (blockhash from server's RPC is used as-is)
       const txBuffer = Buffer.from(buildResult.swapTransactionBase64, "base64");
       const transaction = VersionedTransaction.deserialize(txBuffer);
-
-      const connection = new Connection(RPC_PRIMARY, { commitment: "confirmed" });
-      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
-      transaction.message.recentBlockhash = blockhash;
-
-      // 5. Sign locally (~10ms)
       transaction.sign([keypair]);
       const signedBytes = transaction.serialize();
       const signedBase64 = Buffer.from(signedBytes).toString("base64");
 
-      // 6. Send + rebroadcast loop: keep sending until confirmed or blockhash expires
-      const sendRaw = async (rpcUrl: string, label: string): Promise<string | null> => {
-        try {
-          const resp = await fetch(rpcUrl, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              jsonrpc: "2.0",
-              id: 1,
-              method: "sendTransaction",
-              params: [
-                signedBase64,
-                { encoding: "base64", skipPreflight: true, maxRetries: 5 },
-              ],
-            }),
-          });
-          const data = await resp.json();
-          if (data.result) return data.result;
-          if (data.error) {
-            const msg = data.error.message || "";
-            if (msg.includes("Blockhash not found") || msg.includes("block height exceeded")) {
-              return "EXPIRED";
-            }
-            console.warn(`[Send:${label}]`, msg);
-          }
-          return null;
-        } catch (e: any) {
-          console.warn(`[Send:${label}] failed:`, e.message);
-          return null;
-        }
-      };
+      // 5. Send via server endpoint (uses paid Helius/Triton RPCs)
+      const sendResult = await sendSignedTx({
+        signedTransactionBase64: signedBase64,
+        mode: speed,
+      });
 
-      // Initial blast to both RPCs
-      const [sig1, sig2] = await Promise.all([
-        sendRaw(RPC_PRIMARY, "Primary"),
-        RPC_FALLBACK !== RPC_PRIMARY ? sendRaw(RPC_FALLBACK, "Fallback") : Promise.resolve(null),
-      ]);
-
-      const signature = [sig1, sig2].find(s => s && s !== "EXPIRED") || null;
-      if (!signature) {
-        throw new Error("Failed to send transaction to RPC");
+      if (!sendResult.ok || !sendResult.signature) {
+        throw new Error(sendResult.message || "Failed to send transaction");
       }
 
-      // Rebroadcast loop: keep hammering RPCs + check confirmation every 2s
-      // This runs while the user sees "Sending..." status
+      const signature = sendResult.signature;
+      console.log(`[Swap] TX sent via server (${sendResult.rpc}): ${signature}`);
+
+      // 6. Rebroadcast loop: keep resending via server + poll confirmation
       const REBROADCAST_INTERVAL = 2000;
       const MAX_REBROADCAST_TIME = 40000;
       const sendStart = Date.now();
       let confirmed = false;
 
       while (Date.now() - sendStart < MAX_REBROADCAST_TIME) {
-        // Wait 2 seconds
         await new Promise(r => setTimeout(r, REBROADCAST_INTERVAL));
 
-        // Check if transaction is confirmed
+        // Check confirmation via server endpoint (uses paid RPC)
         try {
-          const statusResp = await fetch(RPC_PRIMARY, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              jsonrpc: "2.0",
-              id: 1,
-              method: "getSignatureStatuses",
-              params: [[signature], { searchTransactionHistory: false }],
-            }),
-          });
-          const statusData = await statusResp.json();
-          const txStatus = statusData?.result?.value?.[0];
-          if (txStatus) {
-            if (txStatus.err) {
-              // Transaction landed but failed on-chain
-              const errStr = JSON.stringify(txStatus.err);
-              throw new Error(`Transaction failed on-chain: ${errStr}`);
-            }
-            const level = txStatus.confirmationStatus;
-            if (level === "confirmed" || level === "finalized" || level === "processed") {
-              confirmed = true;
-              console.log(`[Swap] TX confirmed (${level}) after ${Date.now() - sendStart}ms`);
-              break;
-            }
+          const status = await getSwapStatus(signature);
+          if (status.confirmed) {
+            confirmed = true;
+            console.log(`[Swap] TX confirmed after ${Date.now() - sendStart}ms`);
+            break;
+          }
+          if (status.error) {
+            throw new Error(`Transaction failed on-chain: ${status.error}`);
           }
         } catch (statusErr: any) {
           if (statusErr.message?.includes("failed on-chain")) throw statusErr;
-          // Status check failed, continue rebroadcasting
         }
 
-        // Check if blockhash has expired
-        try {
-          const heightResp = await fetch(RPC_PRIMARY, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              jsonrpc: "2.0", id: 1,
-              method: "getBlockHeight",
-              params: [{ commitment: "confirmed" }],
-            }),
-          });
-          const heightData = await heightResp.json();
-          if (heightData?.result && heightData.result > lastValidBlockHeight) {
-            console.log("[Swap] Block height exceeded, stopping rebroadcast");
-            break;
-          }
-        } catch { /* ignore */ }
-
-        // Resend to both RPCs
-        const r1 = await sendRaw(RPC_PRIMARY, `Rebroadcast`);
-        if (r1 === "EXPIRED") break;
-        if (RPC_FALLBACK !== RPC_PRIMARY) {
-          sendRaw(RPC_FALLBACK, `Rebroadcast-FB`); // fire and forget
-        }
-
+        // Resend via server (paid RPCs with retry logic built in)
+        sendSignedTx({ signedTransactionBase64: signedBase64, mode: speed }).catch(() => {});
         setSwapStatus(`Sending... (${Math.round((Date.now() - sendStart) / 1000)}s)`);
-      }
-
-      if (!confirmed) {
-        // Not confirmed yet but tx was sent — show cautious success
-        // The RPC's maxRetries:5 will continue trying in the background
       }
 
       // 7. Done!
