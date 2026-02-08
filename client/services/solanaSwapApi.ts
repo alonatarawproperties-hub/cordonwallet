@@ -109,7 +109,7 @@ const BASE_PATH = "/api/swap";
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const baseUrl = getApiUrl();
   const url = `${baseUrl}${BASE_PATH}${path}`;
-  
+
   const response = await fetch(url, {
     ...options,
     headers: getApiHeaders({
@@ -117,7 +117,18 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
       ...(options?.headers as Record<string, string>),
     }),
   });
-  
+
+  // Guard against non-JSON responses (HTML error pages, 404s, etc.)
+  const contentType = response.headers.get("content-type") || "";
+  if (!contentType.includes("application/json")) {
+    const text = await response.text().catch(() => "");
+    throw new Error(
+      response.status === 404
+        ? `Endpoint not found: ${path}`
+        : `Server error (${response.status}): ${text.slice(0, 100)}`
+    );
+  }
+
   const data = await response.json();
   return data;
 }
