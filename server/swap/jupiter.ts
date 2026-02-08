@@ -319,7 +319,20 @@ export async function buildSwapTransaction(params: {
   // for ensuring consistency between the quote (with platformFeeBps) and feeAccount.
   // Do NOT independently resolve feeAccount here, as the quote may not include
   // platformFeeBps, and Jupiter returns 400 if feeAccount is sent without it.
-  const feeAccount = params.feeAccount || null;
+  let feeAccount: string | null = params.feeAccount || null;
+
+  // CRITICAL: Jupiter returns 400 "platformFee must be greater than 0 when feeAccount is set"
+  // if the quoteResponse doesn't have a valid platformFee with amount > 0.
+  // This can happen if: the quote was cached without fees, fee rounds to 0, or quote
+  // was fetched without platformFeeBps. Always verify before sending feeAccount.
+  if (feeAccount) {
+    const pfAmount = parseInt(quote?.platformFee?.amount || "0", 10);
+    if (!quote?.platformFee || pfAmount <= 0) {
+      console.warn("[Jupiter] Quote missing platformFee or amount=0, dropping feeAccount to avoid 400.",
+        "platformFee:", JSON.stringify(quote?.platformFee));
+      feeAccount = null;
+    }
+  }
 
   // Sanitize quote: keep platformFee in quote only if we have a valid fee account
   const hasFee = !!feeAccount;
