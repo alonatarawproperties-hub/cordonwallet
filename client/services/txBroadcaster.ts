@@ -497,6 +497,33 @@ export function classifyError(error: string): {
   };
 }
 
+/**
+ * Direct client-to-RPC signature status check.
+ * Bypasses the server roundtrip for faster confirmation detection.
+ */
+export async function checkSignatureDirectly(signature: string): Promise<{
+  confirmed: boolean;
+  processed: boolean;
+  error?: string;
+}> {
+  try {
+    const conn = getPrimaryConnection();
+    const response = await conn.getSignatureStatus(signature, {
+      searchTransactionHistory: false,
+    });
+    const status = response.value;
+    if (!status) return { confirmed: false, processed: false };
+    if (status.err) return { confirmed: false, processed: false, error: JSON.stringify(status.err) };
+    const level = status.confirmationStatus;
+    return {
+      confirmed: level === "confirmed" || level === "finalized",
+      processed: !!level,
+    };
+  } catch {
+    return { confirmed: false, processed: false };
+  }
+}
+
 export function getExplorerUrl(signature: string): string {
   return `https://solscan.io/tx/${signature}`;
 }

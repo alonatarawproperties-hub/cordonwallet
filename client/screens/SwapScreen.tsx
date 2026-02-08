@@ -72,7 +72,7 @@ import {
   instantBuild,
   instantSend,
 } from "@/services/solanaSwapApi";
-import { classifyError, getExplorerUrl } from "@/services/txBroadcaster";
+import { classifyError, getExplorerUrl, checkSignatureDirectly } from "@/services/txBroadcaster";
 import { addSwapRecord, addDebugLog } from "@/services/swapStore";
 import { getApiUrl, getApiHeaders } from "@/lib/query-client";
 import {
@@ -791,25 +791,52 @@ export default function SwapScreen({ route }: Props) {
       }
 
       // ── 5. Poll for confirmation ──
-      // If instant-send is active, server rebroadcasts in background — client just polls
-      // If legacy, client also rebroadcasts via sendSignedTx
-      const POLL_INTERVAL = 2000;
-      const MAX_POLL_TIME = 60000;
+      // Pump trades land in ~5s or not at all — use shorter timeout.
+      // Poll faster initially (1s) then back off (2s).
+      // Race server API + client-direct RPC for fastest detection.
+      const isPumpTrade = usedRoute === "pump";
+      const FAST_POLL_MS = 1000;
+      const SLOW_POLL_MS = 2000;
+      const FAST_WINDOW_MS = 10000;
+      const MAX_POLL_TIME = isPumpTrade ? 20000 : 60000;
       const pollStart = Date.now();
       let confirmed = false;
+      let nullChecks = 0;
 
       while (Date.now() - pollStart < MAX_POLL_TIME) {
-        await new Promise(r => setTimeout(r, POLL_INTERVAL));
+        const elapsed = Date.now() - pollStart;
+        const interval = elapsed < FAST_WINDOW_MS ? FAST_POLL_MS : SLOW_POLL_MS;
+        await new Promise(r => setTimeout(r, interval));
 
         try {
-          const status = await getSwapStatus(signature);
-          if (status.confirmed) {
+          // Race: server API + client-direct RPC (first to confirm wins)
+          const [serverStatus, directStatus] = await Promise.all([
+            getSwapStatus(signature).catch(() => null),
+            checkSignatureDirectly(signature).catch(() => null),
+          ]);
+
+          // Check for on-chain errors from either source
+          const onChainError = serverStatus?.error || directStatus?.error;
+          if (onChainError) {
+            throw new Error(`Transaction failed on-chain: ${onChainError}`);
+          }
+
+          // Either source confirming = we're done
+          if (serverStatus?.confirmed || serverStatus?.processed ||
+              directStatus?.confirmed || directStatus?.processed) {
             confirmed = true;
-            console.log(`[Swap] TX confirmed after ${Date.now() - pollStart}ms`);
+            const source = (directStatus?.confirmed || directStatus?.processed) ? "direct-rpc" : "server";
+            console.log(`[Swap] TX confirmed after ${Date.now() - pollStart}ms via ${source}`);
             break;
           }
-          if (status.error) {
-            throw new Error(`Transaction failed on-chain: ${status.error}`);
+
+          // Track null statuses (tx not found on chain at all)
+          nullChecks++;
+
+          // Early dropout for Pump trades: if no status after 15s, tx was dropped
+          if (isPumpTrade && elapsed > 15000 && nullChecks >= 8) {
+            console.log(`[Swap] Pump tx likely dropped after ${elapsed}ms (${nullChecks} null checks)`);
+            break;
           }
         } catch (statusErr: any) {
           if (statusErr.message?.includes("Transaction failed")) throw statusErr;
@@ -856,14 +883,17 @@ export default function SwapScreen({ route }: Props) {
         tryChargeSuccessFeeNow(activeWallet.id, solanaAddr, successFeeLamports, signature).catch(() => {});
       }
 
-      const alertTitle = confirmed ? "Swap Confirmed!" : "Swap Sent";
+      const alertTitle = confirmed ? "Swap Confirmed!" : "Swap Expired";
       const alertBody = confirmed
         ? outDisplay
           ? `Swapped ${inputAmount} ${inputToken.symbol} for ~${outDisplay} ${outputToken.symbol}`
           : `Swapped ${inputAmount} ${inputToken.symbol}`
-        : `Transaction sent but not yet confirmed. Check explorer for status.`;
+        : isPumpTrade
+          ? `Transaction didn't land — price likely moved. Your ${inputToken.symbol} is safe. Tap Retry to try again.`
+          : `Transaction not confirmed in time. Check explorer for status.`;
 
       showAlert(alertTitle, alertBody, [
+        ...(!confirmed ? [{ text: "Retry", onPress: () => executeInstantSwap() }] : []),
         { text: "View", onPress: () => {
           const url = getExplorerUrl(signature);
           import("expo-web-browser").then(m => m.openBrowserAsync(url));
