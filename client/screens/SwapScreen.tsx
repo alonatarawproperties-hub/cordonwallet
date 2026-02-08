@@ -820,34 +820,57 @@ export default function SwapScreen({ route }: Props) {
       }
 
       // ── 5. Poll for confirmation ──
-      // Use client-direct RPC only (fastest path — no server roundtrip).
-      // Server-side rebroadcast loop is already running in background (instant-send).
+      // Check BOTH client-direct RPCs AND server /status endpoint in parallel.
+      // The server likely has better RPCs (Helius/Triton) than the client.
       const isPumpTrade = usedRoute === "pump";
       const POLL_INTERVAL_MS = 1500;
       const MAX_POLL_TIME = isPumpTrade ? 18000 : 25000;
       const pollStart = Date.now();
       let confirmed = false;
       let nullChecks = 0;
+      let rpcErrorCount = 0;
 
       // First check after a short delay (give the network time to propagate)
       await new Promise(r => setTimeout(r, 2000));
 
       while (Date.now() - pollStart < MAX_POLL_TIME) {
         try {
-          // Client-direct RPC check (parallel to both RPCs, fast)
-          const directStatus = await checkSignatureDirectly(signature).catch(() => null);
+          // Fire client-direct + server status in parallel for fastest detection
+          const [directStatus, serverStatus] = await Promise.all([
+            checkSignatureDirectly(signature).catch(() => null),
+            getSwapStatus(signature).catch(() => null),
+          ]);
 
-          // Check for on-chain errors
+          // Track RPC errors to know if polling is actually working
+          if (directStatus?.rpcErrors && directStatus.rpcErrors.length >= 2) {
+            rpcErrorCount++;
+          }
+
+          // Check for on-chain errors from either source
           if (directStatus?.error) {
             throw new Error(`Transaction failed on-chain: ${directStatus.error}`);
           }
+          if (serverStatus?.error) {
+            throw new Error(`Transaction failed on-chain: ${serverStatus.error}`);
+          }
 
+          // Check confirmation from either source
           if (directStatus?.confirmed || directStatus?.processed) {
             confirmed = true;
             console.log(`[Swap] TX confirmed after ${Date.now() - pollStart}ms via direct-rpc`);
             await addDebugLog("info", "Swap confirmed", {
               signature,
               source: "direct-rpc",
+              elapsedMs: Date.now() - pollStart,
+            });
+            break;
+          }
+          if (serverStatus?.confirmed || serverStatus?.processed) {
+            confirmed = true;
+            console.log(`[Swap] TX confirmed after ${Date.now() - pollStart}ms via server`);
+            await addDebugLog("info", "Swap confirmed", {
+              signature,
+              source: "server",
               elapsedMs: Date.now() - pollStart,
             });
             break;
@@ -872,11 +895,32 @@ export default function SwapScreen({ route }: Props) {
         setSwapStatus(`Confirming... (${Math.round((Date.now() - pollStart) / 1000)}s)`);
         await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
       }
+
+      // ── Last-ditch check: if poll timed out, try one more server check with history search ──
+      if (!confirmed) {
+        try {
+          // Wait a moment then ask the server with searchTransactionHistory
+          await new Promise(r => setTimeout(r, 1500));
+          const finalCheck = await getSwapStatus(signature).catch(() => null);
+          if (finalCheck?.confirmed || finalCheck?.processed) {
+            confirmed = true;
+            console.log(`[Swap] TX confirmed on last-ditch check after ${Date.now() - pollStart}ms`);
+            await addDebugLog("info", "Swap confirmed (last-ditch)", {
+              signature,
+              source: "server-final",
+              elapsedMs: Date.now() - pollStart,
+            });
+          }
+        } catch {}
+      }
+
       if (!confirmed) {
         await addDebugLog("warn", "Swap not confirmed before timeout", {
           signature,
           route: usedRoute,
           elapsedMs: Date.now() - pollStart,
+          rpcErrorCount,
+          nullChecks,
         });
       }
 
