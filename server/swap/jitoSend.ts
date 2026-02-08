@@ -234,6 +234,8 @@ async function rebroadcastLoop(
 ): Promise<void> {
   const start = Date.now();
   let round = 0;
+  const hasFallback = swapConfig.solanaRpcUrlFallback &&
+    swapConfig.solanaRpcUrlFallback !== swapConfig.solanaRpcUrl;
 
   while (Date.now() - start < config.maxDurationMs) {
     // Wait before next round
@@ -241,8 +243,11 @@ async function rebroadcastLoop(
     round++;
 
     // Check if already confirmed
-    const confirmed = await checkConfirmation(swapConfig.solanaRpcUrl, signature);
-    if (confirmed) {
+    const confirmedPrimary = await checkConfirmation(swapConfig.solanaRpcUrl, signature);
+    const confirmedFallback = hasFallback
+      ? await checkConfirmation(swapConfig.solanaRpcUrlFallback, signature)
+      : false;
+    if (confirmedPrimary || confirmedFallback) {
       console.log(`[Rebroadcast] TX confirmed after ${round} rounds (${Date.now() - start}ms)`);
       return;
     }
@@ -251,6 +256,9 @@ async function rebroadcastLoop(
     const results = await Promise.all([
       sendToJito(signedTxBase64),
       sendToRpc(swapConfig.solanaRpcUrl, signedTxBase64, `Rebroadcast-${round}`, 3),
+      hasFallback
+        ? sendToRpc(swapConfig.solanaRpcUrlFallback, signedTxBase64, `Rebroadcast-Fallback-${round}`, 3)
+        : Promise.resolve(null),
     ]);
 
     // If blockhash expired, stop

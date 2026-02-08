@@ -338,8 +338,6 @@ export async function getQuote(params: {
       },
     };
   } catch (err: any) {
-    clearTimeout(timeout);
-    
     if (err.name === "AbortError") {
       return {
         ok: false,
@@ -524,8 +522,6 @@ async function executeSwapBuild(url: string, body: Record<string, any>): Promise
       prioritizationFeeLamports: body.prioritizationFeeLamports,
     };
   } catch (err: any) {
-    clearTimeout(timeout);
-    
     if (err.name === "AbortError") {
       return {
         ok: false,
