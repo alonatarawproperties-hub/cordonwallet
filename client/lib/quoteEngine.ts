@@ -291,7 +291,8 @@ class QuoteEngine {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 15000);
 
-        signal.addEventListener("abort", () => controller.abort());
+        const onAbort = () => controller.abort();
+        signal.addEventListener("abort", onAbort, { once: true });
 
         const response = await fetch(url, {
           method: "GET",
@@ -300,6 +301,7 @@ class QuoteEngine {
         });
 
         clearTimeout(timeoutId);
+        signal.removeEventListener("abort", onAbort);
 
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({ error: "Unknown error" }));

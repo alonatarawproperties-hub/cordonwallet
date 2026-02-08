@@ -58,7 +58,8 @@ export async function validateSwapTxServer(args: {
 
     if (staticKeys.length > 0) {
       feePayer = staticKeys[0].toBase58();
-      feePayerIsUser = feePayer.toLowerCase() === expectedUserPubkey.toLowerCase();
+      // Base58 is case-sensitive — compare exact strings (canonical form)
+      feePayerIsUser = feePayer === expectedUserPubkey;
     }
 
     if (!feePayerIsUser) {
@@ -69,8 +70,8 @@ export async function validateSwapTxServer(args: {
 
     const header = message.header;
     const numSigners = header.numRequiredSignatures;
-    const signerKeys = staticKeys.slice(0, numSigners).map((k) => k.toBase58().toLowerCase());
-    userIsSigner = signerKeys.includes(expectedUserPubkey.toLowerCase());
+    const signerKeys = staticKeys.slice(0, numSigners).map((k) => k.toBase58());
+    userIsSigner = signerKeys.includes(expectedUserPubkey);
 
     if (!userIsSigner) {
       errors.push(`User is not a required signer on this transaction.`);

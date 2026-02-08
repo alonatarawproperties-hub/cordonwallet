@@ -74,12 +74,34 @@ async function sendToRpc(
 
 function extractSignatureFromTx(txBytes: Uint8Array): string | null {
   try {
-    if (txBytes.length >= 64) {
-      const sigBytes = txBytes.slice(0, 64);
-      return Buffer.from(sigBytes).toString("base64");
-    }
+    // The first byte of a VersionedTransaction is the signature count (compact-u16),
+    // followed by the 64-byte signature(s). For a single-signer tx: [1, sig0..sig63, ...]
+    // We need to skip the compact-u16 length prefix to get the actual signature bytes.
+    if (txBytes.length < 66) return null;
+    const sigCount = txBytes[0];
+    if (sigCount < 1) return null;
+    const sigBytes = txBytes.slice(1, 65);
+    // Encode as base58 — Solana RPC expects/returns base58 signatures
+    return bs58Encode(sigBytes);
   } catch {}
   return null;
+}
+
+/** Minimal base58 encoder (avoids adding bs58 dependency to server) */
+function bs58Encode(bytes: Uint8Array): string {
+  const ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+  let num = BigInt(0);
+  for (const b of bytes) num = num * 256n + BigInt(b);
+  let str = "";
+  while (num > 0n) {
+    str = ALPHABET[Number(num % 58n)] + str;
+    num = num / 58n;
+  }
+  for (const b of bytes) {
+    if (b === 0) str = "1" + str;
+    else break;
+  }
+  return str;
 }
 
 export async function broadcastTransaction(params: {
