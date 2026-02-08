@@ -9,7 +9,13 @@
 import { swapConfig, SpeedMode } from "./config";
 import type { InstantSendResult } from "./types";
 
-const JITO_SEND_URL = `${swapConfig.jitoBlockEngineUrl}/api/v1/transactions`;
+// Multiple Jito endpoints for redundancy — generic + regional
+const JITO_ENDPOINTS = [
+  `${swapConfig.jitoBlockEngineUrl}/api/v1/transactions`,
+  "https://ny.mainnet.block-engine.jito.wtf/api/v1/transactions",
+  "https://slc.mainnet.block-engine.jito.wtf/api/v1/transactions",
+  "https://amsterdam.mainnet.block-engine.jito.wtf/api/v1/transactions",
+];
 
 // Rebroadcast config per speed mode
 const REBROADCAST_CONFIG: Record<SpeedMode, { intervalMs: number; maxDurationMs: number }> = {
@@ -18,13 +24,20 @@ const REBROADCAST_CONFIG: Record<SpeedMode, { intervalMs: number; maxDurationMs:
   turbo:    { intervalMs: 1000, maxDurationMs: 50_000 },
 };
 
-async function sendToJito(signedTxBase64: string): Promise<string | null> {
-  try {
-    const txBytes = Buffer.from(signedTxBase64, "base64");
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000);
+// Track which Jito endpoint last worked (for rebroadcasts)
+let lastWorkingJitoEndpoint: string | null = null;
+// Track last Jito error for diagnostics
+let lastJitoError: string | null = null;
 
-    const response = await fetch(JITO_SEND_URL, {
+async function sendToJitoEndpoint(
+  url: string,
+  signedTxBase64: string
+): Promise<{ sig: string | null; error?: string }> {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+
+    const response = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -32,11 +45,10 @@ async function sendToJito(signedTxBase64: string): Promise<string | null> {
         id: 1,
         method: "sendTransaction",
         params: [
-          txBytes.toString("base64"),
+          signedTxBase64,
           {
             encoding: "base64",
             skipPreflight: true,
-            maxRetries: 5,
           },
         ],
       }),
@@ -47,24 +59,67 @@ async function sendToJito(signedTxBase64: string): Promise<string | null> {
     const data = await response.json();
 
     if (data.result) {
-      console.log("[Jito] Transaction sent:", data.result);
-      return data.result;
+      return { sig: data.result };
     }
 
     if (data.error) {
-      console.warn("[Jito] Send error:", data.error.message || JSON.stringify(data.error));
-      if (data.error.message?.includes("already been processed") ||
-          data.error.message?.includes("AlreadyProcessed")) {
-        return data.result || null;
+      const errMsg = data.error.message || JSON.stringify(data.error);
+      if (errMsg.includes("already been processed") || errMsg.includes("AlreadyProcessed")) {
+        return { sig: data.result || "ALREADY_PROCESSED" };
       }
+      return { sig: null, error: errMsg };
     }
 
-    console.warn("[Jito] No result returned — response:", JSON.stringify(data).slice(0, 200));
-    return null;
+    return { sig: null, error: `No result: ${JSON.stringify(data).slice(0, 150)}` };
   } catch (err: any) {
-    console.warn("[Jito] Send failed (network/timeout):", err.message, "| URL:", JITO_SEND_URL);
-    return null;
+    const msg = err.name === "AbortError" ? "timeout (8s)" : err.message;
+    return { sig: null, error: `${msg} | ${url.split("/")[2]}` };
   }
+}
+
+async function sendToJito(signedTxBase64: string): Promise<string | null> {
+  const errors: string[] = [];
+
+  // If we know a working endpoint, try it first
+  if (lastWorkingJitoEndpoint) {
+    const result = await sendToJitoEndpoint(lastWorkingJitoEndpoint, signedTxBase64);
+    if (result.sig) {
+      console.log("[Jito] Sent via cached endpoint:", lastWorkingJitoEndpoint.split("/")[2]);
+      lastJitoError = null;
+      return result.sig;
+    }
+    if (result.error) errors.push(result.error);
+    lastWorkingJitoEndpoint = null; // Reset — try all endpoints
+  }
+
+  // Race all Jito endpoints — first success wins
+  const results = await Promise.allSettled(
+    JITO_ENDPOINTS.map(url => sendToJitoEndpoint(url, signedTxBase64))
+  );
+
+  for (let i = 0; i < results.length; i++) {
+    const r = results[i];
+    if (r.status === "fulfilled" && r.value.sig) {
+      lastWorkingJitoEndpoint = JITO_ENDPOINTS[i];
+      console.log("[Jito] Sent via:", JITO_ENDPOINTS[i].split("/")[2], "| sig:", r.value.sig);
+      lastJitoError = null;
+      return r.value.sig;
+    }
+    if (r.status === "fulfilled" && r.value.error) {
+      errors.push(r.value.error);
+    } else if (r.status === "rejected") {
+      errors.push(r.reason?.message || "unknown rejection");
+    }
+  }
+
+  const errorSummary = errors.slice(0, 3).join(" | ");
+  console.warn("[Jito] ALL endpoints failed:", errorSummary);
+  lastJitoError = errorSummary;
+  return null;
+}
+
+export function getLastJitoError(): string | null {
+  return lastJitoError;
 }
 
 async function sendToRpc(
@@ -208,7 +263,8 @@ export async function instantSend(params: {
     };
   }
 
-  console.log(`[InstantSend] Initial send via: ${sentVia.join(", ")} | sig: ${signature}`);
+  const jitoError = !sentVia.includes("jito") ? lastJitoError : undefined;
+  console.log(`[InstantSend] Initial send via: ${sentVia.join(", ")} | sig: ${signature}${jitoError ? ` | jitoErr: ${jitoError}` : ""}`);
 
   // ── Background rebroadcast loop — keeps resending until confirmed or expired ──
   // Don't await this — return the signature to the client immediately
@@ -220,7 +276,8 @@ export async function instantSend(params: {
     ok: true,
     signature,
     sentVia,
-  };
+    jitoError,
+  } as InstantSendResult;
 }
 
 /**

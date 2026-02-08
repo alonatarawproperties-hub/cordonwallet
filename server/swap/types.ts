@@ -146,6 +146,7 @@ export interface InstantSendResponse {
   ok: true;
   signature: string;
   sentVia: string[];
+  jitoError?: string;
 }
 
 export interface InstantSendError {

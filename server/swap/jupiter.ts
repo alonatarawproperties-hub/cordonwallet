@@ -23,6 +23,10 @@ if (FORCE_DISABLE_JUPITER_PLATFORM_FEES) {
 
 const JUPITER_REFERRAL_PROGRAM = "REFER4ZgmyYx9c6He5XfaTMiGfdLwRnkV4RPp9t9iF3";
 
+// Cache whether Jupiter supports jitoTipLamports parameter
+// null = untested, true = supported, false = not supported (use flat fee)
+let jitoTipSupported: boolean | null = null;
+
 // Fallback Jupiter base URL for 429 / 5xx retry
 const JUPITER_FALLBACK_BASE_URL = swapConfig.jupiterBaseUrl.includes("lite-api")
   ? "https://api.jup.ag"
@@ -388,32 +392,45 @@ export async function buildSwapTransaction(params: {
   const url = `${swapConfig.jupiterBaseUrl}${swapConfig.jupiterSwapPath}`;
   
   // Build swap body WITHOUT any fee fields or destination token accounts
+  // Use jitoTipLamports to include a Jito tip in the transaction — Jito validators
+  // build ~90% of Solana blocks, so including a tip dramatically improves landing rate.
+  const useJitoTip = jitoTipSupported !== false;
   const body: Record<string, any> = {
     quoteResponse: sanitizedQuote,
     userPublicKey,
     wrapAndUnwrapSol: effectiveWrapAndUnwrapSol,
     dynamicComputeUnitLimit: true,
-    prioritizationFeeLamports: priorityFeeCap,
+    prioritizationFeeLamports: useJitoTip
+      ? { jitoTipLamports: priorityFeeCap }
+      : priorityFeeCap,
   };
-  
-  // Log SOL output debug info
-  console.log("[JUP_SWAP_DEBUG]", JSON.stringify({
-    outputMint: outputMint.slice(0, 8) + "...",
-    isSolOutput,
-    hasDestinationTokenAccountField: false,
-    wrapAndUnwrapSol: effectiveWrapAndUnwrapSol,
-    hasPlatformFeeFields: false,
-  }));
-  
+
   console.log("[Jupiter] Build swap:", {
     user: userPublicKey.slice(0, 8) + "...",
     speedMode,
     priorityFeeCap,
+    feeMode: useJitoTip ? "jitoTip" : "flat",
     platformFee: "DISABLED",
   });
-  
-  const result = await executeSwapBuild(url, body);
-  
+
+  let result = await executeSwapBuild(url, body);
+
+  // If jitoTipLamports failed on first attempt, fall back to flat fee
+  if (!result.ok && useJitoTip && jitoTipSupported === null) {
+    console.warn("[Jupiter] Build failed with jitoTipLamports, retrying with flat prioritizationFeeLamports");
+    body.prioritizationFeeLamports = priorityFeeCap;
+    const retryResult = await executeSwapBuild(url, body);
+    if (retryResult.ok) {
+      jitoTipSupported = false;
+      console.log("[Jupiter] Flat fee worked — caching for future builds");
+      result = retryResult;
+    }
+    // If both fail, continue with original result (may trigger 0x1788 retry below)
+  } else if (result.ok && jitoTipSupported === null) {
+    jitoTipSupported = true;
+    console.log("[Jupiter] jitoTipLamports supported — using for all future builds");
+  }
+
   // Retry logic for 0x1788 error - fetch fresh quote without platform fees
   if (!result.ok && result.details && isFeeAccountError(result.details)) {
     console.warn("[SwapFee] 0x1788 detected – retrying with fresh no-fee quote");
