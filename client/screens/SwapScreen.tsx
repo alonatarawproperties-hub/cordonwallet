@@ -73,7 +73,7 @@ import {
   instantBuild,
   instantSend,
 } from "@/services/solanaSwapApi";
-import { classifyError, getExplorerUrl, checkSignatureDirectly } from "@/services/txBroadcaster";
+import { classifyError, getExplorerUrl, checkSignatureDirectly, clientDirectBroadcast } from "@/services/txBroadcaster";
 import { addSwapRecord, addDebugLog, getDebugLogs, clearDebugLogs, type SwapLogEntry } from "@/services/swapStore";
 import { getApiUrl, getApiHeaders } from "@/lib/query-client";
 import {
@@ -822,9 +822,20 @@ export default function SwapScreen({ route }: Props) {
         await addDebugLog("info", "Legacy send ok", { signature });
       }
 
+      // ── 4b. Client-direct broadcast (bypass server network) ──
+      // The server may not be able to reach Jito. The mobile device can.
+      // Fire-and-forget: send the signed tx directly to Jito + client RPCs.
+      clientDirectBroadcast(signedBase64)
+        .then(via => {
+          if (via.length > 0) {
+            console.log(`[Swap] Client-direct broadcast via: ${via.join(", ")}`);
+            addDebugLog("info", "Client broadcast ok", { via });
+          }
+        })
+        .catch(() => {});
+
       // ── 5. Poll for confirmation ──
       // Check BOTH client-direct RPCs AND server /status endpoint in parallel.
-      // The server likely has better RPCs (Helius/Triton) than the client.
       const isPumpTrade = usedRoute === "pump";
       const POLL_INTERVAL_MS = 1500;
       const MAX_POLL_TIME = isPumpTrade ? 18000 : 25000;
@@ -890,7 +901,11 @@ export default function SwapScreen({ route }: Props) {
           if (statusErr.message?.includes("Transaction failed")) throw statusErr;
         }
 
-        // Legacy fallback: client-side rebroadcast (instant-send does this server-side)
+        // Rebroadcast from client every 3rd poll iteration (Jito + RPCs)
+        if (nullChecks > 0 && nullChecks % 3 === 0) {
+          clientDirectBroadcast(signedBase64).catch(() => {});
+        }
+        // Legacy fallback: server-side rebroadcast when not using instant-send
         if (!useInstantSend) {
           sendSignedTx({ signedTransactionBase64: signedBase64, mode: speed }).catch(() => {});
         }
