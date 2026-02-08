@@ -226,9 +226,9 @@ export async function getPumpMeta(mint: string): Promise<PumpMeta | null> {
 export const SOL_MINT = "So11111111111111111111111111111111111111112";
 
 export const PRIORITY_FEE_CAPS = {
-  standard: 200_000,
-  fast: 1_000_000,
-  turbo: 3_000_000,
+  standard: 500_000,
+  fast: 2_000_000,
+  turbo: 5_000_000,
 } as const;
 
 export function getPriorityFeeDisplay(speedMode: SpeedMode): string {
