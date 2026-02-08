@@ -32,6 +32,9 @@ export const swapConfig = {
   pumpPortalBaseUrl: process.env.PUMPPORTAL_BASE_URL || "https://pumpportal.fun",
   pumpPortalApiKey: process.env.PUMPPORTAL_API_KEY || "",
   
+  // Jito block engine for instant landing
+  jitoBlockEngineUrl: process.env.JITO_BLOCK_ENGINE_URL || "https://mainnet.block-engine.jito.wtf",
+
   maxBodyBytes: parseInt(process.env.MAX_BODY_BYTES || "2000000"),
   
   priorityFeeCaps: {

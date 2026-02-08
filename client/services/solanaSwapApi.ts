@@ -225,3 +225,58 @@ export function getPriorityFeeDisplay(speedMode: SpeedMode): string {
   const sol = lamports / 1_000_000_000;
   return `${sol.toFixed(6)} SOL`;
 }
+
+// ── Instant Swap API (TG-bot style: single round-trip) ──
+
+export interface InstantBuildParams {
+  userPublicKey: string;
+  inputMint: string;
+  outputMint: string;
+  amount: string;
+  slippageBps?: number;
+  speedMode?: SpeedMode;
+}
+
+export interface InstantBuildResult {
+  ok: boolean;
+  route?: "jupiter" | "pump";
+  swapTransactionBase64?: string;
+  quote?: {
+    inAmount: string;
+    outAmount: string;
+    minOut: string;
+    priceImpactPct: number;
+    routeLabel: string;
+  };
+  prioritizationFeeLamports?: number;
+  lastValidBlockHeight?: number;
+  code?: string;
+  message?: string;
+}
+
+export interface InstantSendParams {
+  signedTransactionBase64: string;
+  speedMode?: SpeedMode;
+}
+
+export interface InstantSendResult {
+  ok: boolean;
+  signature?: string;
+  sentVia?: string[];
+  code?: string;
+  message?: string;
+}
+
+export async function instantBuild(params: InstantBuildParams): Promise<InstantBuildResult> {
+  return apiFetch<InstantBuildResult>("/solana/instant-build", {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+}
+
+export async function instantSend(params: InstantSendParams): Promise<InstantSendResult> {
+  return apiFetch<InstantSendResult>("/solana/instant-send", {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+}

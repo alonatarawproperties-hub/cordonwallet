@@ -1,9 +1,11 @@
 import { Router, Request, Response } from "express";
-import { 
-  QuoteParamsSchema, 
-  BuildJupiterBodySchema, 
-  BuildPumpBodySchema, 
-  SendBodySchema 
+import {
+  QuoteParamsSchema,
+  BuildJupiterBodySchema,
+  BuildPumpBodySchema,
+  SendBodySchema,
+  InstantBuildBodySchema,
+  InstantSendBodySchema,
 } from "./types";
 import { getQuote, buildSwapTransaction, getPlatformFeeStatus } from "./jupiter";
 import { buildPumpTransaction, isPumpToken } from "./pump";
@@ -14,6 +16,8 @@ import { jupiterQuotePing } from "./jupiterClient";
 import { diagRouter } from "./diag";
 import { validateSwapTxServer, type SwapSecurityResult } from "./txSecurity";
 import { getSolanaConnection } from "../solana-api";
+import { instantBuild } from "./instantSwap";
+import { instantSend } from "./jitoSend";
 
 export const swapRouter = Router();
 
@@ -336,6 +340,93 @@ swapRouter.post("/solana/pump/build", async (req: Request, res: Response) => {
     res.status(500).json({
       ok: false,
       code: "PUMP_UNAVAILABLE",
+      message: err.message,
+    });
+  }
+});
+
+// ── Instant Build: route + quote + build in ONE call ──
+swapRouter.post("/solana/instant-build", async (req: Request, res: Response) => {
+  const start = Date.now();
+  try {
+    const parsed = InstantBuildBodySchema.safeParse(req.body);
+
+    if (!parsed.success) {
+      return res.status(400).json({
+        ok: false,
+        code: "BAD_REQUEST",
+        message: "Invalid body",
+        details: parsed.error.flatten(),
+      });
+    }
+
+    const result = await instantBuild(parsed.data);
+    const elapsed = Date.now() - start;
+    console.log(`[Swap API] instant-build ${result.ok ? "OK" : "FAIL"} in ${elapsed}ms`);
+
+    if (result.ok) {
+      // Server-side security validation
+      try {
+        const connection = getSolanaConnection();
+        const security = await validateSwapTxServer({
+          txBase64: result.swapTransactionBase64,
+          expectedUserPubkey: parsed.data.userPublicKey,
+          routeType: result.route,
+          connection,
+        });
+        if (!security.safe) {
+          return res.status(403).json({
+            ok: false,
+            code: "SECURITY_BLOCKED",
+            message: "Transaction blocked by security validation",
+            details: security.errors,
+          });
+        }
+      } catch (secError: any) {
+        console.error("[Swap API] Security validation error (non-blocking):", secError.message);
+      }
+
+      res.json(result);
+    } else {
+      const status = result.code === "NO_ROUTE" ? 404 : 502;
+      res.status(status).json(result);
+    }
+  } catch (err: any) {
+    console.error("[Swap API] instant-build failed:", err);
+    res.status(500).json({
+      ok: false,
+      code: "INTERNAL_ERROR",
+      message: err.message,
+    });
+  }
+});
+
+// ── Instant Send: fire to Jito + RPCs in parallel, return immediately ──
+swapRouter.post("/solana/instant-send", async (req: Request, res: Response) => {
+  try {
+    const parsed = InstantSendBodySchema.safeParse(req.body);
+
+    if (!parsed.success) {
+      return res.status(400).json({
+        ok: false,
+        code: "BAD_REQUEST",
+        message: "Invalid body",
+        details: parsed.error.flatten(),
+      });
+    }
+
+    const result = await instantSend(parsed.data);
+
+    if (result.ok) {
+      res.json(result);
+    } else {
+      res.status(502).json(result);
+    }
+  } catch (err: any) {
+    console.error("[Swap API] instant-send failed:", err);
+    res.status(500).json({
+      ok: false,
+      code: "SEND_FAILED",
       message: err.message,
     });
   }
