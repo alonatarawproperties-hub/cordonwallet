@@ -540,6 +540,21 @@ export default function SwapScreen({ route }: Props) {
     setQuote(null);
     setSwapRoute("none");
     setPumpMeta(null);
+    setQuoteError(null);
+
+    if (nextInputAmount && nextInputAmount !== "0") {
+      const nextAmountBaseUnits = parseTokenAmount(nextInputAmount, outputToken.decimals).toString();
+      const engine = quoteEngineRef.current;
+      engine.clearQuote();
+      engine.updateParams({
+        inputMint: outputToken.mint,
+        outputMint: inputToken.mint,
+        amount: nextAmountBaseUnits,
+        slippageBps,
+        speedMode: speed,
+      });
+      engine.triggerImmediateFetch();
+    }
   };
 
   const handleMaxPress = async () => {
