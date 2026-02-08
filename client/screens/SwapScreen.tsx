@@ -820,58 +820,44 @@ export default function SwapScreen({ route }: Props) {
       }
 
       // ── 5. Poll for confirmation ──
-      // Fast-swap UX: if it doesn't confirm quickly, stop waiting and show "Submitted".
-      // Pump trades land fast or not at all — use a slightly longer window than Jupiter.
-      // Poll faster initially (1s) then back off (2s).
-      // Race server API + client-direct RPC for fastest detection.
+      // Use client-direct RPC only (fastest path — no server roundtrip).
+      // Server-side rebroadcast loop is already running in background (instant-send).
       const isPumpTrade = usedRoute === "pump";
-      const FAST_POLL_MS = 1000;
-      const SLOW_POLL_MS = 2000;
-      const FAST_WINDOW_MS = 10000;
-      // Jupiter swaps typically confirm in 5-15s; pump trades are faster or fail
-      const MAX_POLL_TIME = isPumpTrade ? 15000 : 20000;
+      const POLL_INTERVAL_MS = 1500;
+      const MAX_POLL_TIME = isPumpTrade ? 18000 : 25000;
       const pollStart = Date.now();
       let confirmed = false;
       let nullChecks = 0;
 
+      // First check after a short delay (give the network time to propagate)
+      await new Promise(r => setTimeout(r, 2000));
+
       while (Date.now() - pollStart < MAX_POLL_TIME) {
-        const elapsed = Date.now() - pollStart;
-        const interval = elapsed < FAST_WINDOW_MS ? FAST_POLL_MS : SLOW_POLL_MS;
-        await new Promise(r => setTimeout(r, interval));
-
         try {
-          // Race: server API + client-direct RPC (first to confirm wins)
-          const [serverStatus, directStatus] = await Promise.all([
-            getSwapStatus(signature).catch(() => null),
-            checkSignatureDirectly(signature).catch(() => null),
-          ]);
+          // Client-direct RPC check (parallel to both RPCs, fast)
+          const directStatus = await checkSignatureDirectly(signature).catch(() => null);
 
-          // Check for on-chain errors from either source
-          const onChainError = serverStatus?.error || directStatus?.error;
-          if (onChainError) {
-            throw new Error(`Transaction failed on-chain: ${onChainError}`);
+          // Check for on-chain errors
+          if (directStatus?.error) {
+            throw new Error(`Transaction failed on-chain: ${directStatus.error}`);
           }
 
-          // Either source confirming = we're done
-          if (serverStatus?.confirmed || serverStatus?.processed ||
-              directStatus?.confirmed || directStatus?.processed) {
+          if (directStatus?.confirmed || directStatus?.processed) {
             confirmed = true;
-            const source = (directStatus?.confirmed || directStatus?.processed) ? "direct-rpc" : "server";
-            console.log(`[Swap] TX confirmed after ${Date.now() - pollStart}ms via ${source}`);
+            console.log(`[Swap] TX confirmed after ${Date.now() - pollStart}ms via direct-rpc`);
             await addDebugLog("info", "Swap confirmed", {
               signature,
-              source,
+              source: "direct-rpc",
               elapsedMs: Date.now() - pollStart,
             });
             break;
           }
 
-          // Track null statuses (tx not found on chain at all)
           nullChecks++;
 
-          // Early dropout for Pump trades: if no status after 15s, tx was dropped
-          if (isPumpTrade && elapsed > 15000 && nullChecks >= 8) {
-            console.log(`[Swap] Pump tx likely dropped after ${elapsed}ms (${nullChecks} null checks)`);
+          // Early dropout for Pump trades: if no status after 15s, tx was likely dropped
+          if (isPumpTrade && Date.now() - pollStart > 15000 && nullChecks >= 6) {
+            console.log(`[Swap] Pump tx likely dropped after ${Date.now() - pollStart}ms (${nullChecks} null checks)`);
             break;
           }
         } catch (statusErr: any) {
@@ -884,6 +870,7 @@ export default function SwapScreen({ route }: Props) {
         }
 
         setSwapStatus(`Confirming... (${Math.round((Date.now() - pollStart) / 1000)}s)`);
+        await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
       }
       if (!confirmed) {
         await addDebugLog("warn", "Swap not confirmed before timeout", {

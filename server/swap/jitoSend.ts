@@ -59,9 +59,10 @@ async function sendToJito(signedTxBase64: string): Promise<string | null> {
       }
     }
 
+    console.warn("[Jito] No result returned — response:", JSON.stringify(data).slice(0, 200));
     return null;
   } catch (err: any) {
-    console.warn("[Jito] Send failed:", err.message);
+    console.warn("[Jito] Send failed (network/timeout):", err.message, "| URL:", JITO_SEND_URL);
     return null;
   }
 }
