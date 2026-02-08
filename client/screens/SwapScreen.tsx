@@ -45,7 +45,6 @@ import {
   USDC_MINT,
   LAMPORTS_PER_SOL,
   RPC_PRIMARY,
-  RPC_FALLBACK,
 } from "@/constants/solanaSwap";
 import { Connection } from "@solana/web3.js";
 import { getQuoteEngine, QuoteEngineState, SwapRoute, PumpMeta } from "@/lib/quoteEngine";
@@ -67,6 +66,8 @@ import {
   routeQuote,
   buildJupiter,
   buildPump,
+  sendSignedTx,
+  getStatus as getSwapStatus,
   quote as fetchJupiterQuote,
 } from "@/services/solanaSwapApi";
 import { classifyError, getExplorerUrl } from "@/services/txBroadcaster";
@@ -699,58 +700,56 @@ export default function SwapScreen({ route }: Props) {
 
       setSwapStatus("Sending...");
 
-      // 4. Client-side blockhash fix: replace blockhash with fresh one from OUR RPC
-      //    This prevents "Blockhash not found" when Jupiter/Pump uses different RPCs
+      // 4. Sign the transaction (blockhash from server's RPC is used as-is)
       const txBuffer = Buffer.from(buildResult.swapTransactionBase64, "base64");
       const transaction = VersionedTransaction.deserialize(txBuffer);
-
-      const connection = new Connection(RPC_PRIMARY, { commitment: "confirmed" });
-      const { blockhash } = await connection.getLatestBlockhash("confirmed");
-      transaction.message.recentBlockhash = blockhash;
-
-      // 5. Sign locally (~10ms)
       transaction.sign([keypair]);
       const signedBytes = transaction.serialize();
       const signedBase64 = Buffer.from(signedBytes).toString("base64");
 
-      // 6. Send to RPC directly — fire and forget
-      //    Send to primary RPC + fallback RPC in parallel for redundancy
-      const sendRaw = async (rpcUrl: string): Promise<string | null> => {
-        try {
-          const resp = await fetch(rpcUrl, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              jsonrpc: "2.0",
-              id: 1,
-              method: "sendTransaction",
-              params: [
-                signedBase64,
-                { encoding: "base64", skipPreflight: true, maxRetries: 5 },
-              ],
-            }),
-          });
-          const data = await resp.json();
-          if (data.result) return data.result;
-          if (data.error) console.warn("[Send]", rpcUrl.slice(0, 30), data.error.message);
-          return null;
-        } catch (e: any) {
-          console.warn("[Send] failed:", e.message);
-          return null;
-        }
-      };
+      // 5. Send via server endpoint (uses paid Helius/Triton RPCs)
+      const sendResult = await sendSignedTx({
+        signedTransactionBase64: signedBase64,
+        mode: speed,
+      });
 
-      const [sig1, sig2] = await Promise.all([
-        sendRaw(RPC_PRIMARY),
-        RPC_FALLBACK !== RPC_PRIMARY ? sendRaw(RPC_FALLBACK) : Promise.resolve(null),
-      ]);
-
-      const signature = sig1 || sig2;
-      if (!signature) {
-        throw new Error("Failed to send transaction to RPC");
+      if (!sendResult.ok || !sendResult.signature) {
+        throw new Error(sendResult.message || "Failed to send transaction");
       }
 
-      // 7. Done! Show result immediately
+      const signature = sendResult.signature;
+      console.log(`[Swap] TX sent via server (${sendResult.rpc}): ${signature}`);
+
+      // 6. Rebroadcast loop: keep resending via server + poll confirmation
+      const REBROADCAST_INTERVAL = 2000;
+      const MAX_REBROADCAST_TIME = 40000;
+      const sendStart = Date.now();
+      let confirmed = false;
+
+      while (Date.now() - sendStart < MAX_REBROADCAST_TIME) {
+        await new Promise(r => setTimeout(r, REBROADCAST_INTERVAL));
+
+        // Check confirmation via server endpoint (uses paid RPC)
+        try {
+          const status = await getSwapStatus(signature);
+          if (status.confirmed) {
+            confirmed = true;
+            console.log(`[Swap] TX confirmed after ${Date.now() - sendStart}ms`);
+            break;
+          }
+          if (status.error) {
+            throw new Error(`Transaction failed on-chain: ${status.error}`);
+          }
+        } catch (statusErr: any) {
+          if (statusErr.message?.includes("failed on-chain")) throw statusErr;
+        }
+
+        // Resend via server (paid RPCs with retry logic built in)
+        sendSignedTx({ signedTransactionBase64: signedBase64, mode: speed }).catch(() => {});
+        setSwapStatus(`Sending... (${Math.round((Date.now() - sendStart) / 1000)}s)`);
+      }
+
+      // 7. Done!
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
       // Use Jupiter quote for output estimate (pump doesn't provide one)
@@ -783,30 +782,31 @@ export default function SwapScreen({ route }: Props) {
         mode: speed,
         capSol: customCapSol ?? SPEED_CONFIGS[speed].capSol,
         signature,
-        status: "submitted",
+        status: confirmed ? "confirmed" : "submitted",
         timings: {},
         route: routeLabel,
         priceImpactPct: rqResult.normalized?.priceImpactPct || parseFloat(jupiterQuote?.priceImpactPct || "0"),
       });
 
-      // Charge success fee silently in background
-      if (successFeeLamports > 0 && activeWallet?.id && solanaAddr) {
+      // Charge success fee only if confirmed
+      if (confirmed && successFeeLamports > 0 && activeWallet?.id && solanaAddr) {
         tryChargeSuccessFeeNow(activeWallet.id, solanaAddr, successFeeLamports, signature).catch(() => {});
       }
 
-      showAlert(
-        "Swap Sent!",
-        outDisplay
+      const alertTitle = confirmed ? "Swap Confirmed!" : "Swap Sent";
+      const alertBody = confirmed
+        ? outDisplay
           ? `Swapped ${inputAmount} ${inputToken.symbol} for ~${outDisplay} ${outputToken.symbol}`
-          : `Sent ${inputAmount} ${inputToken.symbol} swap`,
-        [
-          { text: "View", onPress: () => {
-            const url = getExplorerUrl(signature);
-            import("expo-web-browser").then(m => m.openBrowserAsync(url));
-          }},
-          { text: "OK" },
-        ]
-      );
+          : `Swapped ${inputAmount} ${inputToken.symbol}`
+        : `Transaction sent but not yet confirmed. Check explorer for status.`;
+
+      showAlert(alertTitle, alertBody, [
+        { text: "View", onPress: () => {
+          const url = getExplorerUrl(signature);
+          import("expo-web-browser").then(m => m.openBrowserAsync(url));
+        }},
+        { text: "OK" },
+      ]);
 
       setInputAmount("");
       setQuote(null);
