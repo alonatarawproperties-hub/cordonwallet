@@ -151,23 +151,34 @@ export async function getRouteQuote(params: {
         // only fall back to Pump if Jupiter has no route
         console.log("[Route] Pump token (detection inconclusive), trying Jupiter first with pump fallback");
 
+        // Resolve fee account so the quote includes platformFeeBps
+        const pumpFeeAccount = await resolveFeeAccount(outputMint);
+        const pumpIncludeFee = !!pumpFeeAccount;
+
         const jupiterFallback = await getQuote({
           inputMint,
           outputMint,
           amount,
           slippageBps,
           swapMode: "ExactIn",
+          includePlatformFee: pumpIncludeFee,
         });
 
         if (jupiterFallback.ok) {
           // Jupiter has a route — use it (token may be graduated or have DEX liquidity)
           console.log("[Route] Jupiter has route for pump-format token, using Jupiter");
+          const pumpFeeStatus: FeeStatus = pumpFeeAccount
+            ? { mode: "platformFee", feeBps: 50 }
+            : { mode: "disabled", reason: "No fee account for output mint" };
+
           const routeResult: RouteQuoteResult = {
             ok: true,
             route: "jupiter",
             quoteResponse: jupiterFallback.quote,
             normalized: jupiterFallback.normalized,
             pumpMeta,
+            fee: pumpFeeStatus,
+            feeAccount: pumpFeeAccount || undefined,
           };
           quoteCache.set(cacheKey, routeResult);
           return routeResult;
