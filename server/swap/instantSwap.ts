@@ -51,8 +51,17 @@ export async function instantBuild(params: {
   amount: string;
   slippageBps: number;
   speedMode: SpeedMode;
+  maxPriorityFeeLamports?: number;
 }): Promise<InstantBuildResult> {
-  const { userPublicKey, inputMint, outputMint, amount, slippageBps, speedMode } = params;
+  const {
+    userPublicKey,
+    inputMint,
+    outputMint,
+    amount,
+    slippageBps,
+    speedMode,
+    maxPriorityFeeLamports,
+  } = params;
   const start = Date.now();
 
   // ── Step 1: Detect route (pump vs jupiter) + get quote in one shot ──
@@ -86,6 +95,7 @@ export async function instantBuild(params: {
       amountTokens,
       slippageBps,
       speedMode,
+      maxPriorityFeeLamports,
     });
 
     if (!buildResult.ok || !buildResult.swapTransactionBase64) {
@@ -137,10 +147,19 @@ async function buildViaJupiter(
     amount: string;
     slippageBps: number;
     speedMode: SpeedMode;
+    maxPriorityFeeLamports?: number;
   },
   routeResult: any
 ): Promise<InstantBuildResult> {
-  const { userPublicKey, inputMint, outputMint, amount, slippageBps, speedMode } = params;
+  const {
+    userPublicKey,
+    inputMint,
+    outputMint,
+    amount,
+    slippageBps,
+    speedMode,
+    maxPriorityFeeLamports,
+  } = params;
   const start = Date.now();
 
   // If we already have a quote from route detection, use it
@@ -175,6 +194,7 @@ async function buildViaJupiter(
     quote: jupiterQuote,
     speedMode,
     wrapAndUnwrapSol: true,
+    maxPriorityFeeLamports,
   });
 
   if (!buildResult.ok || !buildResult.swapTransactionBase64) {

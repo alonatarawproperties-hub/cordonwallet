@@ -109,6 +109,7 @@ export const InstantBuildBodySchema = z.object({
   amount: z.string().regex(/^\d+$/),
   slippageBps: z.coerce.number().int().min(0).max(5000).optional().default(200),
   speedMode: SpeedModeSchema.optional().default("fast"),
+  maxPriorityFeeLamports: z.number().int().positive().optional(),
 });
 
 export interface InstantBuildResponse {
