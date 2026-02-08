@@ -505,7 +505,10 @@ export async function checkSignatureDirectly(signature: string): Promise<{
   confirmed: boolean;
   processed: boolean;
   error?: string;
+  rpcErrors?: string[];
 }> {
+  const rpcErrors: string[] = [];
+
   try {
     const conn = getPrimaryConnection();
     const fallbackConn = getFallbackConnection();
@@ -513,10 +516,20 @@ export async function checkSignatureDirectly(signature: string): Promise<{
     // Fire both RPCs in parallel — first to confirm wins
     const [primaryResult, fallbackResult] = await Promise.all([
       conn.getSignatureStatus(signature, { searchTransactionHistory: false })
-        .catch(() => ({ value: null })),
+        .catch((err: any) => {
+          rpcErrors.push(`primary: ${err.message || err}`);
+          return { value: null };
+        }),
       fallbackConn.getSignatureStatus(signature, { searchTransactionHistory: false })
-        .catch(() => ({ value: null })),
+        .catch((err: any) => {
+          rpcErrors.push(`fallback: ${err.message || err}`);
+          return { value: null };
+        }),
     ]);
+
+    if (rpcErrors.length > 0) {
+      console.warn("[checkSignature] RPC errors:", rpcErrors.join(" | "));
+    }
 
     // Check both results — use whichever has data
     for (const result of [primaryResult, fallbackResult]) {
@@ -524,7 +537,7 @@ export async function checkSignatureDirectly(signature: string): Promise<{
       if (!status) continue;
 
       if (status.err) {
-        return { confirmed: false, processed: false, error: JSON.stringify(status.err) };
+        return { confirmed: false, processed: false, error: JSON.stringify(status.err), rpcErrors };
       }
 
       const level = status.confirmationStatus;
@@ -532,13 +545,16 @@ export async function checkSignatureDirectly(signature: string): Promise<{
         return {
           confirmed: level === "confirmed" || level === "finalized",
           processed: true,
+          rpcErrors: rpcErrors.length > 0 ? rpcErrors : undefined,
         };
       }
     }
 
-    return { confirmed: false, processed: false };
-  } catch {
-    return { confirmed: false, processed: false };
+    return { confirmed: false, processed: false, rpcErrors: rpcErrors.length > 0 ? rpcErrors : undefined };
+  } catch (outerErr: any) {
+    console.warn("[checkSignature] Outer error:", outerErr.message || outerErr);
+    rpcErrors.push(`outer: ${outerErr.message || outerErr}`);
+    return { confirmed: false, processed: false, rpcErrors };
   }
 }
 

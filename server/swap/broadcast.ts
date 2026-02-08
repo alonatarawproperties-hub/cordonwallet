@@ -168,26 +168,45 @@ export async function getTransactionStatus(signature: string): Promise<{
   confirmationStatus?: string;
   error?: string;
 }> {
+  const hasFallback = swapConfig.solanaRpcUrlFallback &&
+    swapConfig.solanaRpcUrlFallback !== swapConfig.solanaRpcUrl;
+
+  // Check both RPCs in parallel for fastest detection
+  const checkRpc = async (rpcUrl: string, label: string) => {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
+
+      const response = await fetch(rpcUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "getSignatureStatuses",
+          params: [[signature], { searchTransactionHistory: true }],
+        }),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeout);
+
+      const data = await response.json();
+      return data.result?.value?.[0] || null;
+    } catch (err: any) {
+      console.warn(`[Status] ${label} RPC check failed:`, err.message);
+      return null;
+    }
+  };
+
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000);
+    const results = await Promise.all([
+      checkRpc(swapConfig.solanaRpcUrl, "Primary"),
+      hasFallback ? checkRpc(swapConfig.solanaRpcUrlFallback, "Fallback") : Promise.resolve(null),
+    ]);
 
-    const response = await fetch(swapConfig.solanaRpcUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: 1,
-        method: "getSignatureStatuses",
-        params: [[signature], { searchTransactionHistory: false }],
-      }),
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeout);
-
-    const data = await response.json();
-    const status = data.result?.value?.[0];
+    // Use whichever RPC returned data
+    const status = results.find(r => r !== null) || null;
 
     if (!status) {
       return { confirmed: false, finalized: false, processed: false };
