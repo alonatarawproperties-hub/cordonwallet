@@ -700,12 +700,11 @@ export default function SwapScreen({ route }: Props) {
       setSwapStatus("Sending...");
 
       // 4. Client-side blockhash fix: replace blockhash with fresh one from OUR RPC
-      //    This prevents "Blockhash not found" when Jupiter/Pump uses different RPCs
       const txBuffer = Buffer.from(buildResult.swapTransactionBase64, "base64");
       const transaction = VersionedTransaction.deserialize(txBuffer);
 
       const connection = new Connection(RPC_PRIMARY, { commitment: "confirmed" });
-      const { blockhash } = await connection.getLatestBlockhash("confirmed");
+      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
       transaction.message.recentBlockhash = blockhash;
 
       // 5. Sign locally (~10ms)
@@ -713,9 +712,8 @@ export default function SwapScreen({ route }: Props) {
       const signedBytes = transaction.serialize();
       const signedBase64 = Buffer.from(signedBytes).toString("base64");
 
-      // 6. Send to RPC directly — fire and forget
-      //    Send to primary RPC + fallback RPC in parallel for redundancy
-      const sendRaw = async (rpcUrl: string): Promise<string | null> => {
+      // 6. Send + rebroadcast loop: keep sending until confirmed or blockhash expires
+      const sendRaw = async (rpcUrl: string, label: string): Promise<string | null> => {
         try {
           const resp = await fetch(rpcUrl, {
             method: "POST",
@@ -732,25 +730,108 @@ export default function SwapScreen({ route }: Props) {
           });
           const data = await resp.json();
           if (data.result) return data.result;
-          if (data.error) console.warn("[Send]", rpcUrl.slice(0, 30), data.error.message);
+          if (data.error) {
+            const msg = data.error.message || "";
+            if (msg.includes("Blockhash not found") || msg.includes("block height exceeded")) {
+              return "EXPIRED";
+            }
+            console.warn(`[Send:${label}]`, msg);
+          }
           return null;
         } catch (e: any) {
-          console.warn("[Send] failed:", e.message);
+          console.warn(`[Send:${label}] failed:`, e.message);
           return null;
         }
       };
 
+      // Initial blast to both RPCs
       const [sig1, sig2] = await Promise.all([
-        sendRaw(RPC_PRIMARY),
-        RPC_FALLBACK !== RPC_PRIMARY ? sendRaw(RPC_FALLBACK) : Promise.resolve(null),
+        sendRaw(RPC_PRIMARY, "Primary"),
+        RPC_FALLBACK !== RPC_PRIMARY ? sendRaw(RPC_FALLBACK, "Fallback") : Promise.resolve(null),
       ]);
 
-      const signature = sig1 || sig2;
+      const signature = [sig1, sig2].find(s => s && s !== "EXPIRED") || null;
       if (!signature) {
         throw new Error("Failed to send transaction to RPC");
       }
 
-      // 7. Done! Show result immediately
+      // Rebroadcast loop: keep hammering RPCs + check confirmation every 2s
+      // This runs while the user sees "Sending..." status
+      const REBROADCAST_INTERVAL = 2000;
+      const MAX_REBROADCAST_TIME = 40000;
+      const sendStart = Date.now();
+      let confirmed = false;
+
+      while (Date.now() - sendStart < MAX_REBROADCAST_TIME) {
+        // Wait 2 seconds
+        await new Promise(r => setTimeout(r, REBROADCAST_INTERVAL));
+
+        // Check if transaction is confirmed
+        try {
+          const statusResp = await fetch(RPC_PRIMARY, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              jsonrpc: "2.0",
+              id: 1,
+              method: "getSignatureStatuses",
+              params: [[signature], { searchTransactionHistory: false }],
+            }),
+          });
+          const statusData = await statusResp.json();
+          const txStatus = statusData?.result?.value?.[0];
+          if (txStatus) {
+            if (txStatus.err) {
+              // Transaction landed but failed on-chain
+              const errStr = JSON.stringify(txStatus.err);
+              throw new Error(`Transaction failed on-chain: ${errStr}`);
+            }
+            const level = txStatus.confirmationStatus;
+            if (level === "confirmed" || level === "finalized" || level === "processed") {
+              confirmed = true;
+              console.log(`[Swap] TX confirmed (${level}) after ${Date.now() - sendStart}ms`);
+              break;
+            }
+          }
+        } catch (statusErr: any) {
+          if (statusErr.message?.includes("failed on-chain")) throw statusErr;
+          // Status check failed, continue rebroadcasting
+        }
+
+        // Check if blockhash has expired
+        try {
+          const heightResp = await fetch(RPC_PRIMARY, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              jsonrpc: "2.0", id: 1,
+              method: "getBlockHeight",
+              params: [{ commitment: "confirmed" }],
+            }),
+          });
+          const heightData = await heightResp.json();
+          if (heightData?.result && heightData.result > lastValidBlockHeight) {
+            console.log("[Swap] Block height exceeded, stopping rebroadcast");
+            break;
+          }
+        } catch { /* ignore */ }
+
+        // Resend to both RPCs
+        const r1 = await sendRaw(RPC_PRIMARY, `Rebroadcast`);
+        if (r1 === "EXPIRED") break;
+        if (RPC_FALLBACK !== RPC_PRIMARY) {
+          sendRaw(RPC_FALLBACK, `Rebroadcast-FB`); // fire and forget
+        }
+
+        setSwapStatus(`Sending... (${Math.round((Date.now() - sendStart) / 1000)}s)`);
+      }
+
+      if (!confirmed) {
+        // Not confirmed yet but tx was sent — show cautious success
+        // The RPC's maxRetries:5 will continue trying in the background
+      }
+
+      // 7. Done!
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
       // Use Jupiter quote for output estimate (pump doesn't provide one)
@@ -783,30 +864,31 @@ export default function SwapScreen({ route }: Props) {
         mode: speed,
         capSol: customCapSol ?? SPEED_CONFIGS[speed].capSol,
         signature,
-        status: "submitted",
+        status: confirmed ? "confirmed" : "submitted",
         timings: {},
         route: routeLabel,
         priceImpactPct: rqResult.normalized?.priceImpactPct || parseFloat(jupiterQuote?.priceImpactPct || "0"),
       });
 
-      // Charge success fee silently in background
-      if (successFeeLamports > 0 && activeWallet?.id && solanaAddr) {
+      // Charge success fee only if confirmed
+      if (confirmed && successFeeLamports > 0 && activeWallet?.id && solanaAddr) {
         tryChargeSuccessFeeNow(activeWallet.id, solanaAddr, successFeeLamports, signature).catch(() => {});
       }
 
-      showAlert(
-        "Swap Sent!",
-        outDisplay
+      const alertTitle = confirmed ? "Swap Confirmed!" : "Swap Sent";
+      const alertBody = confirmed
+        ? outDisplay
           ? `Swapped ${inputAmount} ${inputToken.symbol} for ~${outDisplay} ${outputToken.symbol}`
-          : `Sent ${inputAmount} ${inputToken.symbol} swap`,
-        [
-          { text: "View", onPress: () => {
-            const url = getExplorerUrl(signature);
-            import("expo-web-browser").then(m => m.openBrowserAsync(url));
-          }},
-          { text: "OK" },
-        ]
-      );
+          : `Swapped ${inputAmount} ${inputToken.symbol}`
+        : `Transaction sent but not yet confirmed. Check explorer for status.`;
+
+      showAlert(alertTitle, alertBody, [
+        { text: "View", onPress: () => {
+          const url = getExplorerUrl(signature);
+          import("expo-web-browser").then(m => m.openBrowserAsync(url));
+        }},
+        { text: "OK" },
+      ]);
 
       setInputAmount("");
       setQuote(null);
