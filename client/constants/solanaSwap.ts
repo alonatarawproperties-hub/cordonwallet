@@ -8,9 +8,9 @@ export const JUPITER_API_URLS = [
 ];
 export const JUPITER_API_URL = JUPITER_API_URLS[0];
 
-export const STANDARD_CAP_SOL = 0.0008;
-export const FAST_CAP_SOL = 0.002;
-export const TURBO_CAP_SOL = 0.005;
+export const STANDARD_CAP_SOL = 0.001;
+export const FAST_CAP_SOL = 0.003;
+export const TURBO_CAP_SOL = 0.006;
 export const ADV_MAX_CAP_SOL = 0.02;
 
 export type SwapSpeed = "standard" | "fast" | "turbo";

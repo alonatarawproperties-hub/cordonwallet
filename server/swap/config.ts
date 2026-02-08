@@ -38,9 +38,9 @@ export const swapConfig = {
   maxBodyBytes: parseInt(process.env.MAX_BODY_BYTES || "2000000"),
   
   priorityFeeCaps: {
-    standard: 200_000,
-    fast: 1_000_000,
-    turbo: 3_000_000,
+    standard: 500_000,
+    fast: 2_000_000,
+    turbo: 5_000_000,
   },
   maxPriorityFeeCap: 10_000_000,
   

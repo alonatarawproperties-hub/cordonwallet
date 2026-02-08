@@ -181,7 +181,7 @@ export default function SwapScreen({ route }: Props) {
   const [outputToken, setOutputToken] = useState<TokenInfo | null>(null);
   const [inputAmount, setInputAmount] = useState("");
   const [slippageBps, setSlippageBps] = useState(DEFAULT_SLIPPAGE_BPS);
-  const [speed, setSpeed] = useState<SwapSpeed>("standard");
+  const [speed, setSpeed] = useState<SwapSpeed>("fast");
   const [customCapSol, setCustomCapSol] = useState<number | null>(null);
   const [showCustomInput, setShowCustomInput] = useState(false);
   const [customInputValue, setCustomInputValue] = useState("");
