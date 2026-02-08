@@ -8,7 +8,7 @@
 import { getQuote, buildSwapTransaction } from "./jupiter";
 import { buildPumpTransaction } from "./pump";
 import { getRouteQuote } from "./route";
-import { swapConfig, getPriorityFeeCap, SpeedMode } from "./config";
+import type { SpeedMode } from "./config";
 import type { InstantBuildResult } from "./types";
 
 const SOL_MINT = "So11111111111111111111111111111111111111112";
