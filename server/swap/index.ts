@@ -360,9 +360,26 @@ swapRouter.post("/solana/instant-build", async (req: Request, res: Response) => 
       });
     }
 
+    console.log(`[Swap API] instant-build request:`, {
+      inputMint: parsed.data.inputMint.slice(0, 8) + "...",
+      outputMint: parsed.data.outputMint.slice(0, 8) + "...",
+      amount: parsed.data.amount,
+      speedMode: parsed.data.speedMode,
+      slippageBps: parsed.data.slippageBps,
+    });
+
     const result = await instantBuild(parsed.data);
     const elapsed = Date.now() - start;
-    console.log(`[Swap API] instant-build ${result.ok ? "OK" : "FAIL"} in ${elapsed}ms`);
+
+    if (!result.ok) {
+      console.error(`[Swap API] instant-build FAILED in ${elapsed}ms:`, {
+        code: (result as any).code,
+        message: (result as any).message,
+        details: (result as any).details?.toString().slice(0, 200),
+      });
+    } else {
+      console.log(`[Swap API] instant-build OK in ${elapsed}ms, route=${result.route}, blockhash valid`);
+    }
 
     if (result.ok) {
       // Server-side security validation
