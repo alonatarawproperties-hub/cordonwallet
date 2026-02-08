@@ -100,3 +100,57 @@ export interface SendError {
 export type QuoteResult = QuoteResponse | QuoteError;
 export type BuildResult = BuildResponse | BuildError;
 export type SendResult = SendResponse | SendError;
+
+// ── Instant swap (single round-trip: route + quote + build) ──
+export const InstantBuildBodySchema = z.object({
+  userPublicKey: z.string().min(32).max(44),
+  inputMint: z.string().min(32).max(44),
+  outputMint: z.string().min(32).max(44),
+  amount: z.string().regex(/^\d+$/),
+  slippageBps: z.coerce.number().int().min(0).max(5000).optional().default(200),
+  speedMode: SpeedModeSchema.optional().default("fast"),
+});
+
+export interface InstantBuildResponse {
+  ok: true;
+  route: "jupiter" | "pump";
+  swapTransactionBase64: string;
+  quote: {
+    inAmount: string;
+    outAmount: string;
+    minOut: string;
+    priceImpactPct: number;
+    routeLabel: string;
+  };
+  prioritizationFeeLamports: number;
+  lastValidBlockHeight?: number;
+}
+
+export interface InstantBuildError {
+  ok: false;
+  code: string;
+  message: string;
+  details?: any;
+}
+
+export type InstantBuildResult = InstantBuildResponse | InstantBuildError;
+
+// ── Instant send (fire to Jito + RPCs, return immediately) ──
+export const InstantSendBodySchema = z.object({
+  signedTransactionBase64: z.string().min(100),
+  speedMode: SpeedModeSchema.optional().default("fast"),
+});
+
+export interface InstantSendResponse {
+  ok: true;
+  signature: string;
+  sentVia: string[];
+}
+
+export interface InstantSendError {
+  ok: false;
+  code: string;
+  message: string;
+}
+
+export type InstantSendResult = InstantSendResponse | InstantSendError;

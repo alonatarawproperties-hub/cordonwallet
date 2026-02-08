@@ -41,11 +41,9 @@ import {
   MAX_SLIPPAGE_BPS,
   SLIPPAGE_PRESETS,
   SLIPPAGE_STEP,
-  QUOTE_REFRESH_INTERVALS,
   SOL_MINT,
   USDC_MINT,
   LAMPORTS_PER_SOL,
-  ADV_MAX_CAP_SOL,
   RPC_PRIMARY,
 } from "@/constants/solanaSwap";
 import { Connection } from "@solana/web3.js";
@@ -61,19 +59,12 @@ import {
   getTokenLogoUri,
 } from "@/services/solanaTokenList";
 import {
-  buildSwapTransaction,
   calculatePriceImpact,
-  formatRoute,
-  estimateNetworkFee,
-  getQuote,
   QuoteResponse,
-  SwapResponse,
 } from "@/services/jupiter";
-import { buildPump, SOL_MINT as SWAP_SOL_MINT } from "@/services/solanaSwapApi";
-import { calculateFeeConfig, formatFeeDisplay } from "@/lib/solana/feeController";
-import { decodeAndValidateSwapTx, isDrainerTransaction } from "@/lib/solana/swapSecurity";
-import { broadcastTransaction, classifyError, getExplorerUrl } from "@/services/txBroadcaster";
-import { addSwapRecord, updateSwapStatus, addDebugLog, SwapTimings } from "@/services/swapStore";
+import { instantBuild, instantSend } from "@/services/solanaSwapApi";
+import { classifyError, getExplorerUrl } from "@/services/txBroadcaster";
+import { addSwapRecord, addDebugLog } from "@/services/swapStore";
 import { getApiUrl, getApiHeaders } from "@/lib/query-client";
 import {
   estimateFeeReserveLamports,
@@ -85,7 +76,6 @@ import {
 import {
   estimateRequiredSolBufferLamports,
   formatBufferSol,
-  hasEnoughSolForBuffer,
 } from "@/lib/solana/swapBuffer";
 // appendOutputFeeInstruction removed — output fee disabled (0 bps), replaced by Jupiter platform fee
 import { likelyNeedsAtaRent } from "@/lib/solana/ataCheck";
@@ -97,7 +87,6 @@ import {
 import {
   tryChargeSuccessFeeNow,
   retryPendingFeesForCurrentWallet,
-  hasPendingFeeForSwap,
 } from "@/services/successFeeService";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { useTokenSafetyScan, RiskLevel } from "@/hooks/useTokenSafetyScan";
@@ -217,12 +206,6 @@ export default function SwapScreen({ route }: Props) {
   const [customTokenResult, setCustomTokenResult] = useState<CustomTokenInfo | null>(null);
   const [recentCustomTokens, setRecentCustomTokens] = useState<CustomTokenInfo[]>([]);
 
-  const [showConfirmModal, setShowConfirmModal] = useState(false);
-  const [pendingSwap, setPendingSwap] = useState<{
-    quote: QuoteResponse | null;
-    swapResponse: SwapResponse;
-    route: SwapRoute;
-  } | null>(null);
   const [showSlippageModal, setShowSlippageModal] = useState(false);
   const [slippageInputText, setSlippageInputText] = useState("");
   const [needsAtaRent, setNeedsAtaRent] = useState(true);
@@ -592,10 +575,12 @@ export default function SwapScreen({ route }: Props) {
     }
   };
 
-  const canSwap = ((swapRoute === "jupiter" && quote) || (swapRoute === "pump" && pumpMeta)) && !insufficientSolForFees;
+  // Instant swap: just need tokens + amount (no pre-fetched quote required)
+  const canSwap = !!inputToken && !!outputToken && !!inputAmount && parseFloat(inputAmount) > 0 && !insufficientSolForFees;
 
-  const executeSwap = async () => {
-    if (!canSwap || !inputToken || !outputToken || !activeWallet) return;
+  // ── INSTANT SWAP: TG-bot style — one tap, done ──
+  const executeInstantSwap = async () => {
+    if (!inputToken || !outputToken || !activeWallet || !inputAmount || parseFloat(inputAmount) <= 0) return;
 
     const solanaAddr = activeWallet.addresses?.solana;
     if (!solanaAddr) {
@@ -604,546 +589,154 @@ export default function SwapScreen({ route }: Props) {
     }
 
     setIsSwapping(true);
-    setSwapStatus("Getting fresh quote...");
+    setSwapStatus("Sending...");
 
-    const timings: SwapTimings = {};
-    const buildStart = Date.now();
-
-    let keypair: Keypair | null = null;
-    try {
-      const capSol = customCapSol ?? SPEED_CONFIGS[speed].capSol;
-      let swapResponse: SwapResponse;
-      let freshQuote: QuoteResponse | null = null;
-
-      // Track the effective route — may change from "pump" to "jupiter"
-      // if the token has graduated from the bonding curve.
-      let effectiveRoute: SwapRoute = swapRoute;
-
-      if (swapRoute === "pump" && pumpMeta) {
-        const isBuying = inputToken.mint === SOL_MINT;
-        const buildResult = await buildPump({
-          userPublicKey: solanaAddr,
-          mint: pumpMeta.mint,
-          side: isBuying ? "buy" : "sell",
-          amountSol: isBuying ? parseFloat(inputAmount) : undefined,
-          amountTokens: isBuying ? undefined : parseFloat(inputAmount),
-          slippageBps,
-          speedMode: speed,
-          maxPriorityFeeLamports: capSol * LAMPORTS_PER_SOL,
-        });
-
-        if (!buildResult.ok || !buildResult.swapTransactionBase64) {
-          // If token is graduated, try to fall back to Jupiter with fresh quote
-          if ((buildResult as any).code === "TOKEN_GRADUATED") {
-            console.log("[Swap] Pump build failed (graduated), falling back to Jupiter with fresh quote");
-            await addDebugLog("info", "Token graduated from pump, using Jupiter", {});
-            setSwapStatus("Building transaction...");
-            // Get fresh quote for graduated token
-            const inputAmountLamports = Math.floor(parseFloat(inputAmount) * Math.pow(10, inputToken.decimals)).toString();
-            freshQuote = await getQuote({
-              inputMint: inputToken.mint,
-              outputMint: outputToken.mint,
-              amount: inputAmountLamports,
-              slippageBps,
-              swapMode: "ExactIn",
-            });
-            swapResponse = await buildSwapTransaction(freshQuote, solanaAddr, speed, capSol);
-            effectiveRoute = "jupiter";
-          } else {
-            throw new Error(buildResult.message || "Failed to build Pump transaction");
-          }
-        } else {
-          swapResponse = {
-            swapTransaction: buildResult.swapTransactionBase64,
-            lastValidBlockHeight: 0,
-          };
-        }
-      } else if (swapRoute === "jupiter") {
-        // CRITICAL: Always fetch a fresh quote right before building the swap transaction
-        // Stale quotes cause 0x1788 (InvalidAccountData) errors because pool states change
-        console.log("[Swap] Fetching fresh quote to avoid stale route data...");
-        const inputAmountLamports = Math.floor(parseFloat(inputAmount) * Math.pow(10, inputToken.decimals)).toString();
-        freshQuote = await getQuote({
-          inputMint: inputToken.mint,
-          outputMint: outputToken.mint,
-          amount: inputAmountLamports,
-          slippageBps,
-          swapMode: "ExactIn",
-        });
-        console.log("[Swap] Fresh quote received, building transaction...");
-        setSwapStatus("Building transaction...");
-        swapResponse = await buildSwapTransaction(freshQuote, solanaAddr, speed, capSol);
-      } else {
-        throw new Error("No valid swap route");
-      }
-      timings.buildLatencyMs = Date.now() - buildStart;
-
-      const securityResult = decodeAndValidateSwapTx(
-        swapResponse.swapTransaction,
-        solanaAddr,
-        outputToken.mint,
-        effectiveRoute
-      );
-
-      if (!securityResult.safe) {
-        await addDebugLog("error", "Security check failed", securityResult);
-        showAlert("Blocked", securityResult.errors.join("\n"));
-        setIsSwapping(false);
-        setSwapStatus("");
-        return;
-      }
-
-      if (isDrainerTransaction(swapResponse.swapTransaction, solanaAddr)) {
-        await addDebugLog("error", "Drainer detected");
-        showAlert("Blocked", "This transaction contains suspicious instructions.");
-        setIsSwapping(false);
-        setSwapStatus("");
-        return;
-      }
-
-      if (securityResult.warnings.length > 0) {
-        await addDebugLog("warn", "Security warnings", securityResult.warnings);
-      }
-
-      // Use freshQuote for Jupiter routes (which we just fetched), fallback to cached quote for Pump
-      setPendingSwap({ quote: freshQuote || quote, swapResponse, route: effectiveRoute });
-      setShowConfirmModal(true);
-      setIsSwapping(false);
-      setSwapStatus("");
-    } catch (error: any) {
-      await addDebugLog("error", "Build failed", { error: error.message });
-      showAlert("Error", error.message || "Failed to build swap");
-      setIsSwapping(false);
-      setSwapStatus("");
-    }
-  };
-
-  const confirmAndExecuteSwap = async () => {
-    if (!pendingSwap || !activeWallet || !inputToken || !outputToken) return;
-
-    setShowConfirmModal(false);
-    setIsSwapping(true);
-    setSwapStatus("Signing...");
-
-    const timings: SwapTimings = {};
-    const tapStart = Date.now();
     let keypair: Keypair | null = null;
 
     try {
-      const solanaAddr = activeWallet.addresses?.solana;
-      if (!solanaAddr) throw new Error("No Solana address");
-
+      // 1. Get keypair
       let mnemonic = await getMnemonic(activeWallet.id);
-
-      // If mnemonic is null, the wallet may have been imported via private key,
-      // or the in-memory vault state was lost. Try recovery before failing.
       if (!mnemonic) {
-        // Attempt to re-unlock vault using cached biometric key
         const recovered = await unlockWithCachedKey().catch(() => false);
-        if (recovered) {
-          mnemonic = await getMnemonic(activeWallet.id);
-        }
+        if (recovered) mnemonic = await getMnemonic(activeWallet.id);
       }
-
       if (mnemonic) {
         const { secretKey } = deriveSolanaKeypair(mnemonic);
         keypair = Keypair.fromSecretKey(secretKey);
         secretKey.fill(0);
       } else {
-        // Wallet may have been imported via private key (no mnemonic)
         const pk = await getWalletPrivateKey(activeWallet.id);
         if (pk && pk.type === "solana") {
           keypair = Keypair.fromSecretKey(bs58.decode(pk.key));
-        } else {
-          showAlert("Error", "Please unlock your wallet first");
-          setIsSwapping(false);
-          return;
         }
       }
-
-      // --- Build, sign, broadcast with auto-retry for Pump routes ---
-      // Pump.fun txs frequently expire because bonding curve state changes
-      // between build and validator processing. Phantom/Trust auto-retry
-      // transparently — we do the same (up to 3 attempts).
-      const isPumpRoute = pendingSwap.route === "pump" && pumpMeta;
-      const maxAttempts = isPumpRoute ? 3 : 1;
-      const isBuying = inputToken.mint === SOL_MINT;
-      const capSol = customCapSol ?? SPEED_CONFIGS[speed].capSol;
-      // Boost priority fee for Pump routes — bonding curve txs need higher
-      // priority to land before state changes. Use at least "fast" tier.
-      const pumpCapSol = Math.max(capSol, SPEED_CONFIGS.fast.capSol);
-      const effectiveCapSol = isPumpRoute ? pumpCapSol : capSol;
-
-      let lastResult: any = null;
-      let lastRecord: any = null;
-      let activeRoute: SwapRoute = pendingSwap.route;
-
-      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-        if (attempt > 1) {
-          setSwapStatus(`Retrying (${attempt}/${maxAttempts})...`);
-          console.log(`[Swap] Auto-retry attempt ${attempt}/${maxAttempts}`);
-          await addDebugLog("info", `Pump auto-retry attempt ${attempt}`, {});
-        }
-
-        // Build fresh transaction for each attempt
-        let txBase64 = pendingSwap.swapResponse.swapTransaction;
-        let freshQuoteForSubmit: QuoteResponse | null = null;
-        activeRoute = pendingSwap.route;
-
-        if (isPumpRoute) {
-          setSwapStatus(attempt === 1 ? "Building fresh tx..." : `Rebuilding tx (${attempt}/${maxAttempts})...`);
-          const freshBuild = await buildPump({
-            userPublicKey: solanaAddr,
-            mint: pumpMeta!.mint,
-            side: isBuying ? "buy" : "sell",
-            amountSol: isBuying ? parseFloat(inputAmount) : undefined,
-            amountTokens: isBuying ? undefined : parseFloat(inputAmount),
-            slippageBps,
-            speedMode: speed,
-            maxPriorityFeeLamports: effectiveCapSol * LAMPORTS_PER_SOL,
-          });
-          if (freshBuild.ok && freshBuild.swapTransactionBase64) {
-            txBase64 = freshBuild.swapTransactionBase64;
-            console.log(`[Swap] Fresh Pump tx built (attempt ${attempt})`);
-          } else if ((freshBuild as any).code === "TOKEN_GRADUATED") {
-            // Token graduated from bonding curve — auto-fallback to Jupiter
-            console.log("[Swap] Token graduated, falling back to Jupiter at submit time");
-            await addDebugLog("info", "Token graduated at submit, using Jupiter", {});
-            setSwapStatus("Token graduated, using Jupiter...");
-            const inputAmountLamports = Math.floor(
-              parseFloat(inputAmount) * Math.pow(10, inputToken.decimals)
-            ).toString();
-            freshQuoteForSubmit = await getQuote({
-              inputMint: inputToken.mint,
-              outputMint: outputToken.mint,
-              amount: inputAmountLamports,
-              slippageBps,
-              swapMode: "ExactIn",
-            });
-            const jupiterSwap = await buildSwapTransaction(freshQuoteForSubmit, solanaAddr, speed, capSol);
-            txBase64 = jupiterSwap.swapTransaction;
-            activeRoute = "jupiter";
-
-            // Run security validation on the new Jupiter tx
-            const secCheck = decodeAndValidateSwapTx(txBase64, solanaAddr, outputToken.mint, "jupiter");
-            if (!secCheck.safe) {
-              await addDebugLog("error", "Jupiter fallback security check failed", secCheck);
-              throw new Error("Security check failed on Jupiter fallback: " + secCheck.errors.join(", "));
-            }
-            if (isDrainerTransaction(txBase64, solanaAddr)) {
-              await addDebugLog("error", "Drainer detected in Jupiter fallback");
-              throw new Error("Suspicious transaction detected. Swap blocked for safety.");
-            }
-          } else {
-            const msg = (freshBuild as any).message || "Failed to build transaction. Please try again.";
-            throw new Error(msg);
-          }
-        }
-
-        setSwapStatus(attempt === 1 ? "Signing..." : `Signing (${attempt}/${maxAttempts})...`);
-        const txBuffer = Buffer.from(txBase64, "base64");
-        const transaction = VersionedTransaction.deserialize(txBuffer);
-        transaction.sign([keypair]);
-        const signedBytes = transaction.serialize();
-
-        if (attempt === 1) {
-          timings.tapToSubmittedMs = Date.now() - tapStart;
-        }
-
-        setSwapStatus("Submitting...");
-
-        // Use fresh Jupiter quote if we fell back from graduated Pump, otherwise use pending quote
-        const activeQuote = freshQuoteForSubmit || pendingSwap.quote;
-        const outAmount = activeQuote
-          ? formatBaseUnits(activeQuote.outAmount, outputToken.decimals)
-          : "0";
-        const minReceived = activeQuote
-          ? formatBaseUnits(activeQuote.otherAmountThreshold, outputToken.decimals)
-          : "0";
-
-        const routeLabel = activeRoute === "pump" ? "Pump.fun" :
-          (activeQuote ? formatRoute(activeQuote) : "Jupiter");
-
-        const record = await addSwapRecord({
-          timestamp: Date.now(),
-          inputMint: inputToken.mint,
-          outputMint: outputToken.mint,
-          inputSymbol: inputToken.symbol,
-          outputSymbol: outputToken.symbol,
-          inputAmount,
-          outputAmount: outAmount,
-          minReceived,
-          slippageBps,
-          mode: speed,
-          capSol: effectiveCapSol,
-          signature: "",
-          status: "submitted",
-          timings,
-          route: routeLabel,
-          priceImpactPct: activeQuote ? parseFloat(activeQuote.priceImpactPct) : 0,
-        });
-        lastRecord = record;
-
-        const submitStart = Date.now();
-
-        const result = await broadcastTransaction(signedBytes, {
-          mode: speed,
-          maxWaitMs: activeRoute === "pump" ? 12_000 : undefined,
-          onStatusChange: (status, sig) => {
-            if (sig && record.signature !== sig) {
-              updateSwapStatus(record.id, status, { signature: sig });
-            }
-            if (status === "submitted" && sig) {
-              setSwapStatus("Confirming...");
-            } else if (status === "processed") {
-              setSwapStatus("Processing...");
-              timings.submittedToProcessedMs = Date.now() - submitStart;
-            } else if (status === "confirmed" || status === "finalized") {
-              setSwapStatus("Confirmed!");
-              timings.processedToConfirmedMs = Date.now() - submitStart - (timings.submittedToProcessedMs || 0);
-              timings.totalMs = Date.now() - tapStart;
-            }
-          },
-          onRebroadcast: (count) => {
-            setSwapStatus(attempt > 1
-              ? `Retrying (${attempt}/${maxAttempts})...`
-              : `Rebroadcasting (${count})...`);
-          },
-        });
-
-        await updateSwapStatus(record.id, result.status, {
-          signature: result.signature,
-          failureReason: result.error,
-          failureCategory: result.error ? classifyError(result.error).category : undefined,
-          timings: { ...timings, totalMs: Date.now() - tapStart },
-        });
-
-        lastResult = { ...result, outAmount, record };
-
-        // If confirmed or failed with a real error, stop retrying
-        if (result.status === "confirmed" || result.status === "finalized") {
-          break;
-        }
-        if (result.status === "failed") {
-          // Real on-chain failure (slippage, insufficient funds) — don't retry
-          break;
-        }
-        // "expired" — retry with fresh tx (loop continues)
-        if (attempt < maxAttempts) {
-          console.log(`[Swap] Attempt ${attempt} expired, will retry with fresh tx`);
-        }
+      if (!keypair) {
+        showAlert("Error", "Please unlock your wallet first");
+        setIsSwapping(false);
+        setSwapStatus("");
+        return;
       }
 
-      // --- Handle final result ---
-      const result = lastResult;
-      const outAmount = result.outAmount;
+      // 2. Instant build — ONE call: route + quote + build tx
+      const amountBaseUnits = parseTokenAmount(inputAmount, inputToken.decimals).toString();
+      const buildResult = await instantBuild({
+        userPublicKey: solanaAddr,
+        inputMint: inputToken.mint,
+        outputMint: outputToken.mint,
+        amount: amountBaseUnits,
+        slippageBps,
+        speedMode: speed,
+      });
 
-      await Haptics.notificationAsync(
-        result.status === "confirmed" || result.status === "finalized"
-          ? Haptics.NotificationFeedbackType.Success
-          : Haptics.NotificationFeedbackType.Error
+      if (!buildResult.ok || !buildResult.swapTransactionBase64) {
+        throw new Error(buildResult.message || "Failed to build swap");
+      }
+
+      // 3. Sign locally (~10ms)
+      const txBuffer = Buffer.from(buildResult.swapTransactionBase64, "base64");
+      const transaction = VersionedTransaction.deserialize(txBuffer);
+      transaction.sign([keypair]);
+      const signedBytes = transaction.serialize();
+      const signedBase64 = Buffer.from(signedBytes).toString("base64");
+
+      // 4. Instant send — Jito + RPCs in parallel, returns immediately
+      const sendResult = await instantSend({
+        signedTransactionBase64: signedBase64,
+        speedMode: speed,
+      });
+
+      if (!sendResult.ok || !sendResult.signature) {
+        throw new Error(sendResult.message || "Failed to send transaction");
+      }
+
+      // 5. Done! Show result immediately
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+      const outDisplay = buildResult.quote?.outAmount && outputToken
+        ? formatBaseUnits(buildResult.quote.outAmount, outputToken.decimals)
+        : "";
+
+      // Record swap history
+      await addSwapRecord({
+        timestamp: Date.now(),
+        inputMint: inputToken.mint,
+        outputMint: outputToken.mint,
+        inputSymbol: inputToken.symbol,
+        outputSymbol: outputToken.symbol,
+        inputAmount,
+        outputAmount: outDisplay,
+        minReceived: buildResult.quote?.minOut
+          ? formatBaseUnits(buildResult.quote.minOut, outputToken.decimals)
+          : "0",
+        slippageBps,
+        mode: speed,
+        capSol: customCapSol ?? SPEED_CONFIGS[speed].capSol,
+        signature: sendResult.signature,
+        status: "submitted",
+        timings: {},
+        route: buildResult.quote?.routeLabel || buildResult.route || "Unknown",
+        priceImpactPct: buildResult.quote?.priceImpactPct || 0,
+      });
+
+      // Charge success fee silently in background
+      if (successFeeLamports > 0 && activeWallet?.id && solanaAddr) {
+        tryChargeSuccessFeeNow(activeWallet.id, solanaAddr, successFeeLamports, sendResult.signature).catch(() => {});
+      }
+
+      showAlert(
+        "Swap Sent!",
+        outDisplay
+          ? `Swapped ${inputAmount} ${inputToken.symbol} for ~${outDisplay} ${outputToken.symbol}`
+          : `Sent ${inputAmount} ${inputToken.symbol} swap`,
+        [
+          { text: "View", onPress: () => {
+            const url = getExplorerUrl(sendResult.signature!);
+            import("expo-web-browser").then(m => m.openBrowserAsync(url));
+          }},
+          { text: "OK" },
+        ]
       );
 
-      if (result.status === "confirmed" || result.status === "finalized") {
-        // Charge success fee silently in background (no UI feedback)
-        if (successFeeLamports > 0 && activeWallet?.id && solanaAddr) {
-          tryChargeSuccessFeeNow(
-            activeWallet.id,
-            solanaAddr,
-            successFeeLamports,
-            result.signature
-          ).catch(() => {
-            // Fee will be retried later via pending queue
-          });
-        }
-
-        showAlert(
-          "Swap Successful",
-          `Swapped ${inputAmount} ${inputToken.symbol} for ${outAmount} ${outputToken.symbol}`,
-          [
-            { text: "View", onPress: () => {
-              const url = getExplorerUrl(result.signature);
-              import("expo-web-browser").then(m => m.openBrowserAsync(url));
-            }},
-            { text: "OK" },
-          ]
-        );
-        setInputAmount("");
-        setQuote(null);
-        refreshPortfolio();
-      } else if (result.status === "expired") {
-        showAlert(
-          "Transaction Expired",
-          isPumpRoute
-            ? `Failed after ${maxAttempts} attempts. The token may be too volatile. Try increasing slippage or using Turbo speed.`
-            : "The transaction may still land. Check the explorer.",
-          [
-            { text: "View", onPress: () => {
-              const url = getExplorerUrl(result.signature);
-              import("expo-web-browser").then(m => m.openBrowserAsync(url));
-            }},
-            { text: "Retry", onPress: handleSwapPress },
-          ]
-        );
-      } else {
-        const classified = classifyError(result.error || "");
-        console.log("[Swap] Failed with error:", result.error, "classified:", classified.category);
-        await addDebugLog("error", "Swap failed", {
-          error: result.error,
-          category: classified.category,
-          userMessage: classified.userMessage
-        });
-        showAlert("Swap Failed", classified.userMessage, [
-          ...(classified.canRetry ? [{ text: "Retry", onPress: handleSwapPress }] : []),
-          { text: "OK" },
-        ]);
-      }
+      setInputAmount("");
+      setQuote(null);
+      refreshPortfolio();
     } catch (error: any) {
-      await addDebugLog("error", "Swap execution failed", { error: error.message });
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      showAlert("Error", error.message || "Swap failed");
+      await addDebugLog("error", "Instant swap failed", { error: error.message });
+
+      const classified = classifyError(error.message || "");
+      showAlert("Swap Failed", classified.userMessage || error.message, [
+        ...(classified.canRetry ? [{ text: "Retry", onPress: () => executeInstantSwap() }] : []),
+        { text: "OK" },
+      ]);
     } finally {
-      if (keypair?.secretKey) {
-        keypair.secretKey.fill(0);
-      }
+      if (keypair?.secretKey) keypair.secretKey.fill(0);
       setIsSwapping(false);
       setSwapStatus("");
-      setPendingSwap(null);
     }
   };
 
   const handleSwapPress = async () => {
     if (!canSwap || !inputToken || !outputToken || !activeWallet) return;
-    
+
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    
+
     const riskLevel = safetyScan.result?.riskLevel;
-    
+
     if (riskLevel === "HIGH" || riskLevel === "MEDIUM" || riskLevel === "NEEDS_DEEPER_SCAN") {
       setShowRiskGateModal(true);
       return;
     }
-    
-    executeSwap();
+
+    executeInstantSwap();
   };
 
   const handleRiskGateProceed = () => {
     setShowRiskGateModal(false);
-    executeSwap();
+    executeInstantSwap();
   };
 
-  const feeConfig = calculateFeeConfig(speed, customCapSol ?? undefined);
   const priceImpact = quote ? calculatePriceImpact(quote) : null;
-
-  const renderConfirmModal = () => {
-    if (!pendingSwap || !inputToken || !outputToken) return null;
-
-    const outAmount = pendingSwap.quote 
-      ? formatBaseUnits(pendingSwap.quote.outAmount, outputToken.decimals)
-      : "0";
-    const minReceived = pendingSwap.quote 
-      ? formatBaseUnits(pendingSwap.quote.otherAmountThreshold, outputToken.decimals)
-      : "0";
-    const networkFee = estimateNetworkFee(pendingSwap.swapResponse);
-    const routeLabel = pendingSwap.route === "pump" ? "Pump.fun (Bonding Curve)" : "Jupiter";
-
-    return (
-      <Modal visible={showConfirmModal} transparent animationType="slide">
-        <View style={styles.modalOverlay}>
-          <View style={[styles.confirmModal, { backgroundColor: theme.backgroundDefault, paddingBottom: insets.bottom + Spacing.lg }]}>
-            <ThemedText type="h2" style={styles.confirmTitle}>
-              Confirm Swap
-            </ThemedText>
-
-            <View style={[styles.confirmRow, { borderBottomColor: theme.border }]}>
-              <ThemedText type="body" style={{ color: theme.textSecondary }}>You pay</ThemedText>
-              <ThemedText type="body" style={{ fontWeight: "600" }}>
-                {inputAmount} {inputToken.symbol}
-              </ThemedText>
-            </View>
-
-            <View style={[styles.confirmRow, { borderBottomColor: theme.border }]}>
-              <ThemedText type="body" style={{ color: theme.textSecondary }}>You receive</ThemedText>
-              <ThemedText type="body" style={{ fontWeight: "600", color: "#22C55E" }}>
-                ~{parseFloat(outAmount).toFixed(6)} {outputToken.symbol}
-              </ThemedText>
-            </View>
-
-            <View style={[styles.confirmRow, { borderBottomColor: theme.border }]}>
-              <ThemedText type="body" style={{ color: theme.textSecondary }}>Min received</ThemedText>
-              <ThemedText type="body">
-                {parseFloat(minReceived).toFixed(6)} {outputToken.symbol}
-              </ThemedText>
-            </View>
-
-            <View style={[styles.confirmRow, { borderBottomColor: theme.border }]}>
-              <ThemedText type="body" style={{ color: theme.textSecondary }}>Slippage</ThemedText>
-              <ThemedText type="body">{(slippageBps / 100).toFixed(1)}%</ThemedText>
-            </View>
-
-            <View style={[styles.confirmRow, { borderBottomColor: theme.border }]}>
-              <ThemedText type="body" style={{ color: theme.textSecondary }}>Network fee</ThemedText>
-              <ThemedText type="body">{formatFeeDisplay(networkFee.feeSol)}</ThemedText>
-            </View>
-
-            <View style={[styles.confirmRow, { borderBottomColor: theme.border }]}>
-              <ThemedText type="body" style={{ color: theme.textSecondary }}>Max priority fee</ThemedText>
-              <ThemedText type="body">{formatFeeDisplay(feeConfig.maxCapSol)}</ThemedText>
-            </View>
-
-            <View style={[styles.confirmRow, { borderBottomColor: theme.border }]}>
-              <ThemedText type="body" style={{ color: theme.textSecondary }}>Speed</ThemedText>
-              <View style={[styles.speedBadge, { backgroundColor: theme.accent + "20" }]}>
-                <ThemedText type="caption" style={{ color: theme.accent }}>
-                  {SPEED_CONFIGS[speed].label}
-                </ThemedText>
-              </View>
-            </View>
-
-            {speed === "turbo" && (
-              <View style={[styles.turboNote, { backgroundColor: theme.accent + "10" }]}>
-                <Feather name="zap" size={14} color={theme.accent} />
-                <ThemedText type="caption" style={{ color: theme.textSecondary, flex: 1, marginLeft: Spacing.xs }}>
-                  Turbo increases priority fees + broadcast intensity to improve landing during congestion. Fees paid by you.
-                </ThemedText>
-              </View>
-            )}
-
-            <View style={styles.confirmButtons}>
-              <Pressable
-                style={({ pressed }) => [
-                  styles.cancelButton, 
-                  { borderColor: theme.border },
-                  pressed && { opacity: 0.7, transform: [{ scale: 0.97 }] }
-                ]}
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  setShowConfirmModal(false);
-                }}
-              >
-                <ThemedText type="body">Cancel</ThemedText>
-              </Pressable>
-              <Pressable
-                style={({ pressed }) => [
-                  styles.confirmButton, 
-                  { backgroundColor: theme.accent },
-                  pressed && { opacity: 0.85, transform: [{ scale: 0.97 }] }
-                ]}
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                  confirmAndExecuteSwap();
-                }}
-              >
-                <ThemedText type="body" style={{ color: "#fff", fontWeight: "600" }}>
-                  Confirm Swap
-                </ThemedText>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
-    );
-  };
 
   const renderSlippageModal = () => {
     const adjustSlippage = (delta: number) => {
@@ -2174,7 +1767,6 @@ export default function SwapScreen({ route }: Props) {
       </View>
 
       {renderTokenModal()}
-      {renderConfirmModal()}
       {renderSlippageModal()}
       {safetyScan.result ? (
         <RiskGateModal
