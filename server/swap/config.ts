@@ -16,9 +16,19 @@ export function isPlatformFeeEnabled(): boolean {
          CORDON_TREASURY_WALLET.length > 0;
 }
 
+// Build Helius RPC URL from API key if SOLANA_RPC_URL isn't explicitly set
+function resolveRpcUrl(): string {
+  if (process.env.SOLANA_RPC_URL) return process.env.SOLANA_RPC_URL;
+  if (process.env.HELIUS_API_KEY) return `https://mainnet.helius-rpc.com/?api-key=${process.env.HELIUS_API_KEY}`;
+  return "https://api.mainnet-beta.solana.com";
+}
+
+const resolvedRpc = resolveRpcUrl();
+console.log(`[SwapConfig] RPC: ${resolvedRpc.includes("helius") ? "Helius (paid)" : resolvedRpc.includes("mainnet-beta") ? "PUBLIC mainnet (limited!)" : resolvedRpc.slice(0, 40)}...`);
+
 export const swapConfig = {
-  solanaRpcUrl: process.env.SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com",
-  solanaRpcUrlFallback: process.env.SOLANA_RPC_URL_FALLBACK || "https://api.mainnet-beta.solana.com",
+  solanaRpcUrl: resolvedRpc,
+  solanaRpcUrlFallback: process.env.SOLANA_RPC_URL_FALLBACK || resolvedRpc,
   
   jupiterBaseUrl: process.env.JUPITER_BASE_URL || "https://lite-api.jup.ag",
   jupiterQuotePath: process.env.JUPITER_QUOTE_PATH || "/swap/v1/quote",
