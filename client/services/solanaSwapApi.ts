@@ -283,6 +283,7 @@ export interface InstantSendResult {
   ok: boolean;
   signature?: string;
   sentVia?: string[];
+  jitoError?: string;
   code?: string;
   message?: string;
 }

@@ -791,10 +791,13 @@ export default function SwapScreen({ route }: Props) {
             throw new Error((isResult as any).message || "Send failed");
           }
           signature = isResult.signature;
-          console.log(`[Swap] instant-send OK via: ${(isResult as any).sentVia?.join(", ")} | sig: ${signature}`);
+          const sentVia = (isResult as any).sentVia || [];
+          const jitoError = (isResult as any).jitoError;
+          console.log(`[Swap] instant-send OK via: ${sentVia.join(", ")} | sig: ${signature}${jitoError ? ` | jitoErr: ${jitoError}` : ""}`);
           await addDebugLog("info", "Instant send ok", {
             signature,
-            sentVia: (isResult as any).sentVia,
+            sentVia,
+            ...(jitoError ? { jitoError } : {}),
           });
         } catch (isErr: any) {
           if (isErr.message?.includes("404") || isErr.message?.includes("unavailable")) {
