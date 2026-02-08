@@ -354,6 +354,19 @@ export async function buildSwapTransaction(params: {
 
   const result = await executeSwapBuild(url, body);
 
+  // If build failed with fee, retry WITHOUT fee so the swap still works
+  if (!result.ok && feeAccount) {
+    console.warn("[Jupiter] Build with fee failed, retrying without fee. Error:", (result as any).details?.slice?.(0, 200) || (result as any).message);
+    const noFeeBody = { ...body };
+    delete noFeeBody.feeAccount;
+    noFeeBody.quoteResponse = sanitizeQuoteForSwap(quote, false);
+    const retryResult = await executeSwapBuild(url, noFeeBody);
+    if (retryResult.ok) {
+      console.log("[Jupiter] Build succeeded without fee (fee skipped for this swap)");
+    }
+    return retryResult;
+  }
+
   return result;
 }
 
