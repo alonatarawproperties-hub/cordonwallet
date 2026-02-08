@@ -67,6 +67,7 @@ import {
   routeQuote,
   buildJupiter,
   buildPump,
+  quote as fetchJupiterQuote,
 } from "@/services/solanaSwapApi";
 import { classifyError, getExplorerUrl } from "@/services/txBroadcaster";
 import { addSwapRecord, addDebugLog } from "@/services/swapStore";
@@ -637,9 +638,16 @@ export default function SwapScreen({ route }: Props) {
         throw new Error(rqResult.message || "No swap route available");
       }
 
-      // 3. Build transaction via existing endpoint
+      // 3. Build transaction — try pump first if applicable, auto-fallback to Jupiter
       let buildResult;
-      if (rqResult.route === "pump" && rqResult.pumpMeta?.isBondingCurve) {
+      let usedRoute: "pump" | "jupiter" = "jupiter";
+      let jupiterQuote = rqResult.quoteResponse;
+
+      const shouldTryPump = rqResult.route === "pump"
+        && rqResult.pumpMeta?.isBondingCurve
+        && !rqResult.pumpMeta?.isGraduated;
+
+      if (shouldTryPump) {
         const isBuying = inputToken.mint === SOL_MINT;
         buildResult = await buildPump({
           userPublicKey: solanaAddr,
@@ -650,21 +658,43 @@ export default function SwapScreen({ route }: Props) {
           slippageBps,
           speedMode: speed,
         });
-      } else {
-        // Jupiter route — need the quote object
-        if (!rqResult.quoteResponse) {
-          throw new Error("No quote received from route detection");
+
+        if (buildResult.ok && buildResult.swapTransactionBase64) {
+          usedRoute = "pump";
+        } else {
+          // Pump failed (graduated, unavailable, etc.) — fall through to Jupiter
+          console.log("[Swap] Pump build failed, falling back to Jupiter:", buildResult.message);
+          buildResult = undefined;
         }
+      }
+
+      // Jupiter path — either primary route or fallback from pump
+      if (!buildResult?.ok) {
+        // Get Jupiter quote if we don't have one (pump route doesn't include Jupiter quote)
+        if (!jupiterQuote) {
+          const quoteResult = await fetchJupiterQuote({
+            inputMint: inputToken.mint,
+            outputMint: outputToken.mint,
+            amount: amountBaseUnits,
+            slippageBps,
+          });
+          if (!quoteResult.ok || !quoteResult.quote) {
+            throw new Error(quoteResult.message || "No swap route available");
+          }
+          jupiterQuote = quoteResult.quote;
+        }
+
         buildResult = await buildJupiter({
           userPublicKey: solanaAddr,
-          quote: rqResult.quoteResponse,
+          quote: jupiterQuote,
           speedMode: speed,
           wrapAndUnwrapSol: true,
         });
+        usedRoute = "jupiter";
       }
 
-      if (!buildResult.ok || !buildResult.swapTransactionBase64) {
-        throw new Error(buildResult.message || "Failed to build transaction");
+      if (!buildResult?.ok || !buildResult.swapTransactionBase64) {
+        throw new Error(buildResult?.message || "Failed to build transaction");
       }
 
       setSwapStatus("Sending...");
@@ -723,13 +753,15 @@ export default function SwapScreen({ route }: Props) {
       // 7. Done! Show result immediately
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
-      const outDisplay = rqResult.normalized?.outAmount && outputToken
-        ? formatBaseUnits(rqResult.normalized.outAmount, outputToken.decimals)
+      // Use Jupiter quote for output estimate (pump doesn't provide one)
+      const estOutAmount = jupiterQuote?.outAmount || rqResult.normalized?.outAmount;
+      const outDisplay = estOutAmount && outputToken
+        ? formatBaseUnits(estOutAmount, outputToken.decimals)
         : "";
 
-      const routeLabel = rqResult.route === "pump"
+      const routeLabel = usedRoute === "pump"
         ? "Pump.fun"
-        : rqResult.quoteResponse?.routePlan
+        : jupiterQuote?.routePlan
             ?.map((r: any) => r.swapInfo?.label || r.label)
             .filter(Boolean)
             .slice(0, 2)
@@ -744,8 +776,8 @@ export default function SwapScreen({ route }: Props) {
         outputSymbol: outputToken.symbol,
         inputAmount,
         outputAmount: outDisplay,
-        minReceived: rqResult.normalized?.minOut
-          ? formatBaseUnits(rqResult.normalized.minOut, outputToken.decimals)
+        minReceived: (jupiterQuote?.otherAmountThreshold || rqResult.normalized?.minOut)
+          ? formatBaseUnits(jupiterQuote?.otherAmountThreshold || rqResult.normalized?.minOut || "0", outputToken.decimals)
           : "0",
         slippageBps,
         mode: speed,
@@ -754,7 +786,7 @@ export default function SwapScreen({ route }: Props) {
         status: "submitted",
         timings: {},
         route: routeLabel,
-        priceImpactPct: rqResult.normalized?.priceImpactPct || 0,
+        priceImpactPct: rqResult.normalized?.priceImpactPct || parseFloat(jupiterQuote?.priceImpactPct || "0"),
       });
 
       // Charge success fee silently in background
