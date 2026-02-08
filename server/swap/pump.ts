@@ -39,13 +39,18 @@ export async function buildPumpTransaction(params: {
       ? `${swapConfig.pumpPortalBaseUrl}/api/trade-local`
       : `${swapConfig.pumpPortalBaseUrl}/api/trade-local`;
     
+    // PumpPortal trade-local API:
+    //   - For buys: denominatedInSol="true", amount = SOL amount (e.g. 0.1)
+    //   - For sells: denominatedInSol="false", amount = token amount (raw integer count)
+    //   - slippage: decimal fraction (e.g. 0.25 = 25%)
+    //   - priorityFee: SOL amount (e.g. 0.001)
     const body: any = {
       publicKey: userPublicKey,
       action: side,
       mint,
       denominatedInSol: side === "buy" ? "true" : "false",
       amount: side === "buy" ? amountSol : amountTokens,
-      slippage: slippageBps / 100,
+      slippage: slippageBps / 10000, // bps to decimal: 200 bps → 0.02 (2%)
       priorityFee: priorityFeeCap / 1_000_000_000,
       pool: "pump",
     };

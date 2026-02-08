@@ -828,7 +828,8 @@ export default function SwapScreen({ route }: Props) {
       const FAST_POLL_MS = 1000;
       const SLOW_POLL_MS = 2000;
       const FAST_WINDOW_MS = 10000;
-      const MAX_POLL_TIME = isPumpTrade ? 15000 : 4000;
+      // Jupiter swaps typically confirm in 5-15s; pump trades are faster or fail
+      const MAX_POLL_TIME = isPumpTrade ? 15000 : 20000;
       const pollStart = Date.now();
       let confirmed = false;
       let nullChecks = 0;

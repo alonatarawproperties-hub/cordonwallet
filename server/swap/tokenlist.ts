@@ -582,6 +582,12 @@ export async function resolveToken(mint: string): Promise<{ token: TokenInfo } |
       logoURI = metaplex.logoURI;
       sources.push("metaplex");
     }
+
+    // Fill in missing logoURI from other sources (e.g. Helius has name but no logo,
+    // DexScreener has the logo)
+    if (!logoURI) {
+      logoURI = dexScreener?.logoURI || helius?.logoURI || metaplex?.logoURI;
+    }
     
     if (onChainDecimals !== null) {
       sources.push("on-chain");
@@ -616,9 +622,12 @@ export async function resolveToken(mint: string): Promise<{ token: TokenInfo } |
     });
     return { token };
   } catch (err: any) {
+    // Use shorter TTL for network/timeout errors (likely transient) vs true 404s
+    const isTransient = /timeout|fetch|network|ECONNRESET|ENOTFOUND|503|429/i.test(err.message || "");
+    const negativeTtl = isTransient ? 60_000 : NEGATIVE_CACHE_TTL_MS; // 1 min vs 5 min
     customTokenCache.set(mint.toLowerCase(), {
       token: { mint, symbol: "UNKNOWN", name: "Unknown Token", decimals: 9 },
-      expiresAt: Date.now() + NEGATIVE_CACHE_TTL_MS,
+      expiresAt: Date.now() + negativeTtl,
       negative: true,
     });
     return { error: err.message || "Token lookup failed", code: 404 };

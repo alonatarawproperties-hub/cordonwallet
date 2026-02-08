@@ -36,7 +36,9 @@ export interface PumpMeta {
 const SOL_MINT = "So11111111111111111111111111111111111111112";
 
 function isPumpMintFormat(mint: string): boolean {
-  return mint.toLowerCase().endsWith("pump") || mint.length === 44;
+  // Only match mints that literally end in "pump" — length === 44 was a false positive
+  // since nearly ALL Solana mints are 44 chars (base58-encoded 32 bytes)
+  return mint.toLowerCase().endsWith("pump");
 }
 
 async function detectPumpStatus(mint: string): Promise<PumpMeta> {
@@ -144,11 +146,10 @@ export async function getRouteQuote(params: {
         console.log("[Route] Token is graduated from Pump.fun, trying Jupiter (may have Token-2022 issues)");
         // Fall through to Jupiter routing below
       } else {
-        // If detection failed but it looks like a pump token, ALWAYS try pump first
-        // The pumpportal API often fails detection, but trade-local still works
-        console.log("[Route] Pump token (bonding curve assumed due to format), trying pump route");
-        
-        // Also fetch Jupiter quote as fallback for graduated tokens
+        // Detection was inconclusive — try Jupiter first (works for graduated tokens),
+        // only fall back to Pump if Jupiter has no route
+        console.log("[Route] Pump token (detection inconclusive), trying Jupiter first with pump fallback");
+
         const jupiterFallback = await getQuote({
           inputMint,
           outputMint,
@@ -156,15 +157,28 @@ export async function getRouteQuote(params: {
           slippageBps,
           swapMode: "ExactIn",
         });
-        
+
+        if (jupiterFallback.ok) {
+          // Jupiter has a route — use it (token may be graduated or have DEX liquidity)
+          console.log("[Route] Jupiter has route for pump-format token, using Jupiter");
+          const routeResult: RouteQuoteResult = {
+            ok: true,
+            route: "jupiter",
+            quoteResponse: jupiterFallback.quote,
+            normalized: jupiterFallback.normalized,
+            pumpMeta,
+          };
+          quoteCache.set(cacheKey, routeResult);
+          return routeResult;
+        }
+
+        // Jupiter has no route — assume bonding curve and try pump
+        console.log("[Route] Jupiter has no route, assuming bonding curve for pump-format token");
         const routeResult: RouteQuoteResult = {
           ok: true,
           route: "pump",
           pumpMeta: { ...pumpMeta, isPump: true, isBondingCurve: true },
-          message: "Pump.fun token (bonding curve assumed)",
-          // Include Jupiter quote as fallback
-          quoteResponse: jupiterFallback.ok ? jupiterFallback.quote : undefined,
-          normalized: jupiterFallback.ok ? jupiterFallback.normalized : undefined,
+          message: "Pump.fun bonding curve (Jupiter has no route)",
         };
         quoteCache.set(cacheKey, routeResult);
         return routeResult;
@@ -206,11 +220,23 @@ export async function getRouteQuote(params: {
     if (jupiterResult.code === "NO_ROUTE" && swapConfig.pumpModeEnabled && isPumpMintFormat(pumpMint)) {
       console.log("[Route] Jupiter has no route, falling back to pump for:", pumpMint);
       const pumpMeta = await detectPumpStatus(pumpMint);
-      
+
+      // Only force isBondingCurve if detection confirmed it OR detection failed
+      // (if detection says NOT pump, don't override — just report no route)
+      if (!pumpMeta.isPump && pumpMeta.updatedAt > 0) {
+        // PumpPortal explicitly said this is NOT a pump token
+        return {
+          ok: false,
+          route: "none",
+          reason: "NO_ROUTE",
+          message: "No liquidity or route available",
+        };
+      }
+
       const routeResult: RouteQuoteResult = {
         ok: true,
         route: "pump",
-        pumpMeta: { ...pumpMeta, isPump: true, isBondingCurve: true },
+        pumpMeta: { ...pumpMeta, isPump: true, isBondingCurve: !pumpMeta.isGraduated },
         message: "Fallback to Pump.fun bonding curve",
       };
       quoteCache.set(cacheKey, routeResult);
