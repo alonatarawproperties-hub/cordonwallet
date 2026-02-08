@@ -604,6 +604,13 @@ export default function SwapScreen({ route }: Props) {
 
     setIsSwapping(true);
     setSwapStatus("Building...");
+    await addDebugLog("info", "Swap started", {
+      inputMint: inputToken.mint,
+      outputMint: outputToken.mint,
+      amount: inputAmount,
+      speedMode: speed,
+      slippageBps,
+    });
 
     let keypair: Keypair | null = null;
 
@@ -669,8 +676,17 @@ export default function SwapScreen({ route }: Props) {
         usedRoute = ibResult.route || "jupiter";
         quoteInfo = ibResult.quote || {};
         console.log(`[Swap] instant-build OK, route=${usedRoute}`);
+        await addDebugLog("info", "Instant build ok", {
+          route: usedRoute,
+          lastValidBlockHeight: ibResult.lastValidBlockHeight,
+          priorityFeeLamports: ibResult.prioritizationFeeLamports,
+        });
       } else if (ibResult && !ibResult.ok) {
         // instant-build returned an error (not a 404)
+        await addDebugLog("error", "Instant build failed", {
+          code: (ibResult as any).code,
+          message: (ibResult as any).message,
+        });
         throw new Error((ibResult as any).message || "Build failed");
       } else {
         // ── Fallback: multi-step legacy flow ──
@@ -754,6 +770,7 @@ export default function SwapScreen({ route }: Props) {
       }
 
       setSwapStatus("Sending...");
+      await addDebugLog("info", "Signing transaction", { route: usedRoute });
 
       // ── 3. Sign the transaction ──
       const txBuffer = Buffer.from(txBase64, "base64");
@@ -775,6 +792,10 @@ export default function SwapScreen({ route }: Props) {
           }
           signature = isResult.signature;
           console.log(`[Swap] instant-send OK via: ${(isResult as any).sentVia?.join(", ")} | sig: ${signature}`);
+          await addDebugLog("info", "Instant send ok", {
+            signature,
+            sentVia: (isResult as any).sentVia,
+          });
         } catch (isErr: any) {
           if (isErr.message?.includes("404") || isErr.message?.includes("unavailable")) {
             console.log("[Swap] instant-send unavailable, using legacy send");
@@ -784,6 +805,7 @@ export default function SwapScreen({ route }: Props) {
               throw new Error(sendResult.message || "Failed to send transaction");
             }
             signature = sendResult.signature;
+            await addDebugLog("info", "Legacy send ok", { signature });
           } else {
             throw isErr;
           }
@@ -794,6 +816,7 @@ export default function SwapScreen({ route }: Props) {
           throw new Error(sendResult.message || "Failed to send transaction");
         }
         signature = sendResult.signature;
+        await addDebugLog("info", "Legacy send ok", { signature });
       }
 
       // ── 5. Poll for confirmation ──
@@ -833,6 +856,11 @@ export default function SwapScreen({ route }: Props) {
             confirmed = true;
             const source = (directStatus?.confirmed || directStatus?.processed) ? "direct-rpc" : "server";
             console.log(`[Swap] TX confirmed after ${Date.now() - pollStart}ms via ${source}`);
+            await addDebugLog("info", "Swap confirmed", {
+              signature,
+              source,
+              elapsedMs: Date.now() - pollStart,
+            });
             break;
           }
 
@@ -854,6 +882,13 @@ export default function SwapScreen({ route }: Props) {
         }
 
         setSwapStatus(`Confirming... (${Math.round((Date.now() - pollStart) / 1000)}s)`);
+      }
+      if (!confirmed) {
+        await addDebugLog("warn", "Swap not confirmed before timeout", {
+          signature,
+          route: usedRoute,
+          elapsedMs: Date.now() - pollStart,
+        });
       }
 
       // ── 6. Done! ──
