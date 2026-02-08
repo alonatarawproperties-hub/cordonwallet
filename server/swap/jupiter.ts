@@ -4,11 +4,24 @@ import { swapConfig, getPriorityFeeCap, SpeedMode, CORDON_TREASURY_WALLET, platf
 import type { QuoteResult, BuildResult } from "./types";
 
 // Fallback Jupiter base URL for 429 / 5xx retry
-const JUPITER_FALLBACK_BASE_URL = swapConfig.jupiterBaseUrl.includes("lite-api")
-  ? "https://api.jup.ag"
-  : "https://lite-api.jup.ag";
+const JUPITER_FALLBACK_BASE_URL = "https://lite-api.jup.ag";
 const MAX_429_RETRIES = 3;
 const RETRY_DELAYS_MS = [300, 800, 1500];
+
+// Build common headers for Jupiter API requests (includes API key if configured)
+function jupiterHeaders(extra?: Record<string, string>): Record<string, string> {
+  const headers: Record<string, string> = {
+    "Accept": "application/json",
+    "User-Agent": "Cordon-Wallet/1.0",
+    ...extra,
+  };
+  if (swapConfig.jupiterApiKey) {
+    headers["x-api-key"] = swapConfig.jupiterApiKey;
+  }
+  return headers;
+}
+
+console.log(`[Jupiter] Base URL: ${swapConfig.jupiterBaseUrl} | API key: ${swapConfig.jupiterApiKey ? "configured" : "none"}`);
 
 /**
  * Fetch wrapper with 429 rate-limit retry + fallback URL.
@@ -182,10 +195,7 @@ export async function getQuote(params: {
       quotePath,
       {
         method: "GET",
-        headers: {
-          "Accept": "application/json",
-          "User-Agent": "Cordon-Wallet/1.0",
-        },
+        headers: jupiterHeaders(),
       },
       swapConfig.jupiterTimeoutMs
     );
@@ -353,11 +363,7 @@ async function executeSwapBuild(url: string, body: Record<string, any>): Promise
       swapConfig.jupiterSwapPath,
       {
         method: "POST",
-        headers: {
-          "Accept": "application/json",
-          "Content-Type": "application/json",
-          "User-Agent": "Cordon-Wallet/1.0",
-        },
+        headers: jupiterHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify(body),
       },
       swapConfig.jupiterTimeoutMs

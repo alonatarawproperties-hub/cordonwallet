@@ -30,7 +30,8 @@ export const swapConfig = {
   solanaRpcUrl: resolvedRpc,
   solanaRpcUrlFallback: process.env.SOLANA_RPC_URL_FALLBACK || resolvedRpc,
   
-  jupiterBaseUrl: process.env.JUPITER_BASE_URL || "https://lite-api.jup.ag",
+  jupiterBaseUrl: process.env.JUPITER_BASE_URL || "https://api.jup.ag",
+  jupiterApiKey: process.env.JUPITER_API_KEY || "",
   jupiterQuotePath: process.env.JUPITER_QUOTE_PATH || "/swap/v1/quote",
   jupiterSwapPath: process.env.JUPITER_SWAP_PATH || "/swap/v1/swap",
   jupiterTimeoutMs: parseInt(process.env.JUPITER_TIMEOUT_MS || "8000"),
