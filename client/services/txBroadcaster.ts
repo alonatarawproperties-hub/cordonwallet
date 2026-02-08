@@ -561,3 +561,71 @@ export async function checkSignatureDirectly(signature: string): Promise<{
 export function getExplorerUrl(signature: string): string {
   return `https://solscan.io/tx/${signature}`;
 }
+
+/**
+ * Jito block engine endpoints for client-direct sending.
+ * The mobile device can often reach Jito even if the server can't.
+ */
+const CLIENT_JITO_URLS = [
+  "https://mainnet.block-engine.jito.wtf/api/v1/transactions",
+  "https://ny.mainnet.block-engine.jito.wtf/api/v1/transactions",
+  "https://amsterdam.mainnet.block-engine.jito.wtf/api/v1/transactions",
+];
+
+/**
+ * Fire-and-forget: send the signed transaction from the CLIENT directly
+ * to Jito endpoints + client RPCs. This bypasses the server's network
+ * entirely — a mobile device on WiFi/cellular can usually reach Jito
+ * even if the server environment can't.
+ *
+ * Call this right after instant-send as a supplementary broadcast path.
+ * Returns which endpoints succeeded for diagnostic logging.
+ */
+export async function clientDirectBroadcast(signedTxBase64: string): Promise<string[]> {
+  const landed: string[] = [];
+  const txBytes = Buffer.from(signedTxBase64, "base64");
+
+  const promises: Promise<void>[] = [];
+
+  // Send to client RPCs (Helius / Triton / public)
+  const conn = getPrimaryConnection();
+  const fallbackConn = getFallbackConnection();
+
+  promises.push(
+    conn.sendRawTransaction(txBytes, { skipPreflight: true, maxRetries: 3 })
+      .then(() => { landed.push("client-primary"); })
+      .catch(() => {})
+  );
+
+  promises.push(
+    fallbackConn.sendRawTransaction(txBytes, { skipPreflight: true, maxRetries: 3 })
+      .then(() => { landed.push("client-fallback"); })
+      .catch(() => {})
+  );
+
+  // Send to Jito endpoints directly from mobile device
+  for (const url of CLIENT_JITO_URLS) {
+    promises.push(
+      fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "sendTransaction",
+          params: [signedTxBase64, { encoding: "base64", skipPreflight: true }],
+        }),
+      })
+        .then(r => r.json())
+        .then(data => {
+          if (data.result) {
+            landed.push("jito-" + url.split("/")[2].split(".")[0]);
+          }
+        })
+        .catch(() => {})
+    );
+  }
+
+  await Promise.allSettled(promises);
+  return landed;
+}
