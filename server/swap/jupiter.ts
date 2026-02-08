@@ -22,6 +22,74 @@ if (FORCE_DISABLE_JUPITER_PLATFORM_FEES) {
 }
 
 const JUPITER_REFERRAL_PROGRAM = "REFER4ZgmyYx9c6He5XfaTMiGfdLwRnkV4RPp9t9iF3";
+
+// Fallback Jupiter base URL for 429 / 5xx retry
+const JUPITER_FALLBACK_BASE_URL = swapConfig.jupiterBaseUrl.includes("lite-api")
+  ? "https://api.jup.ag"
+  : "https://lite-api.jup.ag";
+const MAX_429_RETRIES = 3;
+const RETRY_DELAYS_MS = [300, 800, 1500];
+
+/**
+ * Fetch wrapper with 429 rate-limit retry + fallback URL.
+ * Tries the primary URL first, retries with backoff on 429/5xx,
+ * then falls back to the alternate Jupiter endpoint.
+ */
+async function fetchJupiterWithRetry(
+  path: string,
+  init: RequestInit & { method: string },
+  timeoutMs: number
+): Promise<Response> {
+  const urls = [
+    `${swapConfig.jupiterBaseUrl}${path}`,
+    `${JUPITER_FALLBACK_BASE_URL}${path}`,
+  ];
+
+  let lastResponse: Response | null = null;
+
+  for (const url of urls) {
+    for (let attempt = 0; attempt <= MAX_429_RETRIES; attempt++) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+      try {
+        const response = await fetch(url, {
+          ...init,
+          signal: controller.signal,
+        });
+        clearTimeout(timeout);
+
+        if (response.status === 429 || (response.status >= 500 && response.status < 600)) {
+          lastResponse = response;
+          const delay = RETRY_DELAYS_MS[attempt] || 1500;
+          console.warn(`[Jupiter] ${response.status} on ${url}, retry ${attempt + 1}/${MAX_429_RETRIES} in ${delay}ms`);
+          if (attempt < MAX_429_RETRIES) {
+            await new Promise(r => setTimeout(r, delay));
+            continue;
+          }
+          // Exhausted retries on this URL, try fallback
+          break;
+        }
+
+        return response;
+      } catch (err: any) {
+        clearTimeout(timeout);
+        if (attempt < MAX_429_RETRIES && err.name !== "AbortError") {
+          await new Promise(r => setTimeout(r, RETRY_DELAYS_MS[attempt] || 500));
+          continue;
+        }
+        // On abort or exhausted retries, try fallback URL
+        if (url === urls[urls.length - 1]) throw err;
+        console.warn(`[Jupiter] ${url} failed (${err.message}), trying fallback`);
+        break;
+      }
+    }
+  }
+
+  // Should only reach here if all retries on all URLs returned 429/5xx
+  return lastResponse!;
+}
+
 const NATIVE_SOL_MINT = "11111111111111111111111111111111";
 const WSOL_MINT = "So11111111111111111111111111111111111111112";
 
@@ -181,22 +249,21 @@ export async function getQuote(params: {
     console.log("[SwapFee] Adding platformFeeBps to quote:", platformFeeConfig.feeBps);
   }
   
-  const url = `${swapConfig.jupiterBaseUrl}${swapConfig.jupiterQuotePath}?${queryParams.toString()}`;
-  console.log("[Jupiter] Quote request:", url);
-  
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), swapConfig.jupiterTimeoutMs);
-  
+  const quotePath = `${swapConfig.jupiterQuotePath}?${queryParams.toString()}`;
+  console.log("[Jupiter] Quote request:", quotePath);
+
   try {
-    const response = await fetch(url, {
-      headers: {
-        "Accept": "application/json",
-        "User-Agent": "Cordon-Wallet/1.0",
+    const response = await fetchJupiterWithRetry(
+      quotePath,
+      {
+        method: "GET",
+        headers: {
+          "Accept": "application/json",
+          "User-Agent": "Cordon-Wallet/1.0",
+        },
       },
-      signal: controller.signal,
-    });
-    
-    clearTimeout(timeout);
+      swapConfig.jupiterTimeoutMs
+    );
     
     const responseText = await response.text();
     
@@ -401,22 +468,20 @@ function isFeeAccountError(details: string): boolean {
 }
 
 async function executeSwapBuild(url: string, body: Record<string, any>): Promise<BuildResult> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), swapConfig.jupiterTimeoutMs);
-  
   try {
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-        "User-Agent": "Cordon-Wallet/1.0",
+    const response = await fetchJupiterWithRetry(
+      swapConfig.jupiterSwapPath,
+      {
+        method: "POST",
+        headers: {
+          "Accept": "application/json",
+          "Content-Type": "application/json",
+          "User-Agent": "Cordon-Wallet/1.0",
+        },
+        body: JSON.stringify(body),
       },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
-    
-    clearTimeout(timeout);
+      swapConfig.jupiterTimeoutMs
+    );
     
     const responseText = await response.text();
     
