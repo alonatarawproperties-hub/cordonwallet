@@ -171,13 +171,14 @@ async function buildViaJupiter(
     normalized = quoteResult.normalized;
   }
 
-  // Build the swap transaction
+  // Build the swap transaction (pass feeAccount from route detection if available)
   const buildResult = await buildSwapTransaction({
     userPublicKey,
     quote: jupiterQuote,
     speedMode,
     wrapAndUnwrapSol: true,
     maxPriorityFeeLamports,
+    feeAccount: routeResult.feeAccount,
   });
 
   if (!buildResult.ok || !buildResult.swapTransactionBase64) {

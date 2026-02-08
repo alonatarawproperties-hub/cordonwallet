@@ -18,6 +18,7 @@ import { validateSwapTxServer, type SwapSecurityResult } from "./txSecurity";
 import { getSolanaConnection } from "../solana-api";
 import { instantBuild } from "./instantSwap";
 import { instantSend } from "./jitoSend";
+import { swapConfig } from "./config";
 
 export const swapRouter = Router();
 
@@ -44,7 +45,7 @@ swapRouter.get("/health", async (_req: Request, res: Response) => {
     rpc: { ok: boolean; latencyMs?: number; url: string; error?: string };
   } = {
     jupiter: { ok: false },
-    rpc: { ok: false, url: process.env.SOLANA_RPC_URL ? "configured" : "missing" },
+    rpc: { ok: false, url: swapConfig.solanaRpcUrl ? "configured" : "missing" },
   };
 
   // Jupiter check using robust client
@@ -60,8 +61,8 @@ swapRouter.get("/health", async (_req: Request, res: Response) => {
   // RPC check
   const rpcStart = Date.now();
   try {
-    if (process.env.SOLANA_RPC_URL) {
-      const rpcRes = await fetch(process.env.SOLANA_RPC_URL, {
+    if (swapConfig.solanaRpcUrl) {
+      const rpcRes = await fetch(swapConfig.solanaRpcUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "getHealth" }),
@@ -74,7 +75,7 @@ swapRouter.get("/health", async (_req: Request, res: Response) => {
         url: "configured",
       };
     } else {
-      results.rpc = { ok: false, url: "missing", error: "SOLANA_RPC_URL not set" };
+      results.rpc = { ok: false, url: "missing", error: "No RPC configured (set HELIUS_API_KEY or SOLANA_RPC_URL)" };
     }
   } catch (err: any) {
     results.rpc = {
@@ -95,14 +96,9 @@ swapRouter.get("/health", async (_req: Request, res: Response) => {
 
 swapRouter.get("/platform-fee-status", async (_req: Request, res: Response) => {
   const feeStatus = getPlatformFeeStatus();
-  let note: string;
-  if (feeStatus.forceDisabled) {
-    note = "Platform fee is FORCED OFF (temporary kill-switch). Success fee after swap still applies.";
-  } else if (feeStatus.enabled) {
-    note = `Platform fee of ${feeStatus.feeBps}bps will be applied when fee accounts exist`;
-  } else {
-    note = "Platform fee is disabled. Set CORDON_PLATFORM_FEE_ENABLED=true and CORDON_REFERRAL_ACCOUNT to enable.";
-  }
+  const note = feeStatus.enabled
+    ? `Platform fee of ${feeStatus.feeBps}bps active. Fees go to treasury ${feeStatus.treasury.slice(0, 8)}... ATAs.`
+    : "Platform fee is disabled. Set CORDON_PLATFORM_FEE_ENABLED=true to enable.";
   res.json({
     ok: true,
     platformFee: feeStatus,

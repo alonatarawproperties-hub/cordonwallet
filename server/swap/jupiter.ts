@@ -1,27 +1,7 @@
 import { Connection, PublicKey } from "@solana/web3.js";
 import { getAssociatedTokenAddress } from "@solana/spl-token";
-import { swapConfig, getPriorityFeeCap, SpeedMode, CORDON_TREASURY_WALLET, CORDON_SUCCESS_FEE_BPS, platformFeeConfig, isPlatformFeeEnabled } from "./config";
+import { swapConfig, getPriorityFeeCap, SpeedMode, CORDON_TREASURY_WALLET, platformFeeConfig, isPlatformFeeEnabled } from "./config";
 import type { QuoteResult, BuildResult } from "./types";
-
-// KILL-SWITCH: Force disable Jupiter platform fees until 0x1788 error is resolved
-const FORCE_DISABLE_JUPITER_PLATFORM_FEES = true;
-
-// Helper: Central check for platform fee permission
-export function platformFeesAllowed(): boolean {
-  if (FORCE_DISABLE_JUPITER_PLATFORM_FEES) {
-    return false;
-  }
-  return isPlatformFeeEnabled();
-}
-
-// Log once at module load
-if (FORCE_DISABLE_JUPITER_PLATFORM_FEES) {
-  console.log("[JupiterFee] Disabled - Jupiter platform/referral fees are OFF");
-} else {
-  console.log("[JupiterFee] platformFeesAllowed:", platformFeesAllowed());
-}
-
-const JUPITER_REFERRAL_PROGRAM = "REFER4ZgmyYx9c6He5XfaTMiGfdLwRnkV4RPp9t9iF3";
 
 // Fallback Jupiter base URL for 429 / 5xx retry
 const JUPITER_FALLBACK_BASE_URL = swapConfig.jupiterBaseUrl.includes("lite-api")
@@ -100,130 +80,75 @@ function normalizeToWsol(mint: string): string {
   return mint;
 }
 
-function deriveFeeAccountAddress(referralAccount: string, mint: string): string | null {
-  // Guard: Never derive if platform fees are disabled
-  if (!platformFeesAllowed()) {
-    return null;
+// ── Simple ATA-based fee system (no Jupiter Referral Program needed) ──
+// Just uses regular Associated Token Accounts on the treasury wallet.
+// Fee collection works for any token where the treasury has an ATA.
+
+const feeAccountCache = new Map<string, { ata: string | null; checkedAt: number }>();
+const FEE_CACHE_TTL_OK = 3600_000;     // 1 hour for existing accounts
+const FEE_CACHE_TTL_MISSING = 300_000;  // 5 min for missing accounts
+
+/**
+ * Resolve the fee account (ATA) for a given output mint on the treasury wallet.
+ * Returns the ATA address if it exists on-chain, null otherwise.
+ * Results are cached to avoid repeated RPC calls.
+ */
+export async function resolveFeeAccount(outputMint: string): Promise<string | null> {
+  if (!isPlatformFeeEnabled()) return null;
+
+  const mint = normalizeToWsol(outputMint);
+
+  // Check manual overrides first
+  if (platformFeeConfig.knownFeeAccounts[mint]) {
+    return platformFeeConfig.knownFeeAccounts[mint];
   }
-  
+
+  // Check cache
+  const cached = feeAccountCache.get(mint);
+  if (cached) {
+    const ttl = cached.ata ? FEE_CACHE_TTL_OK : FEE_CACHE_TTL_MISSING;
+    if (Date.now() - cached.checkedAt < ttl) {
+      return cached.ata;
+    }
+  }
+
+  // Compute ATA address deterministically
   try {
-    const referralPubkey = new PublicKey(referralAccount);
+    const treasuryPubkey = new PublicKey(CORDON_TREASURY_WALLET);
     const mintPubkey = new PublicKey(mint);
-    const programId = new PublicKey(JUPITER_REFERRAL_PROGRAM);
-    
-    const [feeAccount] = PublicKey.findProgramAddressSync(
-      [
-        Buffer.from("referral_ata"),
-        referralPubkey.toBuffer(),
-        mintPubkey.toBuffer(),
-      ],
-      programId
-    );
-    
-    return feeAccount.toBase58();
-  } catch (err: any) {
-    console.warn(`[SwapFee] Failed to derive fee account: ${err.message}`);
-    return null;
-  }
-}
+    const ata = await getAssociatedTokenAddress(mintPubkey, treasuryPubkey);
+    const ataStr = ata.toBase58();
 
-interface FeeAccountResult {
-  feeAccount: string | null;
-  feeBps: number;
-  reason: string;
-}
-
-export interface PlatformFeeParams {
-  feeAccount: string;
-  feeBps: number;
-}
-
-export interface PlatformFeeResult {
-  params: PlatformFeeParams | null;
-  reason: string;
-  outputMint: string;
-  normalizedMint: string;
-}
-
-export async function getPlatformFeeParams(outputMint: string): Promise<PlatformFeeResult> {
-  const normalizedMint = normalizeToWsol(outputMint);
-  
-  // Early exit if platform fees are disabled
-  if (!platformFeesAllowed()) {
-    const reason = FORCE_DISABLE_JUPITER_PLATFORM_FEES 
-      ? "Platform fee FORCED OFF (kill-switch)" 
-      : "Platform fee disabled by config";
-    return { params: null, reason, outputMint, normalizedMint };
-  }
-  
-  console.log(`[SwapFee] getPlatformFeeParams: outputMint=${outputMint.slice(0, 8)}..., normalizedMint=${normalizedMint.slice(0, 8)}...`);
-  
-  if (platformFeeConfig.knownFeeAccounts[normalizedMint]) {
-    const feeAccount = platformFeeConfig.knownFeeAccounts[normalizedMint];
-    console.log(`[SwapFee] Using known fee account for ${normalizedMint.slice(0, 8)}...`);
-    return { 
-      params: { feeAccount, feeBps: platformFeeConfig.feeBps },
-      reason: "Known fee account",
-      outputMint,
-      normalizedMint,
-    };
-  }
-  
-  const derivedAccount = deriveFeeAccountAddress(platformFeeConfig.referralAccount, normalizedMint);
-  if (!derivedAccount) {
-    console.log(`[SwapFee] Could not derive fee account for ${normalizedMint.slice(0, 8)}... Fee OFF.`);
-    return { params: null, reason: "Derivation failed", outputMint, normalizedMint };
-  }
-  
-  console.log(`[SwapFee] Derived feeAccount=${derivedAccount.slice(0, 8)}... for ${normalizedMint.slice(0, 8)}...`);
-  
-  try {
+    // Check if ATA exists on-chain
     const connection = new Connection(swapConfig.solanaRpcUrl, { commitment: "confirmed" });
     const accountInfo = await Promise.race([
-      connection.getAccountInfo(new PublicKey(derivedAccount)),
+      connection.getAccountInfo(ata),
       new Promise<null>((_, reject) => setTimeout(() => reject(new Error("timeout")), 3000)),
     ]);
-    
+
     if (accountInfo) {
-      console.log(`[SwapFee] Fee account EXISTS for ${normalizedMint.slice(0, 8)}..., applying ${platformFeeConfig.feeBps}bps`);
-      return { 
-        params: { feeAccount: derivedAccount, feeBps: platformFeeConfig.feeBps },
-        reason: "Verified on-chain",
-        outputMint,
-        normalizedMint,
-      };
+      console.log(`[SwapFee] ATA exists for ${mint.slice(0, 8)}...: ${ataStr.slice(0, 8)}...`);
+      feeAccountCache.set(mint, { ata: ataStr, checkedAt: Date.now() });
+      return ataStr;
     } else {
-      console.log(`[SwapFee] Fee account NOT FOUND for ${normalizedMint.slice(0, 8)}... Fee OFF.`);
-      return { params: null, reason: "Fee account not initialized", outputMint, normalizedMint };
+      console.log(`[SwapFee] ATA not found for ${mint.slice(0, 8)}... Fee skipped for this mint.`);
+      feeAccountCache.set(mint, { ata: null, checkedAt: Date.now() });
+      return null;
     }
   } catch (err: any) {
-    console.warn(`[SwapFee] Verification error: ${err.message}. Fee OFF.`);
-    return { params: null, reason: `Verification error: ${err.message}`, outputMint, normalizedMint };
+    console.warn(`[SwapFee] Error resolving ATA for ${mint.slice(0, 8)}...: ${err.message}`);
+    feeAccountCache.set(mint, { ata: null, checkedAt: Date.now() });
+    return null;
   }
 }
 
-async function resolvePlatformFeeAccount(
-  outputMint: string,
-  inputMint: string,
-  swapMode: string
-): Promise<FeeAccountResult> {
-  // Guard: Never resolve if platform fees are disabled
-  if (!platformFeesAllowed()) {
-    return { feeAccount: null, feeBps: 0, reason: "Platform fees disabled" };
-  }
-  
-  const feeMint = swapMode === "ExactOut" ? inputMint : outputMint;
-  const result = await getPlatformFeeParams(feeMint);
-  
-  if (result.params) {
-    return { 
-      feeAccount: result.params.feeAccount, 
-      feeBps: result.params.feeBps, 
-      reason: result.reason 
-    };
-  }
-  return { feeAccount: null, feeBps: 0, reason: result.reason };
+export function platformFeesAllowed(): boolean {
+  return isPlatformFeeEnabled();
 }
+
+console.log("[SwapFee] Platform fees enabled:", isPlatformFeeEnabled(),
+  "| feeBps:", platformFeeConfig.feeBps,
+  "| treasury:", CORDON_TREASURY_WALLET.slice(0, 8) + "...");
 
 export async function getQuote(params: {
   inputMint: string;
@@ -243,10 +168,10 @@ export async function getQuote(params: {
     swapMode,
   });
   
-  // ONLY add platformFeeBps if fees are explicitly allowed
+  // Add platformFeeBps when the caller confirmed a fee account exists
   if (includePlatformFee && platformFeesAllowed()) {
     queryParams.set("platformFeeBps", platformFeeConfig.feeBps.toString());
-    console.log("[SwapFee] Adding platformFeeBps to quote:", platformFeeConfig.feeBps);
+    console.log("[SwapFee] Quote includes platformFeeBps:", platformFeeConfig.feeBps);
   }
   
   const quotePath = `${swapConfig.jupiterQuotePath}?${queryParams.toString()}`;
@@ -318,13 +243,10 @@ export async function getQuote(params: {
       };
     }
     
-    // Strip platformFee from response if platform fees are disabled
-    if (!platformFeesAllowed()) {
-      quote.platformFee = null;
-    }
-    
     // Log fee status
-    console.log("[SwapFee] platformFeesAllowed:", platformFeesAllowed(), "quote.platformFee:", quote.platformFee ?? null);
+    if (quote.platformFee) {
+      console.log("[SwapFee] Quote has platformFee:", JSON.stringify(quote.platformFee));
+    }
     
     return {
       ok: true,
@@ -355,10 +277,11 @@ export async function getQuote(params: {
   }
 }
 
-// Sanitize quote for swap: remove ALL platform fee fields
-export function sanitizeQuoteForSwap(quoteResponse: any): any {
+// Sanitize quote for swap: strip platformFee only if we're NOT collecting fees
+export function sanitizeQuoteForSwap(quoteResponse: any, keepPlatformFee: boolean): any {
   if (!quoteResponse) return quoteResponse;
-  
+  if (keepPlatformFee) return quoteResponse;
+
   const { platformFee, ...sanitized } = quoteResponse;
   return { ...sanitized, platformFee: null };
 }
@@ -370,24 +293,29 @@ export async function buildSwapTransaction(params: {
   maxPriorityFeeLamports?: number;
   wrapAndUnwrapSol: boolean;
   disablePlatformFee?: boolean;
+  feeAccount?: string | null;
 }): Promise<BuildResult> {
   const { userPublicKey, quote, speedMode, maxPriorityFeeLamports } = params;
-  
+
   const priorityFeeCap = getPriorityFeeCap(speedMode, maxPriorityFeeLamports);
-  
-  // ALWAYS sanitize quote - never allow platform fee fields
-  const sanitizedQuote = sanitizeQuoteForSwap(quote);
-  
+
   // Determine if output is SOL/WSOL - requires special handling
   const outputMint = quote?.outputMint || "";
   const isSolOutput = outputMint === WSOL_MINT;
-  
-  // For SOL output: MUST use wrapAndUnwrapSol=true, and NO destination token account
   const effectiveWrapAndUnwrapSol = isSolOutput ? true : params.wrapAndUnwrapSol;
-  
+
+  // Resolve fee account: use passed-in value, or resolve from output mint
+  let feeAccount = params.feeAccount;
+  if (feeAccount === undefined && !params.disablePlatformFee) {
+    feeAccount = await resolveFeeAccount(outputMint);
+  }
+
+  // Sanitize quote: keep platformFee in quote only if we have a valid fee account
+  const hasFee = !!feeAccount;
+  const sanitizedQuote = sanitizeQuoteForSwap(quote, hasFee);
+
   const url = `${swapConfig.jupiterBaseUrl}${swapConfig.jupiterSwapPath}`;
 
-  // Simple swap body — just priority fee, no platform fees, no Jito tips.
   const body: Record<string, any> = {
     quoteResponse: sanitizedQuote,
     userPublicKey,
@@ -396,22 +324,27 @@ export async function buildSwapTransaction(params: {
     prioritizationFeeLamports: priorityFeeCap,
   };
 
-  console.log("[Jupiter] Build swap:", {
-    user: userPublicKey.slice(0, 8) + "...",
-    speedMode,
-    priorityFeeCap,
-  });
+  // Add fee account if we have one
+  if (feeAccount) {
+    body.feeAccount = feeAccount;
+    console.log("[Jupiter] Build swap with fee:", {
+      user: userPublicKey.slice(0, 8) + "...",
+      speedMode,
+      priorityFeeCap,
+      feeAccount: feeAccount.slice(0, 8) + "...",
+      feeBps: platformFeeConfig.feeBps,
+    });
+  } else {
+    console.log("[Jupiter] Build swap (no fee):", {
+      user: userPublicKey.slice(0, 8) + "...",
+      speedMode,
+      priorityFeeCap,
+    });
+  }
 
   const result = await executeSwapBuild(url, body);
 
   return result;
-}
-
-function isFeeAccountError(details: string): boolean {
-  const lowerDetails = details.toLowerCase();
-  return lowerDetails.includes("0x1788") ||
-         lowerDetails.includes("custom program error: 6024") ||
-         (lowerDetails.includes("fee") && lowerDetails.includes("account") && lowerDetails.includes("error"));
 }
 
 async function executeSwapBuild(url: string, body: Record<string, any>): Promise<BuildResult> {
@@ -491,13 +424,11 @@ async function executeSwapBuild(url: string, body: Record<string, any>): Promise
 export function getPlatformFeeStatus(): {
   enabled: boolean;
   feeBps: number;
-  referralConfigured: boolean;
-  forceDisabled: boolean;
+  treasury: string;
 } {
   return {
     enabled: platformFeesAllowed(),
     feeBps: platformFeeConfig.feeBps,
-    referralConfigured: platformFeeConfig.referralAccount.length > 0,
-    forceDisabled: FORCE_DISABLE_JUPITER_PLATFORM_FEES,
+    treasury: CORDON_TREASURY_WALLET,
   };
 }
