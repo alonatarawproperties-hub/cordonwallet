@@ -292,8 +292,9 @@ export function sanitizeQuoteForSwap(quoteResponse: any, keepPlatformFee: boolea
   if (!quoteResponse) return quoteResponse;
   if (keepPlatformFee) return quoteResponse;
 
+  // Omit platformFee entirely — setting it to null causes Jupiter to reject with 400
   const { platformFee, ...sanitized } = quoteResponse;
-  return { ...sanitized, platformFee: null };
+  return sanitized;
 }
 
 export async function buildSwapTransaction(params: {
@@ -314,11 +315,11 @@ export async function buildSwapTransaction(params: {
   const isSolOutput = outputMint === WSOL_MINT;
   const effectiveWrapAndUnwrapSol = isSolOutput ? true : params.wrapAndUnwrapSol;
 
-  // Resolve fee account: use passed-in value, or resolve from output mint
-  let feeAccount = params.feeAccount;
-  if (feeAccount === undefined && !params.disablePlatformFee) {
-    feeAccount = await resolveFeeAccount(outputMint);
-  }
+  // Use the fee account from the caller — the caller (route.ts) is responsible
+  // for ensuring consistency between the quote (with platformFeeBps) and feeAccount.
+  // Do NOT independently resolve feeAccount here, as the quote may not include
+  // platformFeeBps, and Jupiter returns 400 if feeAccount is sent without it.
+  const feeAccount = params.feeAccount || null;
 
   // Sanitize quote: keep platformFee in quote only if we have a valid fee account
   const hasFee = !!feeAccount;
@@ -354,17 +355,12 @@ export async function buildSwapTransaction(params: {
 
   const result = await executeSwapBuild(url, body);
 
-  // If build failed with fee, retry WITHOUT fee so the swap still works
+  // If build failed with fee, log the error clearly but do NOT retry with
+  // a mangled quote (stripping platformFee from a fee-included quote causes 400).
+  // The caller should handle retries with a fresh non-fee quote if needed.
   if (!result.ok && feeAccount) {
-    console.warn("[Jupiter] Build with fee failed, retrying without fee. Error:", (result as any).details?.slice?.(0, 200) || (result as any).message);
-    const noFeeBody = { ...body };
-    delete noFeeBody.feeAccount;
-    noFeeBody.quoteResponse = sanitizeQuoteForSwap(quote, false);
-    const retryResult = await executeSwapBuild(url, noFeeBody);
-    if (retryResult.ok) {
-      console.log("[Jupiter] Build succeeded without fee (fee skipped for this swap)");
-    }
-    return retryResult;
+    console.error("[Jupiter] Build with fee FAILED. Error:", (result as any).details?.slice?.(0, 500) || (result as any).message);
+    console.error("[Jupiter] Fee account used:", feeAccount, "| feeBps:", platformFeeConfig.feeBps);
   }
 
   return result;
@@ -385,11 +381,17 @@ async function executeSwapBuild(url: string, body: Record<string, any>): Promise
     const responseText = await response.text();
     
     if (!response.ok) {
-      console.error("[Jupiter] Build error:", response.status, responseText);
+      // Parse error body for better diagnostics
+      let errorDetail = responseText;
+      try {
+        const errJson = JSON.parse(responseText);
+        errorDetail = errJson.error || errJson.message || responseText;
+      } catch {}
+      console.error("[Jupiter] Build error:", response.status, errorDetail);
       return {
         ok: false,
         code: "BUILD_FAILED",
-        message: `Jupiter build failed: ${response.status}`,
+        message: `Jupiter build failed: ${response.status} — ${errorDetail.slice(0, 200)}`,
         details: responseText,
       };
     }

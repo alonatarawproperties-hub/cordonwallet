@@ -20,8 +20,8 @@ const ETHERSCAN_V2_API = "https://api.etherscan.io/v2/api";
 const COINGECKO_API = "https://api.coingecko.com/api/v3";
 const DEXSCREENER_API = "https://api.dexscreener.com";
 const GECKOTERMINAL_API = "https://api.geckoterminal.com/api/v2";
-// Jupiter Lite API - must match server/swap/config.ts for quote/swap consistency
-const JUPITER_API = "https://lite-api.jup.ag/swap/v1";
+// Jupiter API - must match server/swap/config.ts for quote/swap consistency
+const JUPITER_API = "https://api.jup.ag/swap/v1";
 const JUPITER_TOKENS_API = "https://tokens.jup.ag";
 
 // SOL/WSOL mint address - Jupiter represents native SOL as WSOL
