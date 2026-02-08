@@ -520,6 +520,8 @@ export default function SwapScreen({ route }: Props) {
   };
 
   const swapTokens = () => {
+    if (!inputToken || !outputToken) return;
+
     // Trigger rotation animation
     swapRotation.value = withSpring(swapRotation.value + 180, {
       damping: 15,
@@ -528,9 +530,13 @@ export default function SwapScreen({ route }: Props) {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     
     const temp = inputToken;
+    const nextInputAmount = quote
+      ? formatBaseUnits(quote.outAmount, outputToken.decimals)
+      : inputAmount;
+
     setInputToken(outputToken);
     setOutputToken(temp);
-    setInputAmount("");
+    setInputAmount(nextInputAmount);
     setQuote(null);
     setSwapRoute("none");
     setPumpMeta(null);
