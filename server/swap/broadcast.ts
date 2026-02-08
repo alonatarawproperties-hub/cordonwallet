@@ -142,9 +142,14 @@ export async function broadcastTransaction(params: {
 export async function getTransactionStatus(signature: string): Promise<{
   confirmed: boolean;
   finalized: boolean;
+  processed: boolean;
+  confirmationStatus?: string;
   error?: string;
 }> {
   try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+
     const response = await fetch(swapConfig.solanaRpcUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -154,33 +159,42 @@ export async function getTransactionStatus(signature: string): Promise<{
         method: "getSignatureStatuses",
         params: [[signature], { searchTransactionHistory: true }],
       }),
+      signal: controller.signal,
     });
-    
+
+    clearTimeout(timeout);
+
     const data = await response.json();
     const status = data.result?.value?.[0];
-    
+
     if (!status) {
-      return { confirmed: false, finalized: false };
+      return { confirmed: false, finalized: false, processed: false };
     }
-    
+
     if (status.err) {
-      return { 
-        confirmed: false, 
-        finalized: false, 
-        error: JSON.stringify(status.err) 
+      return {
+        confirmed: false,
+        finalized: false,
+        processed: false,
+        confirmationStatus: status.confirmationStatus,
+        error: JSON.stringify(status.err)
       };
     }
-    
+
+    const level = status.confirmationStatus;
+
     return {
-      confirmed: status.confirmationStatus === "confirmed" || 
-                 status.confirmationStatus === "finalized",
-      finalized: status.confirmationStatus === "finalized",
+      confirmed: level === "confirmed" || level === "finalized",
+      finalized: level === "finalized",
+      processed: level === "processed" || level === "confirmed" || level === "finalized",
+      confirmationStatus: level,
     };
   } catch (err: any) {
-    return { 
-      confirmed: false, 
-      finalized: false, 
-      error: err.message 
+    return {
+      confirmed: false,
+      finalized: false,
+      processed: false,
+      error: err.message
     };
   }
 }

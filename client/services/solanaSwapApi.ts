@@ -101,6 +101,8 @@ export interface StatusResult {
   ok: boolean;
   confirmed?: boolean;
   finalized?: boolean;
+  processed?: boolean;
+  confirmationStatus?: string;
   error?: string;
 }
 
