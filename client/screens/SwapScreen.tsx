@@ -9,6 +9,7 @@ import {
   Modal,
   FlatList,
   Image,
+  ScrollView,
   KeyboardAvoidingView,
   Platform,
   Keyboard,
@@ -73,7 +74,7 @@ import {
   instantSend,
 } from "@/services/solanaSwapApi";
 import { classifyError, getExplorerUrl, checkSignatureDirectly } from "@/services/txBroadcaster";
-import { addSwapRecord, addDebugLog } from "@/services/swapStore";
+import { addSwapRecord, addDebugLog, getDebugLogs, clearDebugLogs, type SwapLogEntry } from "@/services/swapStore";
 import { getApiUrl, getApiHeaders } from "@/lib/query-client";
 import {
   estimateFeeReserveLamports,
@@ -223,6 +224,8 @@ export default function SwapScreen({ route }: Props) {
   const [successFeeEnabled, setSuccessFeeEnabled] = useState(true);
   const [isPro] = useState(false); // Mock for now - Pro users skip success fee
   const [showRiskGateModal, setShowRiskGateModal] = useState(false);
+  const [showDebugPanel, setShowDebugPanel] = useState(false);
+  const [debugLogs, setDebugLogs] = useState<SwapLogEntry[]>([]);
 
   const quoteEngineRef = useRef(getQuoteEngine());
   
@@ -1174,6 +1177,69 @@ export default function SwapScreen({ route }: Props) {
     );
   };
 
+  const loadDebugLogs = async () => {
+    const logs = await getDebugLogs();
+    setDebugLogs(logs);
+  };
+
+  const renderDebugPanel = () => (
+    <Modal visible={showDebugPanel} transparent animationType="fade" onRequestClose={() => setShowDebugPanel(false)}>
+      <View style={styles.debugOverlay}>
+        <View style={[styles.debugPanel, { backgroundColor: theme.backgroundRoot, borderColor: theme.glassBorder }]}>
+          <View style={styles.debugHeader}>
+            <ThemedText type="body" style={{ fontWeight: "600" }}>Swap Debug</ThemedText>
+            <Pressable onPress={() => setShowDebugPanel(false)}>
+              <Feather name="x" size={18} color={theme.textSecondary} />
+            </Pressable>
+          </View>
+          <ThemedText type="caption" style={{ color: theme.textSecondary, marginBottom: Spacing.sm }}>
+            API: {getApiUrl()}
+          </ThemedText>
+          <ScrollView style={styles.debugLogList} contentContainerStyle={{ gap: Spacing.xs }}>
+            {debugLogs.length === 0 ? (
+              <ThemedText type="caption" style={{ color: theme.textSecondary }}>
+                No logs yet. Run a swap and reopen this panel.
+              </ThemedText>
+            ) : (
+              debugLogs.map((log, idx) => (
+                <View key={`${log.timestamp}-${idx}`} style={styles.debugLogRow}>
+                  <ThemedText type="caption" style={{ color: theme.textSecondary }}>
+                    {new Date(log.timestamp).toLocaleTimeString()}
+                  </ThemedText>
+                  <ThemedText type="caption" style={{ color: theme.text }}>
+                    [{log.level}] {log.message}
+                  </ThemedText>
+                  {log.data ? (
+                    <ThemedText type="caption" style={{ color: theme.textSecondary }}>
+                      {typeof log.data === "string" ? log.data : JSON.stringify(log.data)}
+                    </ThemedText>
+                  ) : null}
+                </View>
+              ))
+            )}
+          </ScrollView>
+          <View style={styles.debugActions}>
+            <Pressable
+              style={[styles.debugButton, { borderColor: theme.glassBorder }]}
+              onPress={async () => {
+                await clearDebugLogs();
+                await loadDebugLogs();
+              }}
+            >
+              <ThemedText type="caption" style={{ color: theme.textSecondary }}>Clear</ThemedText>
+            </Pressable>
+            <Pressable
+              style={[styles.debugButton, { borderColor: theme.accent }]}
+              onPress={loadDebugLogs}
+            >
+              <ThemedText type="caption" style={{ color: theme.accent }}>Refresh</ThemedText>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+
   const selectCustomToken = () => {
     if (!customTokenResult || customTokenResult.decimals < 0) return;
     selectToken(customTokenResult);
@@ -1914,6 +1980,19 @@ export default function SwapScreen({ route }: Props) {
           <ThemedText type="caption" style={{ color: theme.textSecondary, marginTop: Spacing.sm, fontSize: 10, textAlign: "center", opacity: 0.7 }}>
             Fees: Priority (shown above) + network (~0.00001 SOL). Jupiter platform fee is currently disabled.
           </ThemedText>
+          {__DEV__ ? (
+            <Pressable
+              style={[styles.debugToggle, { borderColor: theme.glassBorder }]}
+              onPress={async () => {
+                await loadDebugLogs();
+                setShowDebugPanel(true);
+              }}
+            >
+              <ThemedText type="caption" style={{ color: theme.textSecondary }}>
+                Open swap debug panel
+              </ThemedText>
+            </Pressable>
+          ) : null}
 
           {SHOW_CORDON_FEE_UI ? (
             <View style={[styles.successFeeSection, { backgroundColor: theme.glass, borderColor: theme.glassBorder }]}>
@@ -2020,6 +2099,7 @@ export default function SwapScreen({ route }: Props) {
 
       {renderTokenModal()}
       {renderSlippageModal()}
+      {renderDebugPanel()}
       {safetyScan.result ? (
         <RiskGateModal
           visible={showRiskGateModal}
@@ -2454,6 +2534,52 @@ const styles = StyleSheet.create({
   swappingRow: {
     flexDirection: "row",
     alignItems: "center",
+  },
+  debugToggle: {
+    marginTop: Spacing.sm,
+    alignSelf: "center",
+    paddingVertical: Spacing.xs,
+    paddingHorizontal: Spacing.md,
+    borderRadius: BorderRadius.sm,
+    borderWidth: 1,
+  },
+  debugOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    justifyContent: "center",
+    padding: Spacing.xl,
+  },
+  debugPanel: {
+    borderRadius: BorderRadius.lg,
+    borderWidth: 1,
+    padding: Spacing.md,
+    maxHeight: "80%",
+  },
+  debugHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: Spacing.sm,
+  },
+  debugLogList: {
+    maxHeight: 320,
+  },
+  debugLogRow: {
+    paddingVertical: Spacing.xs,
+    borderBottomWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+  },
+  debugActions: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: Spacing.sm,
+    marginTop: Spacing.sm,
+  },
+  debugButton: {
+    paddingVertical: Spacing.xs,
+    paddingHorizontal: Spacing.md,
+    borderRadius: BorderRadius.sm,
+    borderWidth: 1,
   },
   modalOverlay: {
     flex: 1,
