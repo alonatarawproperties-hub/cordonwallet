@@ -647,6 +647,7 @@ export default function SwapScreen({ route }: Props) {
           amount: amountBaseUnits,
           slippageBps,
           speedMode: speed,
+          maxPriorityFeeLamports: priorityCapLamports,
         });
       } catch (ibErr: any) {
         // 404 = server hasn't restarted yet, fall through to legacy flow
@@ -697,6 +698,7 @@ export default function SwapScreen({ route }: Props) {
             amountTokens: !isBuying ? parseInt(amountBaseUnits) : undefined,
             slippageBps,
             speedMode: speed,
+            maxPriorityFeeLamports: priorityCapLamports,
           });
           if (buildResult.ok && buildResult.swapTransactionBase64) {
             usedRoute = "pump";
@@ -724,6 +726,7 @@ export default function SwapScreen({ route }: Props) {
             quote: jupiterQuote,
             speedMode: speed,
             wrapAndUnwrapSol: true,
+            maxPriorityFeeLamports: priorityCapLamports,
           });
           usedRoute = "jupiter";
         }
@@ -883,14 +886,18 @@ export default function SwapScreen({ route }: Props) {
         tryChargeSuccessFeeNow(activeWallet.id, solanaAddr, successFeeLamports, signature).catch(() => {});
       }
 
-      const alertTitle = confirmed ? "Swap Confirmed!" : "Swap Expired";
+      const alertTitle = confirmed
+        ? "Swap Confirmed!"
+        : isPumpTrade
+          ? "Swap Expired"
+          : "Swap Submitted";
       const alertBody = confirmed
         ? outDisplay
           ? `Swapped ${inputAmount} ${inputToken.symbol} for ~${outDisplay} ${outputToken.symbol}`
           : `Swapped ${inputAmount} ${inputToken.symbol}`
         : isPumpTrade
           ? `Transaction didn't land — price likely moved. Your ${inputToken.symbol} is safe. Tap Retry to try again.`
-          : `Transaction not confirmed in time. Check explorer for status.`;
+          : `Transaction may still confirm. Check explorer for status.`;
 
       showAlert(alertTitle, alertBody, [
         ...(!confirmed ? [{ text: "Retry", onPress: () => executeInstantSwap() }] : []),

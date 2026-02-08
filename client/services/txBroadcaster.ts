@@ -508,13 +508,40 @@ export async function checkSignatureDirectly(signature: string): Promise<{
 }> {
   try {
     const conn = getPrimaryConnection();
-    const response = await conn.getSignatureStatus(signature, {
+    let response = await conn.getSignatureStatus(signature, {
       searchTransactionHistory: false,
     });
     const status = response.value;
-    if (!status) return { confirmed: false, processed: false };
-    if (status.err) return { confirmed: false, processed: false, error: JSON.stringify(status.err) };
-    const level = status.confirmationStatus;
+    if (!status) {
+      response = await conn.getSignatureStatus(signature, {
+        searchTransactionHistory: true,
+      });
+    }
+    const resolvedStatus = response.value;
+    if (!resolvedStatus) {
+      const fallbackConn = getFallbackConnection();
+      let fallbackResponse = await fallbackConn.getSignatureStatus(signature, {
+        searchTransactionHistory: false,
+      });
+      if (!fallbackResponse.value) {
+        fallbackResponse = await fallbackConn.getSignatureStatus(signature, {
+          searchTransactionHistory: true,
+        });
+      }
+      if (!fallbackResponse.value) return { confirmed: false, processed: false };
+      if (fallbackResponse.value.err) {
+        return { confirmed: false, processed: false, error: JSON.stringify(fallbackResponse.value.err) };
+      }
+      const fallbackLevel = fallbackResponse.value.confirmationStatus;
+      return {
+        confirmed: fallbackLevel === "confirmed" || fallbackLevel === "finalized",
+        processed: !!fallbackLevel,
+      };
+    }
+    if (resolvedStatus.err) {
+      return { confirmed: false, processed: false, error: JSON.stringify(resolvedStatus.err) };
+    }
+    const level = resolvedStatus.confirmationStatus;
     return {
       confirmed: level === "confirmed" || level === "finalized",
       processed: !!level,
