@@ -23,10 +23,6 @@ if (FORCE_DISABLE_JUPITER_PLATFORM_FEES) {
 
 const JUPITER_REFERRAL_PROGRAM = "REFER4ZgmyYx9c6He5XfaTMiGfdLwRnkV4RPp9t9iF3";
 
-// Cache whether Jupiter supports jitoTipLamports parameter
-// null = untested, true = supported, false = not supported (use flat fee)
-let jitoTipSupported: boolean | null = null;
-
 // Fallback Jupiter base URL for 429 / 5xx retry
 const JUPITER_FALLBACK_BASE_URL = swapConfig.jupiterBaseUrl.includes("lite-api")
   ? "https://api.jup.ag"
@@ -390,88 +386,24 @@ export async function buildSwapTransaction(params: {
   const effectiveWrapAndUnwrapSol = isSolOutput ? true : params.wrapAndUnwrapSol;
   
   const url = `${swapConfig.jupiterBaseUrl}${swapConfig.jupiterSwapPath}`;
-  
-  // Build swap body WITHOUT any fee fields or destination token accounts
-  // Use jitoTipLamports to include a Jito tip in the transaction — Jito validators
-  // build ~90% of Solana blocks, so including a tip dramatically improves landing rate.
-  const useJitoTip = jitoTipSupported !== false;
+
+  // Simple swap body — just priority fee, no platform fees, no Jito tips.
   const body: Record<string, any> = {
     quoteResponse: sanitizedQuote,
     userPublicKey,
     wrapAndUnwrapSol: effectiveWrapAndUnwrapSol,
     dynamicComputeUnitLimit: true,
-    prioritizationFeeLamports: useJitoTip
-      ? { jitoTipLamports: priorityFeeCap }
-      : priorityFeeCap,
+    prioritizationFeeLamports: priorityFeeCap,
   };
 
   console.log("[Jupiter] Build swap:", {
     user: userPublicKey.slice(0, 8) + "...",
     speedMode,
     priorityFeeCap,
-    feeMode: useJitoTip ? "jitoTip" : "flat",
-    platformFee: "DISABLED",
   });
 
-  let result = await executeSwapBuild(url, body);
+  const result = await executeSwapBuild(url, body);
 
-  // If jitoTipLamports failed on first attempt, fall back to flat fee
-  if (!result.ok && useJitoTip && jitoTipSupported === null) {
-    console.warn("[Jupiter] Build failed with jitoTipLamports, retrying with flat prioritizationFeeLamports");
-    body.prioritizationFeeLamports = priorityFeeCap;
-    const retryResult = await executeSwapBuild(url, body);
-    if (retryResult.ok) {
-      jitoTipSupported = false;
-      console.log("[Jupiter] Flat fee worked — caching for future builds");
-      result = retryResult;
-    }
-    // If both fail, continue with original result (may trigger 0x1788 retry below)
-  } else if (result.ok && jitoTipSupported === null) {
-    jitoTipSupported = true;
-    console.log("[Jupiter] jitoTipLamports supported — using for all future builds");
-  }
-
-  // Retry logic for 0x1788 error - fetch fresh quote without platform fees
-  if (!result.ok && result.details && isFeeAccountError(result.details)) {
-    console.warn("[SwapFee] 0x1788 detected – retrying with fresh no-fee quote");
-    
-    // Fetch a fresh quote without any platform fees
-    const freshQuoteResult = await getQuote({
-      inputMint: quote.inputMint,
-      outputMint: quote.outputMint,
-      amount: quote.inAmount,
-      slippageBps: quote.slippageBps || 50,
-      swapMode: quote.swapMode || "ExactIn",
-      includePlatformFee: false,
-    });
-    
-    if (!freshQuoteResult.ok) {
-      console.error("[SwapFee] Fresh quote fetch failed:", freshQuoteResult.message);
-      return result; // Return original error
-    }
-    
-    // Retry with sanitized fresh quote - use same SOL output detection
-    const freshOutputMint = freshQuoteResult.quote?.outputMint || "";
-    const freshIsSolOutput = freshOutputMint === WSOL_MINT;
-    const retryBody = {
-      quoteResponse: sanitizeQuoteForSwap(freshQuoteResult.quote),
-      userPublicKey,
-      wrapAndUnwrapSol: freshIsSolOutput ? true : params.wrapAndUnwrapSol,
-      dynamicComputeUnitLimit: true,
-      prioritizationFeeLamports: priorityFeeCap,
-    };
-    
-    const retryResult = await executeSwapBuild(url, retryBody);
-    if (retryResult.ok) {
-      console.log("[SwapFee] Retry with fresh quote succeeded.");
-      return {
-        ...retryResult,
-        feeDisabledReason: "Fee account error (0x1788), executed with fresh no-fee quote",
-      };
-    }
-    return retryResult;
-  }
-  
   return result;
 }
 
