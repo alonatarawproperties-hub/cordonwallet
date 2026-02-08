@@ -520,6 +520,8 @@ export default function SwapScreen({ route }: Props) {
   };
 
   const swapTokens = () => {
+    if (!inputToken || !outputToken) return;
+
     // Trigger rotation animation
     swapRotation.value = withSpring(swapRotation.value + 180, {
       damping: 15,
@@ -528,12 +530,31 @@ export default function SwapScreen({ route }: Props) {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     
     const temp = inputToken;
+    const nextInputAmount = quote
+      ? formatBaseUnits(quote.outAmount, outputToken.decimals)
+      : inputAmount;
+
     setInputToken(outputToken);
     setOutputToken(temp);
-    setInputAmount("");
+    setInputAmount(nextInputAmount);
     setQuote(null);
     setSwapRoute("none");
     setPumpMeta(null);
+    setQuoteError(null);
+
+    if (nextInputAmount && nextInputAmount !== "0") {
+      const nextAmountBaseUnits = parseTokenAmount(nextInputAmount, outputToken.decimals).toString();
+      const engine = quoteEngineRef.current;
+      engine.clearQuote();
+      engine.updateParams({
+        inputMint: outputToken.mint,
+        outputMint: inputToken.mint,
+        amount: nextAmountBaseUnits,
+        slippageBps,
+        speedMode: speed,
+      });
+      engine.triggerImmediateFetch();
+    }
   };
 
   const handleMaxPress = async () => {
