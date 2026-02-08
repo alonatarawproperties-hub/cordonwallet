@@ -69,6 +69,8 @@ import {
   sendSignedTx,
   getStatus as getSwapStatus,
   quote as fetchJupiterQuote,
+  instantBuild,
+  instantSend,
 } from "@/services/solanaSwapApi";
 import { classifyError, getExplorerUrl } from "@/services/txBroadcaster";
 import { addSwapRecord, addDebugLog } from "@/services/swapStore";
@@ -586,7 +588,8 @@ export default function SwapScreen({ route }: Props) {
   const canSwap = !!inputToken && !!outputToken && !!inputAmount && parseFloat(inputAmount) > 0 && !insufficientSolForFees;
 
   // ── INSTANT SWAP: TG-bot style — one tap, done ──
-  // Uses existing server endpoints + client-side blockhash fix + parallel RPC send
+  // Primary: instant-build (server stamps blockhash) + instant-send (Jito + multi-RPC + rebroadcast)
+  // Fallback: existing multi-step endpoints if instant ones aren't available (server not restarted)
   const executeInstantSwap = async () => {
     if (!inputToken || !outputToken || !activeWallet || !inputAmount || parseFloat(inputAmount) <= 0) return;
 
@@ -602,7 +605,7 @@ export default function SwapScreen({ route }: Props) {
     let keypair: Keypair | null = null;
 
     try {
-      // 1. Get keypair
+      // ── 1. Get keypair ──
       let mnemonic = await getMnemonic(activeWallet.id);
       if (!mnemonic) {
         const recovered = await unlockWithCachedKey().catch(() => false);
@@ -627,146 +630,207 @@ export default function SwapScreen({ route }: Props) {
 
       const amountBaseUnits = parseTokenAmount(inputAmount, inputToken.decimals).toString();
 
-      // 2. Route detection + quote via existing endpoint
-      const rqResult = await routeQuote({
-        inputMint: inputToken.mint,
-        outputMint: outputToken.mint,
-        amount: amountBaseUnits,
-        slippageBps,
-      });
-
-      if (!rqResult.ok) {
-        throw new Error(rqResult.message || "No swap route available");
-      }
-
-      // 3. Build transaction — try pump first if applicable, auto-fallback to Jupiter
-      let buildResult;
+      // ── 2. Build transaction ──
+      // Try instant-build first (server does route + quote + build + blockhash stamp in one call)
+      // Falls back to multi-step if instant endpoint is unavailable
+      let txBase64: string;
       let usedRoute: "pump" | "jupiter" = "jupiter";
-      let jupiterQuote = rqResult.quoteResponse;
+      let quoteInfo: { outAmount?: string; minOut?: string; priceImpactPct?: number; routeLabel?: string } = {};
+      let useInstantSend = true; // track whether instant-send is available
 
-      const shouldTryPump = rqResult.route === "pump"
-        && rqResult.pumpMeta?.isBondingCurve
-        && !rqResult.pumpMeta?.isGraduated;
-
-      if (shouldTryPump) {
-        const isBuying = inputToken.mint === SOL_MINT;
-        buildResult = await buildPump({
+      let ibResult: Awaited<ReturnType<typeof instantBuild>> | null = null;
+      try {
+        ibResult = await instantBuild({
           userPublicKey: solanaAddr,
-          mint: isBuying ? outputToken.mint : inputToken.mint,
-          side: isBuying ? "buy" : "sell",
-          amountSol: isBuying ? parseInt(amountBaseUnits) / 1_000_000_000 : undefined,
-          amountTokens: !isBuying ? parseInt(amountBaseUnits) : undefined,
+          inputMint: inputToken.mint,
+          outputMint: outputToken.mint,
+          amount: amountBaseUnits,
           slippageBps,
           speedMode: speed,
         });
-
-        if (buildResult.ok && buildResult.swapTransactionBase64) {
-          usedRoute = "pump";
+      } catch (ibErr: any) {
+        // 404 = server hasn't restarted yet, fall through to legacy flow
+        if (ibErr.message?.includes("404") || ibErr.message?.includes("unavailable")) {
+          console.log("[Swap] instant-build unavailable, using legacy flow");
+          ibResult = null;
+          useInstantSend = false;
         } else {
-          // Pump failed (graduated, unavailable, etc.) — fall through to Jupiter
-          console.log("[Swap] Pump build failed, falling back to Jupiter:", buildResult.message);
-          buildResult = undefined;
+          throw ibErr;
         }
       }
 
-      // Jupiter path — either primary route or fallback from pump
-      if (!buildResult?.ok) {
-        // Get Jupiter quote if we don't have one (pump route doesn't include Jupiter quote)
-        if (!jupiterQuote) {
-          const quoteResult = await fetchJupiterQuote({
-            inputMint: inputToken.mint,
-            outputMint: outputToken.mint,
-            amount: amountBaseUnits,
-            slippageBps,
-          });
-          if (!quoteResult.ok || !quoteResult.quote) {
-            throw new Error(quoteResult.message || "No swap route available");
-          }
-          jupiterQuote = quoteResult.quote;
-        }
-
-        buildResult = await buildJupiter({
-          userPublicKey: solanaAddr,
-          quote: jupiterQuote,
-          speedMode: speed,
-          wrapAndUnwrapSol: true,
+      if (ibResult?.ok && ibResult.swapTransactionBase64) {
+        // ── Instant path: server already stamped fresh blockhash ──
+        txBase64 = ibResult.swapTransactionBase64;
+        usedRoute = ibResult.route || "jupiter";
+        quoteInfo = ibResult.quote || {};
+        console.log(`[Swap] instant-build OK, route=${usedRoute}`);
+      } else if (ibResult && !ibResult.ok) {
+        // instant-build returned an error (not a 404)
+        throw new Error((ibResult as any).message || "Build failed");
+      } else {
+        // ── Fallback: multi-step legacy flow ──
+        const rqResult = await routeQuote({
+          inputMint: inputToken.mint,
+          outputMint: outputToken.mint,
+          amount: amountBaseUnits,
+          slippageBps,
         });
-        usedRoute = "jupiter";
-      }
+        if (!rqResult.ok) {
+          throw new Error(rqResult.message || "No swap route available");
+        }
 
-      if (!buildResult?.ok || !buildResult.swapTransactionBase64) {
-        throw new Error(buildResult?.message || "Failed to build transaction");
+        let buildResult;
+        let jupiterQuote = rqResult.quoteResponse;
+
+        const shouldTryPump = rqResult.route === "pump"
+          && rqResult.pumpMeta?.isBondingCurve
+          && !rqResult.pumpMeta?.isGraduated;
+
+        if (shouldTryPump) {
+          const isBuying = inputToken.mint === SOL_MINT;
+          buildResult = await buildPump({
+            userPublicKey: solanaAddr,
+            mint: isBuying ? outputToken.mint : inputToken.mint,
+            side: isBuying ? "buy" : "sell",
+            amountSol: isBuying ? parseInt(amountBaseUnits) / 1_000_000_000 : undefined,
+            amountTokens: !isBuying ? parseInt(amountBaseUnits) : undefined,
+            slippageBps,
+            speedMode: speed,
+          });
+          if (buildResult.ok && buildResult.swapTransactionBase64) {
+            usedRoute = "pump";
+          } else {
+            console.log("[Swap] Pump build failed, falling back to Jupiter:", buildResult.message);
+            buildResult = undefined;
+          }
+        }
+
+        if (!buildResult?.ok) {
+          if (!jupiterQuote) {
+            const quoteResult = await fetchJupiterQuote({
+              inputMint: inputToken.mint,
+              outputMint: outputToken.mint,
+              amount: amountBaseUnits,
+              slippageBps,
+            });
+            if (!quoteResult.ok || !quoteResult.quote) {
+              throw new Error(quoteResult.message || "No swap route available");
+            }
+            jupiterQuote = quoteResult.quote;
+          }
+          buildResult = await buildJupiter({
+            userPublicKey: solanaAddr,
+            quote: jupiterQuote,
+            speedMode: speed,
+            wrapAndUnwrapSol: true,
+          });
+          usedRoute = "jupiter";
+        }
+
+        if (!buildResult?.ok || !buildResult.swapTransactionBase64) {
+          throw new Error(buildResult?.message || "Failed to build transaction");
+        }
+
+        txBase64 = buildResult.swapTransactionBase64;
+        quoteInfo = {
+          outAmount: jupiterQuote?.outAmount || rqResult.normalized?.outAmount,
+          minOut: jupiterQuote?.otherAmountThreshold || rqResult.normalized?.minOut,
+          priceImpactPct: rqResult.normalized?.priceImpactPct || parseFloat(jupiterQuote?.priceImpactPct || "0"),
+          routeLabel: usedRoute === "pump" ? "Pump.fun" : (
+            jupiterQuote?.routePlan
+              ?.map((r: any) => r.swapInfo?.label || r.label)
+              .filter(Boolean)
+              .slice(0, 2)
+              .join(" → ") || "Jupiter"
+          ),
+        };
       }
 
       setSwapStatus("Sending...");
 
-      // 4. Sign the transaction (blockhash from server's RPC is used as-is)
-      const txBuffer = Buffer.from(buildResult.swapTransactionBase64, "base64");
+      // ── 3. Sign the transaction ──
+      const txBuffer = Buffer.from(txBase64, "base64");
       const transaction = VersionedTransaction.deserialize(txBuffer);
       transaction.sign([keypair]);
-      const signedBytes = transaction.serialize();
-      const signedBase64 = Buffer.from(signedBytes).toString("base64");
+      const signedBase64 = Buffer.from(transaction.serialize()).toString("base64");
 
-      // 5. Send via server endpoint (uses paid Helius/Triton RPCs)
-      const sendResult = await sendSignedTx({
-        signedTransactionBase64: signedBase64,
-        mode: speed,
-      });
+      // ── 4. Send — instant-send (Jito + multi-RPC + server rebroadcast) or legacy ──
+      let signature: string;
 
-      if (!sendResult.ok || !sendResult.signature) {
-        throw new Error(sendResult.message || "Failed to send transaction");
+      if (useInstantSend) {
+        try {
+          const isResult = await instantSend({
+            signedTransactionBase64: signedBase64,
+            speedMode: speed,
+          });
+          if (!isResult.ok || !isResult.signature) {
+            throw new Error((isResult as any).message || "Send failed");
+          }
+          signature = isResult.signature;
+          console.log(`[Swap] instant-send OK via: ${(isResult as any).sentVia?.join(", ")} | sig: ${signature}`);
+        } catch (isErr: any) {
+          if (isErr.message?.includes("404") || isErr.message?.includes("unavailable")) {
+            console.log("[Swap] instant-send unavailable, using legacy send");
+            useInstantSend = false;
+            const sendResult = await sendSignedTx({ signedTransactionBase64: signedBase64, mode: speed });
+            if (!sendResult.ok || !sendResult.signature) {
+              throw new Error(sendResult.message || "Failed to send transaction");
+            }
+            signature = sendResult.signature;
+          } else {
+            throw isErr;
+          }
+        }
+      } else {
+        const sendResult = await sendSignedTx({ signedTransactionBase64: signedBase64, mode: speed });
+        if (!sendResult.ok || !sendResult.signature) {
+          throw new Error(sendResult.message || "Failed to send transaction");
+        }
+        signature = sendResult.signature;
       }
 
-      const signature = sendResult.signature;
-      console.log(`[Swap] TX sent via server (${sendResult.rpc}): ${signature}`);
-
-      // 6. Rebroadcast loop: keep resending via server + poll confirmation
-      const REBROADCAST_INTERVAL = 2000;
-      const MAX_REBROADCAST_TIME = 40000;
-      const sendStart = Date.now();
+      // ── 5. Poll for confirmation ──
+      // If instant-send is active, server rebroadcasts in background — client just polls
+      // If legacy, client also rebroadcasts via sendSignedTx
+      const POLL_INTERVAL = 2000;
+      const MAX_POLL_TIME = 60000;
+      const pollStart = Date.now();
       let confirmed = false;
 
-      while (Date.now() - sendStart < MAX_REBROADCAST_TIME) {
-        await new Promise(r => setTimeout(r, REBROADCAST_INTERVAL));
+      while (Date.now() - pollStart < MAX_POLL_TIME) {
+        await new Promise(r => setTimeout(r, POLL_INTERVAL));
 
-        // Check confirmation via server endpoint (uses paid RPC)
         try {
           const status = await getSwapStatus(signature);
           if (status.confirmed) {
             confirmed = true;
-            console.log(`[Swap] TX confirmed after ${Date.now() - sendStart}ms`);
+            console.log(`[Swap] TX confirmed after ${Date.now() - pollStart}ms`);
             break;
           }
           if (status.error) {
             throw new Error(`Transaction failed on-chain: ${status.error}`);
           }
         } catch (statusErr: any) {
-          if (statusErr.message?.includes("failed on-chain")) throw statusErr;
+          if (statusErr.message?.includes("Transaction failed")) throw statusErr;
         }
 
-        // Resend via server (paid RPCs with retry logic built in)
-        sendSignedTx({ signedTransactionBase64: signedBase64, mode: speed }).catch(() => {});
-        setSwapStatus(`Sending... (${Math.round((Date.now() - sendStart) / 1000)}s)`);
+        // Legacy fallback: client-side rebroadcast (instant-send does this server-side)
+        if (!useInstantSend) {
+          sendSignedTx({ signedTransactionBase64: signedBase64, mode: speed }).catch(() => {});
+        }
+
+        setSwapStatus(`Confirming... (${Math.round((Date.now() - pollStart) / 1000)}s)`);
       }
 
-      // 7. Done!
+      // ── 6. Done! ──
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
-      // Use Jupiter quote for output estimate (pump doesn't provide one)
-      const estOutAmount = jupiterQuote?.outAmount || rqResult.normalized?.outAmount;
-      const outDisplay = estOutAmount && outputToken
-        ? formatBaseUnits(estOutAmount, outputToken.decimals)
+      const outDisplay = quoteInfo.outAmount && outputToken
+        ? formatBaseUnits(quoteInfo.outAmount, outputToken.decimals)
         : "";
+      const routeLabel = quoteInfo.routeLabel || (usedRoute === "pump" ? "Pump.fun" : "Jupiter");
 
-      const routeLabel = usedRoute === "pump"
-        ? "Pump.fun"
-        : jupiterQuote?.routePlan
-            ?.map((r: any) => r.swapInfo?.label || r.label)
-            .filter(Boolean)
-            .slice(0, 2)
-            .join(" → ") || "Jupiter";
-
-      // Record swap history
       await addSwapRecord({
         timestamp: Date.now(),
         inputMint: inputToken.mint,
@@ -775,8 +839,8 @@ export default function SwapScreen({ route }: Props) {
         outputSymbol: outputToken.symbol,
         inputAmount,
         outputAmount: outDisplay,
-        minReceived: (jupiterQuote?.otherAmountThreshold || rqResult.normalized?.minOut)
-          ? formatBaseUnits(jupiterQuote?.otherAmountThreshold || rqResult.normalized?.minOut || "0", outputToken.decimals)
+        minReceived: quoteInfo.minOut
+          ? formatBaseUnits(quoteInfo.minOut, outputToken.decimals)
           : "0",
         slippageBps,
         mode: speed,
@@ -785,10 +849,9 @@ export default function SwapScreen({ route }: Props) {
         status: confirmed ? "confirmed" : "submitted",
         timings: {},
         route: routeLabel,
-        priceImpactPct: rqResult.normalized?.priceImpactPct || parseFloat(jupiterQuote?.priceImpactPct || "0"),
+        priceImpactPct: quoteInfo.priceImpactPct || 0,
       });
 
-      // Charge success fee only if confirmed
       if (confirmed && successFeeLamports > 0 && activeWallet?.id && solanaAddr) {
         tryChargeSuccessFeeNow(activeWallet.id, solanaAddr, successFeeLamports, signature).catch(() => {});
       }
@@ -818,7 +881,6 @@ export default function SwapScreen({ route }: Props) {
       console.error("[SwapScreen] Instant swap error:", rawMsg);
 
       const classified = classifyError(rawMsg);
-      // Show raw error so we can actually debug what's happening
       const displayMsg = classified.category === "unknown"
         ? rawMsg
         : `${classified.userMessage}\n\n(${rawMsg.slice(0, 120)})`;
