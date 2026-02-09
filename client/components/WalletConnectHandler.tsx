@@ -168,9 +168,26 @@ export function WalletConnectHandler({ children }: { children: React.ReactNode }
   }, [reject]);
 
   const handleSign = useCallback(async () => {
-    if (!currentRequest || !activeWallet || !isUnlocked) {
-      Alert.alert("Error", "Wallet is locked or no request pending");
+    if (!currentRequest || !activeWallet) {
+      Alert.alert("Error", "No wallet available or no request pending");
       return;
+    }
+
+    // If wallet is locked, try auto-recovery before failing
+    if (!isUnlocked) {
+      try {
+        const { unlockWithCachedKey } = await import("@/lib/wallet-engine");
+        const recovered = await unlockWithCachedKey();
+        if (!recovered) {
+          await respondError("Wallet is locked. Please unlock your wallet and try again.");
+          Alert.alert("Wallet Locked", "Please unlock your wallet first, then retry the action in the dApp.");
+          return;
+        }
+      } catch {
+        await respondError("Wallet is locked. Please unlock your wallet and try again.");
+        Alert.alert("Wallet Locked", "Please unlock your wallet first, then retry the action in the dApp.");
+        return;
+      }
     }
 
     if (isDrainerBlocked) {

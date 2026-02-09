@@ -157,9 +157,26 @@ async function derivePrivateKey(walletId: string): Promise<`0x${string}`> {
       isWalletUnlocked: isUnlocked(),
     });
   }
-  
+
+  // Try auto-recovery before failing with locked error.
+  // This handles cases where secrets were cleared from memory (hot reload,
+  // memory pressure) but a cached vault key is still available.
+  if (!isUnlocked()) {
+    try {
+      const { unlockWithCachedKey } = await import("../wallet-engine");
+      const recovered = await unlockWithCachedKey();
+      if (__DEV__) {
+        console.log("[Transactions] derivePrivateKey auto-recovery:", recovered ? "success" : "failed");
+      }
+    } catch (e) {
+      if (__DEV__) {
+        console.warn("[Transactions] derivePrivateKey auto-recovery error:", e);
+      }
+    }
+  }
+
   requireUnlocked();
-  
+
   const mnemonic = await getMnemonic(walletId);
   if (!mnemonic) {
     if (__DEV__) {

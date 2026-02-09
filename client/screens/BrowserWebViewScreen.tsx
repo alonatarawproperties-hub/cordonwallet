@@ -1942,15 +1942,38 @@ export default function BrowserWebViewScreen() {
 
   const handleSignApprove = useCallback(async () => {
     if (!signSheet) return;
-    
+
     const walletId = activeWallet?.id;
     if (!walletId) {
       setSignSheet(null);
       return;
     }
-    
+
     setIsSigning(true);
-    
+
+    // Try auto-unlock before signing if vault secrets may have been cleared.
+    // This prevents "Wallet is locked" errors when the user is actively browsing
+    // but the vault was locked due to memory pressure or hot reload.
+    try {
+      const { isUnlocked: checkUnlocked, unlockWithCachedKey } = await import("@/lib/wallet-engine");
+      if (!checkUnlocked()) {
+        const recovered = await unlockWithCachedKey();
+        if (!recovered) {
+          const response = { error: "Wallet is locked. Please unlock your wallet and try again." };
+          webViewRef.current?.injectJavaScript(`
+            window.cordon._handleResponse(${signSheet.requestId}, ${JSON.stringify(response)});
+            true;
+          `);
+          Alert.alert("Wallet Locked", "Please unlock your wallet first, then retry the action in the dApp.");
+          setIsSigning(false);
+          setSignSheet(null);
+          return;
+        }
+      }
+    } catch (unlockError) {
+      console.warn("[BrowserWebView] Auto-unlock attempt failed:", unlockError);
+    }
+
     try {
       if (signSheet.chain === "solana") {
         if (signSheet.signType === "message") {
