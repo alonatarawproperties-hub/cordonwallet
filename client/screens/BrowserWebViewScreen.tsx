@@ -24,6 +24,7 @@ import { getApiUrl, getApiHeaders } from "@/lib/query-client";
 import { BrowserConnectSheet } from "@/components/BrowserConnectSheet";
 import { BrowserSignSheet } from "@/components/BrowserSignSheet";
 import { ComingSoonSheet } from "@/components/ComingSoonSheet";
+import { PinInputModal } from "@/components/PinInputModal";
 
 function extractWalletConnectUri(input: string): string | null {
   if (!input) return null;
@@ -1195,6 +1196,9 @@ export default function BrowserWebViewScreen() {
   } | null>(null);
 
   const [isSigning, setIsSigning] = useState(false);
+  const [showPinModal, setShowPinModal] = useState(false);
+  const [pinError, setPinError] = useState<string | null>(null);
+  const handleSignApproveRef = useRef<() => void>();
 
   const loadingProgress = useSharedValue(0);
 
@@ -1961,14 +1965,13 @@ export default function BrowserWebViewScreen() {
       const walletEngine = await import("@/lib/wallet-engine");
       const unlocked = await walletEngine.ensureUnlocked();
       if (!unlocked) {
-        const response = { error: "Wallet is locked. Please unlock your wallet and try again." };
-        webViewRef.current?.injectJavaScript(`
-          window.cordon._handleResponse(${signSheet.requestId}, ${JSON.stringify(response)});
-          true;
-        `);
-        Alert.alert("Wallet Locked", "Please unlock your wallet first, then retry the action in the dApp.");
+        // Show PIN modal as fallback instead of failing immediately.
+        // The vault secrets may have been evicted from memory (e.g. during
+        // OAuth redirect or app backgrounding) and automatic recovery
+        // (cached key / biometric) couldn't restore them.
         setIsSigning(false);
-        setSignSheet(null);
+        setPinError(null);
+        setShowPinModal(true);
         return;
       }
     } catch (unlockError) {
@@ -2043,6 +2046,40 @@ export default function BrowserWebViewScreen() {
       setSignSheet(null);
     }
   }, [signSheet, activeWallet]);
+
+  // Keep ref in sync so PIN modal can retry signing without circular deps
+  handleSignApproveRef.current = handleSignApprove;
+
+  const handlePinSubmit = useCallback(async (pin: string) => {
+    try {
+      const { unlockWithPin } = await import("@/lib/wallet-engine");
+      const success = await unlockWithPin(pin);
+      if (success) {
+        setShowPinModal(false);
+        setPinError(null);
+        // Retry signing now that vault is unlocked
+        handleSignApproveRef.current?.();
+      } else {
+        setPinError("Incorrect PIN. Please try again.");
+      }
+    } catch (e) {
+      setPinError("Failed to unlock. Please try again.");
+    }
+  }, []);
+
+  const handlePinCancel = useCallback(() => {
+    setShowPinModal(false);
+    setPinError(null);
+    // Return error to dApp and close sign sheet
+    if (signSheet) {
+      const response = { error: "User cancelled unlock" };
+      webViewRef.current?.injectJavaScript(`
+        window.cordon._handleResponse(${signSheet.requestId}, ${JSON.stringify(response)});
+        true;
+      `);
+      setSignSheet(null);
+    }
+  }, [signSheet]);
 
   const handleSignReject = useCallback(() => {
     if (!signSheet) return;
@@ -2229,6 +2266,15 @@ export default function BrowserWebViewScreen() {
         title="EVM Coming Soon"
         description="Support for Ethereum and other EVM chains is coming soon. For now, Cordon supports Solana dApps only."
         onClose={clearEvmRejection}
+      />
+
+      <PinInputModal
+        visible={showPinModal}
+        title="Unlock Wallet"
+        message="Your wallet session expired. Enter your PIN to continue signing."
+        onSubmit={handlePinSubmit}
+        onCancel={handlePinCancel}
+        error={pinError}
       />
     </View>
   );

@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import { Alert } from "react-native";
 
 import { useWalletConnect } from "@/lib/walletconnect/context";
@@ -6,6 +6,7 @@ import { useWallet } from "@/lib/wallet-context";
 import { useCapAllowance, BlockedApprovalContext } from "@/lib/cap-allowance-context";
 import { SessionApprovalSheet } from "@/components/SessionApprovalSheet";
 import { SignRequestSheet } from "@/components/SignRequestSheet";
+import { PinInputModal } from "@/components/PinInputModal";
 import {
   PersonalSignRequest,
   SendTransactionRequest,
@@ -45,6 +46,9 @@ export function WalletConnectHandler({ children }: { children: React.ReactNode }
   const [isApproving, setIsApproving] = useState(false);
   const [isApprovalBlocked, setIsApprovalBlocked] = useState(false);
   const [isDrainerBlocked, setIsDrainerBlocked] = useState(false);
+  const [showPinModal, setShowPinModal] = useState(false);
+  const [pinError, setPinError] = useState<string | null>(null);
+  const handleSignRef = useRef<() => void>();
   const [pendingApprovalData, setPendingApprovalData] = useState<{
     tokenAddress: `0x${string}`;
     spender: `0x${string}`;
@@ -179,12 +183,13 @@ export function WalletConnectHandler({ children }: { children: React.ReactNode }
     // state can be stale (true) while cachedSecrets have been cleared from
     // memory due to memory pressure, hot reload, or app backgrounding.
     // ensureUnlocked() tries cached key first, then biometric prompt.
+    // If all automatic recovery fails, show a PIN modal as fallback.
     try {
       const walletEngine = await import("@/lib/wallet-engine");
       const unlocked = await walletEngine.ensureUnlocked();
       if (!unlocked) {
-        await respondError("Wallet is locked. Please unlock your wallet and try again.");
-        Alert.alert("Wallet Locked", "Please unlock your wallet first, then retry the action in the dApp.");
+        setPinError(null);
+        setShowPinModal(true);
         return;
       }
     } catch (e: any) {
@@ -270,6 +275,36 @@ export function WalletConnectHandler({ children }: { children: React.ReactNode }
       setIsSigning(false);
     }
   }, [currentRequest, currentProposal, activeWallet, isUnlocked, isDrainerBlocked, respondSuccess, respondError]);
+
+  // Keep ref in sync so PIN modal can retry signing without circular deps
+  handleSignRef.current = handleSign;
+
+  const handlePinSubmit = useCallback(async (pin: string) => {
+    try {
+      const { unlockWithPin } = await import("@/lib/wallet-engine");
+      const success = await unlockWithPin(pin);
+      if (success) {
+        setShowPinModal(false);
+        setPinError(null);
+        // Retry signing now that vault is unlocked
+        handleSignRef.current?.();
+      } else {
+        setPinError("Incorrect PIN. Please try again.");
+      }
+    } catch (e) {
+      setPinError("Failed to unlock. Please try again.");
+    }
+  }, []);
+
+  const handlePinCancel = useCallback(async () => {
+    setShowPinModal(false);
+    setPinError(null);
+    try {
+      await respondError("User cancelled unlock");
+    } catch (err) {
+      console.error("[WC] Failed to send cancel response:", err);
+    }
+  }, [respondError]);
 
   const handleRejectRequest = useCallback(async () => {
     try {
@@ -361,6 +396,14 @@ export function WalletConnectHandler({ children }: { children: React.ReactNode }
         onSign={handleSign}
         onReject={handleRejectRequest}
         onCapAllowance={handleCapAllowance}
+      />
+      <PinInputModal
+        visible={showPinModal}
+        title="Unlock Wallet"
+        message="Your wallet session expired. Enter your PIN to continue signing."
+        onSubmit={handlePinSubmit}
+        onCancel={handlePinCancel}
+        error={pinError}
       />
     </>
   );
