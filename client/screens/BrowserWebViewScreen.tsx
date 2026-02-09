@@ -2035,13 +2035,24 @@ export default function BrowserWebViewScreen() {
           throw new Error("EVM transaction signing from browser not yet supported");
         }
       }
+      setIsSigning(false);
+      setSignSheet(null);
     } catch (error: any) {
+      // If the signing itself throws a wallet-locked error (e.g. mnemonic not
+      // found because secrets were evicted between ensureUnlocked and the
+      // actual sign call), show the PIN modal instead of forwarding the error.
+      // Don't clear signSheet so the retry after PIN entry can proceed.
+      if (error?.code === "WALLET_LOCKED" || error?.name === "WalletLockedError") {
+        setIsSigning(false);
+        setPinError(null);
+        setShowPinModal(true);
+        return; // skip finally's setSignSheet(null)
+      }
       const response = { error: error.message || "Signing failed" };
       webViewRef.current?.injectJavaScript(`
         window.cordon._handleResponse(${signSheet.requestId}, ${JSON.stringify(response)});
         true;
       `);
-    } finally {
       setIsSigning(false);
       setSignSheet(null);
     }
