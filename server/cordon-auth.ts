@@ -621,7 +621,7 @@ export function registerCordonAuthRoutes(app: Express) {
     res.cookie("cordon_session", sessionId, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+      sameSite: "lax", // Security: never use "none" — it enables CSRF attacks
       path: "/",
       maxAge: SESSION_EXPIRY_MS,
     });
