@@ -1,4 +1,5 @@
 import { Connection, PublicKey } from "@solana/web3.js";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   TokenSafetyReportV2,
   SafetyFinding,
@@ -15,9 +16,82 @@ import {
 } from "./solanaMintInfo";
 import { fetchDexMarketData } from "./dexMarketData";
 import { computeVerdict } from "@/utils/riskScore";
+import { getApiUrl, getApiHeaders } from "@/lib/query-client";
 
 const CACHE_PREFIX = "tokenSafetyV2";
-const CACHE_TTL_MS = 5 * 60 * 1000;
+const CACHE_TTL_MS = 5 * 60 * 1000; // in-memory: 5 min
+const LOCAL_CACHE_PREFIX = "@cordon/token_safety_v2_";
+
+// Risk-tiered TTLs for AsyncStorage & server cache
+function getTtlForVerdict(level: string): number {
+  switch (level) {
+    case "safe":    return 24 * 60 * 60 * 1000; // 24h
+    case "warning": return 4 * 60 * 60 * 1000;  // 4h
+    case "danger":  return 1 * 60 * 60 * 1000;  // 1h
+    default:        return 2 * 60 * 60 * 1000;   // 2h fallback
+  }
+}
+
+// --- Layer 2: AsyncStorage (local persistent cache) ---
+
+async function loadLocalCache(mint: string): Promise<TokenSafetyReportV2 | null> {
+  try {
+    const stored = await AsyncStorage.getItem(LOCAL_CACHE_PREFIX + mint);
+    if (!stored) return null;
+    const parsed = JSON.parse(stored) as { ts: number; ttl: number; report: TokenSafetyReportV2 };
+    if (Date.now() - parsed.ts > parsed.ttl) return null;
+    return parsed.report;
+  } catch {
+    return null;
+  }
+}
+
+async function saveLocalCache(mint: string, report: TokenSafetyReportV2): Promise<void> {
+  try {
+    const ttl = getTtlForVerdict(report.verdict.level);
+    await AsyncStorage.setItem(
+      LOCAL_CACHE_PREFIX + mint,
+      JSON.stringify({ ts: Date.now(), ttl, report })
+    );
+  } catch (err) {
+    if (__DEV__) console.warn("[tokenSafetyV2] Local cache save error:", err);
+  }
+}
+
+// --- Layer 3: Server cache (shared across users) ---
+
+async function loadServerCache(mint: string): Promise<TokenSafetyReportV2 | null> {
+  try {
+    const apiUrl = getApiUrl();
+    const url = new URL(`/api/token-safety/${mint}`, apiUrl);
+    const response = await fetch(url.toString(), { headers: getApiHeaders() });
+    if (!response.ok) return null;
+    const data = await response.json();
+    if (!data.cached || !data.report) return null;
+    return data.report as TokenSafetyReportV2;
+  } catch {
+    return null;
+  }
+}
+
+async function saveServerCache(mint: string, report: TokenSafetyReportV2): Promise<void> {
+  try {
+    const ttl = getTtlForVerdict(report.verdict.level);
+    const apiUrl = getApiUrl();
+    const url = new URL(`/api/token-safety/${mint}`, apiUrl);
+    fetch(url.toString(), {
+      method: "PUT",
+      headers: getApiHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({
+        report,
+        verdictLevel: report.verdict.level,
+        expiresAt: Date.now() + ttl,
+      }),
+    }).catch(() => {}); // fire-and-forget
+  } catch {
+    // non-critical
+  }
+}
 
 function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
   return Promise.race([
@@ -53,12 +127,33 @@ export async function getTokenSafetyV2(
   const cacheKey = getCacheKey(CACHE_PREFIX, mint);
 
   if (!forceRefresh) {
-    const cached = getCached<TokenSafetyReportV2>(cacheKey);
-    if (cached) {
-      return cached;
+    // Layer 1: In-memory cache (fastest, 5 min)
+    const memCached = getCached<TokenSafetyReportV2>(cacheKey);
+    if (memCached) {
+      return memCached;
     }
+
+    // Layer 2: AsyncStorage (local persistent, risk-tiered TTL)
+    try {
+      const localCached = await loadLocalCache(mint);
+      if (localCached) {
+        setCached(cacheKey, localCached, CACHE_TTL_MS); // promote to memory
+        return localCached;
+      }
+    } catch {}
+
+    // Layer 3: Server cache (shared across users)
+    try {
+      const serverCached = await withTimeout(loadServerCache(mint), 3000, null);
+      if (serverCached) {
+        setCached(cacheKey, serverCached, CACHE_TTL_MS); // promote to memory
+        saveLocalCache(mint, serverCached); // promote to local (async, non-blocking)
+        return serverCached;
+      }
+    } catch {}
   }
 
+  // Layer 4: Full on-chain scan
   const findings: SafetyFinding[] = [];
   const stats: TokenSafetyStats = {};
   const heuristics: TokenSafetyHeuristics = { notes: [] };
@@ -388,7 +483,10 @@ export async function getTokenSafetyV2(
     verdict,
   };
 
-  setCached(cacheKey, report, CACHE_TTL_MS);
+  // Store in all 3 cache layers
+  setCached(cacheKey, report, CACHE_TTL_MS);       // Layer 1: memory
+  saveLocalCache(mint, report);                      // Layer 2: AsyncStorage (async)
+  saveServerCache(mint, report);                     // Layer 3: server (fire-and-forget)
 
   return report;
 }
