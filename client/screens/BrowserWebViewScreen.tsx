@@ -1953,25 +1953,23 @@ export default function BrowserWebViewScreen() {
 
     // Ensure vault is actually unlocked before signing. The isUnlocked() flag
     // can stay true while cachedSecrets have been cleared from memory (memory
-    // pressure, hot reload). requireUnlocked() checks both, so use it as the
-    // source of truth and attempt auto-recovery if it throws.
+    // pressure, hot reload, app backgrounding). ensureUnlocked() tries:
+    //   1. Check if already unlocked (fast)
+    //   2. Recover via cached vault key (no user interaction)
+    //   3. Biometric prompt (Face ID / Touch ID)
     try {
       const walletEngine = await import("@/lib/wallet-engine");
-      try {
-        walletEngine.requireUnlocked();
-      } catch {
-        const recovered = await walletEngine.unlockWithCachedKey();
-        if (!recovered) {
-          const response = { error: "Wallet is locked. Please unlock your wallet and try again." };
-          webViewRef.current?.injectJavaScript(`
-            window.cordon._handleResponse(${signSheet.requestId}, ${JSON.stringify(response)});
-            true;
-          `);
-          Alert.alert("Wallet Locked", "Please unlock your wallet first, then retry the action in the dApp.");
-          setIsSigning(false);
-          setSignSheet(null);
-          return;
-        }
+      const unlocked = await walletEngine.ensureUnlocked();
+      if (!unlocked) {
+        const response = { error: "Wallet is locked. Please unlock your wallet and try again." };
+        webViewRef.current?.injectJavaScript(`
+          window.cordon._handleResponse(${signSheet.requestId}, ${JSON.stringify(response)});
+          true;
+        `);
+        Alert.alert("Wallet Locked", "Please unlock your wallet first, then retry the action in the dApp.");
+        setIsSigning(false);
+        setSignSheet(null);
+        return;
       }
     } catch (unlockError) {
       console.warn("[BrowserWebView] Auto-unlock check failed:", unlockError);
