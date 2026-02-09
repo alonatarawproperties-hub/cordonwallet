@@ -87,7 +87,7 @@ export function WalletConnectProvider({ children }: { children: React.ReactNode 
         const chainIdStr = event.params.chainId;
         const chainId = parseChainId(chainIdStr);
         const isSolana = isSolanaChain(chainIdStr);
-        
+
         const parsed = parseSessionRequest(
           event.params.request.method,
           event.params.request.params as unknown[],
@@ -96,14 +96,28 @@ export function WalletConnectProvider({ children }: { children: React.ReactNode 
         );
 
         if (parsed) {
-          setCurrentRequest({
-            request: {
-              id: event.id,
-              topic: event.topic,
-              params: event.params,
-            },
-            parsed,
-            isSolana,
+          // Reject any existing pending request before accepting the new one,
+          // otherwise the old dApp hangs indefinitely waiting for a response
+          setCurrentRequest((prev) => {
+            if (prev) {
+              console.warn("[WalletConnect] New request arrived while previous pending — rejecting old request");
+              rejectRequest(
+                prev.request.topic,
+                prev.request.id,
+                "Request superseded by a newer request"
+              ).catch((err) => {
+                console.warn("[WalletConnect] Failed to reject superseded request:", err);
+              });
+            }
+            return {
+              request: {
+                id: event.id,
+                topic: event.topic,
+                params: event.params,
+              },
+              parsed,
+              isSolana,
+            };
           });
         } else {
           rejectRequest(
@@ -114,8 +128,17 @@ export function WalletConnectProvider({ children }: { children: React.ReactNode 
         }
       });
 
-      wallet.on("session_delete", () => {
+      wallet.on("session_delete", (event) => {
         setSessions(getActiveSessions());
+        // Clear any pending request that belongs to the deleted session
+        // to prevent the signing sheet from staying stuck
+        setCurrentRequest((prev) => {
+          if (prev && prev.request.topic === event.topic) {
+            console.log("[WalletConnect] Clearing pending request for deleted session");
+            return null;
+          }
+          return prev;
+        });
       });
 
       setSessions(getActiveSessions());
@@ -184,28 +207,40 @@ export function WalletConnectProvider({ children }: { children: React.ReactNode 
 
   const respondSuccess = useCallback(async (result: unknown) => {
     if (!currentRequest) {
-      throw new Error("No request to respond to");
+      console.warn("[WalletConnect] respondSuccess called with no current request");
+      return;
     }
 
-    await respondToRequest(
-      currentRequest.request.topic,
-      currentRequest.request.id,
-      result
-    );
-    setCurrentRequest(null);
+    try {
+      await respondToRequest(
+        currentRequest.request.topic,
+        currentRequest.request.id,
+        result
+      );
+    } catch (err) {
+      console.error("[WalletConnect] Failed to send success response:", err);
+    } finally {
+      setCurrentRequest(null);
+    }
   }, [currentRequest]);
 
   const respondError = useCallback(async (message?: string) => {
     if (!currentRequest) {
-      throw new Error("No request to respond to");
+      console.warn("[WalletConnect] respondError called with no current request");
+      return;
     }
 
-    await rejectRequest(
-      currentRequest.request.topic,
-      currentRequest.request.id,
-      message
-    );
-    setCurrentRequest(null);
+    try {
+      await rejectRequest(
+        currentRequest.request.topic,
+        currentRequest.request.id,
+        message
+      );
+    } catch (err) {
+      console.error("[WalletConnect] Failed to send error response:", err);
+    } finally {
+      setCurrentRequest(null);
+    }
   }, [currentRequest]);
 
   const refreshSessions = useCallback(() => {

@@ -22,6 +22,7 @@ import { Spacing } from "@/constants/theme";
 import {
   PersonalSignRequest,
   SendTransactionRequest,
+  SignTypedDataRequest,
   SolanaSignMessageRequest,
   SolanaSignTransactionRequest,
   SolanaSignAllTransactionsRequest,
@@ -111,6 +112,7 @@ export function SignRequestSheet({
   const { parsed, isSolana } = request;
   const isPersonalSign = parsed.method === "personal_sign";
   const isSendTx = parsed.method === "eth_sendTransaction";
+  const isTypedData = parsed.method === "eth_signTypedData" || parsed.method === "eth_signTypedData_v4";
   const isSolanaSign = parsed.method.startsWith("solana_");
 
   const domain = extractDomain(dappUrl);
@@ -137,11 +139,13 @@ export function SignRequestSheet({
 
           <View style={styles.header}>
             <ThemedText type="h3">
-              {isPersonalSign || parsed.method === "solana_signMessage" 
-                ? "Sign Message" 
-                : isSolanaSign 
-                  ? "Sign Transaction" 
-                  : "Review Transaction"}
+              {isPersonalSign || parsed.method === "solana_signMessage"
+                ? "Sign Message"
+                : isTypedData
+                  ? "Sign Typed Data"
+                  : isSolanaSign
+                    ? "Sign Transaction"
+                    : "Review Transaction"}
             </ThemedText>
             <Pressable onPress={handleReject} hitSlop={12}>
               <Feather name="x" size={24} color={theme.textSecondary} />
@@ -201,6 +205,13 @@ export function SignRequestSheet({
               <SendTransactionContent
                 request={parsed as SendTransactionRequest}
                 isApprovalBlocked={isApprovalBlocked}
+              />
+            ) : null}
+
+            {isTypedData ? (
+              <SignTypedDataContent
+                request={parsed as SignTypedDataRequest}
+                dappDomain={domain}
               />
             ) : null}
 
@@ -458,6 +469,93 @@ function PersonalSignContent({
       chain="evm"
       isDomainVerified={isDomainVerified}
     />
+  );
+}
+
+function SignTypedDataContent({
+  request,
+  dappDomain,
+}: {
+  request: SignTypedDataRequest;
+  dappDomain: string;
+}) {
+  const { theme } = useTheme();
+  const [showRaw, setShowRaw] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const domainName = (request.typedData.domain as Record<string, unknown>)?.name as string | undefined;
+  const rawJson = JSON.stringify(request.typedData, null, 2);
+
+  const handleCopy = async () => {
+    await Clipboard.setStringAsync(rawJson);
+    setCopied(true);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <View>
+      <View style={[styles.summaryCard, { backgroundColor: theme.backgroundDefault }]}>
+        <View style={styles.summaryHeader}>
+          <ThemedText type="body" style={{ fontWeight: "600" }}>
+            What you're signing
+          </ThemedText>
+          <Badge label="Medium Risk" variant="warning" />
+        </View>
+
+        <View style={[styles.purposeRow, { backgroundColor: theme.backgroundSecondary }]}>
+          <Feather name="file-text" size={18} color={theme.warning} />
+          <ThemedText type="body" style={{ marginLeft: Spacing.sm, flex: 1 }}>
+            {request.displaySummary}
+          </ThemedText>
+        </View>
+
+        {domainName ? (
+          <View style={[styles.impactRow, { backgroundColor: theme.accent + "10" }]}>
+            <Feather name="globe" size={16} color={theme.accent} />
+            <ThemedText type="small" style={{ marginLeft: Spacing.sm, flex: 1, color: theme.textSecondary }}>
+              Domain: {domainName}
+            </ThemedText>
+          </View>
+        ) : null}
+
+        <View style={[styles.impactRow, { backgroundColor: theme.warning + "10", marginTop: Spacing.xs }]}>
+          <Feather name="alert-circle" size={16} color={theme.warning} />
+          <ThemedText type="small" style={{ marginLeft: Spacing.sm, flex: 1, color: theme.textSecondary }}>
+            Typed data signatures can authorize actions. Review carefully before signing.
+          </ThemedText>
+        </View>
+      </View>
+
+      <Pressable
+        onPress={() => setShowRaw(!showRaw)}
+        style={[styles.expandHeader, { backgroundColor: theme.backgroundDefault }]}
+      >
+        <ThemedText type="body" style={{ fontWeight: "500" }}>
+          View raw data
+        </ThemedText>
+        <Feather name={showRaw ? "chevron-up" : "chevron-down"} size={20} color={theme.textSecondary} />
+      </Pressable>
+
+      {showRaw ? (
+        <View style={[styles.rawMessageCard, { backgroundColor: theme.backgroundDefault }]}>
+          <ScrollView style={{ maxHeight: 150 }} nestedScrollEnabled>
+            <ThemedText type="small" style={{ fontFamily: "monospace", lineHeight: 18 }}>
+              {rawJson}
+            </ThemedText>
+          </ScrollView>
+          <Pressable
+            onPress={handleCopy}
+            style={[styles.copyButton, { borderColor: theme.border, marginTop: Spacing.sm }]}
+          >
+            <Feather name={copied ? "check" : "copy"} size={14} color={theme.textSecondary} />
+            <ThemedText type="small" style={{ color: theme.textSecondary, marginLeft: Spacing.xs }}>
+              {copied ? "Copied!" : "Copy data"}
+            </ThemedText>
+          </Pressable>
+        </View>
+      ) : null}
+    </View>
   );
 }
 
