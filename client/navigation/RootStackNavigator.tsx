@@ -338,11 +338,13 @@ export default function RootStackNavigator() {
         component={SwapHistoryScreen}
         options={{ headerTitle: "Swap History" }}
       />
-      <Stack.Screen
-        name="SwapDebug"
-        component={SwapDebugScreen}
-        options={{ headerTitle: "Swap Debug" }}
-      />
+      {__DEV__ && (
+        <Stack.Screen
+          name="SwapDebug"
+          component={SwapDebugScreen}
+          options={{ headerTitle: "Swap Debug" }}
+        />
+      )}
       <Stack.Screen
         name="TokenSelect"
         component={TokenSelectScreen}

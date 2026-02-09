@@ -17,9 +17,30 @@ const defaultSettings: DevSettings = {
   simulateCordonBrowser: false,
 };
 
+const noopLoadSettings = async () => {};
+const noopUpdateSetting = async () => {};
+
+const prodContextValue: DevSettingsContextValue = {
+  settings: defaultSettings,
+  updateSetting: noopUpdateSetting as DevSettingsContextValue["updateSetting"],
+  loadSettings: noopLoadSettings,
+};
+
 const DevSettingsContext = createContext<DevSettingsContextValue | null>(null);
 
 export function DevSettingsProvider({ children }: { children: React.ReactNode }) {
+  if (!__DEV__) {
+    return (
+      <DevSettingsContext.Provider value={prodContextValue}>
+        {children}
+      </DevSettingsContext.Provider>
+    );
+  }
+
+  return <DevSettingsProviderDev>{children}</DevSettingsProviderDev>;
+}
+
+function DevSettingsProviderDev({ children }: { children: React.ReactNode }) {
   const [settings, setSettings] = useState<DevSettings>(defaultSettings);
 
   const loadSettings = useCallback(async () => {
