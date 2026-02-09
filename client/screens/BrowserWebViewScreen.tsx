@@ -1951,13 +1951,16 @@ export default function BrowserWebViewScreen() {
 
     setIsSigning(true);
 
-    // Try auto-unlock before signing if vault secrets may have been cleared.
-    // This prevents "Wallet is locked" errors when the user is actively browsing
-    // but the vault was locked due to memory pressure or hot reload.
+    // Ensure vault is actually unlocked before signing. The isUnlocked() flag
+    // can stay true while cachedSecrets have been cleared from memory (memory
+    // pressure, hot reload). requireUnlocked() checks both, so use it as the
+    // source of truth and attempt auto-recovery if it throws.
     try {
-      const { isUnlocked: checkUnlocked, unlockWithCachedKey } = await import("@/lib/wallet-engine");
-      if (!checkUnlocked()) {
-        const recovered = await unlockWithCachedKey();
+      const walletEngine = await import("@/lib/wallet-engine");
+      try {
+        walletEngine.requireUnlocked();
+      } catch {
+        const recovered = await walletEngine.unlockWithCachedKey();
         if (!recovered) {
           const response = { error: "Wallet is locked. Please unlock your wallet and try again." };
           webViewRef.current?.injectJavaScript(`
@@ -1971,7 +1974,7 @@ export default function BrowserWebViewScreen() {
         }
       }
     } catch (unlockError) {
-      console.warn("[BrowserWebView] Auto-unlock attempt failed:", unlockError);
+      console.warn("[BrowserWebView] Auto-unlock check failed:", unlockError);
     }
 
     try {
