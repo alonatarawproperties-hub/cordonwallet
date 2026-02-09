@@ -791,10 +791,15 @@ export function isUnlocked(): boolean {
  * Attempts recovery in order:
  *   1. Check if already unlocked (fast path)
  *   2. Try unlockWithCachedKey() — no user interaction
- *   3. Try biometric unlock — shows Face ID / Touch ID prompt
+ *   3. Try biometric unlock — shows Face ID / Touch ID prompt (unless skipBiometric)
  * Returns true if the vault is unlocked after recovery, false otherwise.
+ *
+ * @param options.skipBiometric  Skip the biometric (Face ID / Touch ID) prompt.
+ *   Use this when the caller already has a PIN-entry fallback, e.g. signing
+ *   handlers where the biometric dialog would appear behind a bottom sheet
+ *   and be invisible to the user.
  */
-export async function ensureUnlocked(): Promise<boolean> {
+export async function ensureUnlocked(options?: { skipBiometric?: boolean }): Promise<boolean> {
   // Fast path: vault is already fully unlocked with secrets in memory
   try {
     requireUnlocked();
@@ -814,18 +819,22 @@ export async function ensureUnlocked(): Promise<boolean> {
   }
 
   // Try biometric recovery (shows Face ID / Touch ID prompt)
-  try {
-    const hasBiometric = await hasBiometricPinEnabled();
-    if (hasBiometric) {
-      const pin = await getPinWithBiometrics();
-      if (pin) {
-        const success = await unlockWithPin(pin);
-        if (success) return true;
+  // Skip when caller has its own PIN modal — the biometric dialog can appear
+  // behind a bottom sheet and hang the signing flow.
+  if (!options?.skipBiometric) {
+    try {
+      const hasBiometric = await hasBiometricPinEnabled();
+      if (hasBiometric) {
+        const pin = await getPinWithBiometrics();
+        if (pin) {
+          const success = await unlockWithPin(pin);
+          if (success) return true;
+        }
       }
-    }
-  } catch (err) {
-    if (__DEV__) {
-      console.log("[WalletEngine] ensureUnlocked: biometric recovery failed:", err);
+    } catch (err) {
+      if (__DEV__) {
+        console.log("[WalletEngine] ensureUnlocked: biometric recovery failed:", err);
+      }
     }
   }
 

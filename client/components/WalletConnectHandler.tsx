@@ -186,7 +186,7 @@ export function WalletConnectHandler({ children }: { children: React.ReactNode }
     // If all automatic recovery fails, show a PIN modal as fallback.
     try {
       const walletEngine = await import("@/lib/wallet-engine");
-      const unlocked = await walletEngine.ensureUnlocked();
+      const unlocked = await walletEngine.ensureUnlocked({ skipBiometric: true });
       if (!unlocked) {
         setPinError(null);
         setShowPinModal(true);
