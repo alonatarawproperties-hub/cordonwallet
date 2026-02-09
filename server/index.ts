@@ -1,6 +1,7 @@
 import express from "express";
 import type { Request, Response, NextFunction } from "express";
 import cookieParser from "cookie-parser";
+import crypto from "crypto";
 import { registerRoutes } from "./routes";
 import { registerCordonAuthRoutes } from "./cordon-auth";
 import { registerEvmRoutes } from "./evm-api";
@@ -63,6 +64,35 @@ function setupCors(app: express.Application) {
 }
 
 /**
+ * Security headers middleware.
+ * Sets defensive HTTP headers to mitigate common web attacks.
+ */
+function setupSecurityHeaders(app: express.Application) {
+  app.use((_req, res, next) => {
+    // Prevent clickjacking
+    res.setHeader("X-Frame-Options", "DENY");
+    // Prevent MIME-type sniffing
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    // Disable browser-side XSS filter (modern CSP is preferred)
+    res.setHeader("X-XSS-Protection", "0");
+    // Only send origin in Referer header
+    res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+    // Restrict what the page can load
+    res.setHeader(
+      "Content-Security-Policy",
+      "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https:; frame-ancestors 'none';"
+    );
+    // Opt out of FLoC / Topics
+    res.setHeader("Permissions-Policy", "interest-cohort=()");
+    // HSTS — tell browsers to always use HTTPS (1 year)
+    if (process.env.NODE_ENV === "production") {
+      res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+    }
+    next();
+  });
+}
+
+/**
  * API key authentication middleware.
  * Requires X-API-Key header on all /api/* routes.
  * Auth callback routes (/auth/*) are excluded since they're browser-based OAuth flows.
@@ -73,7 +103,10 @@ function setupApiKeyAuth(app: express.Application) {
 
   if (!apiKey) {
     if (process.env.NODE_ENV === "production") {
-      log("[Security] WARNING: CORDON_API_KEY not set — API key auth is DISABLED in production!");
+      // In production, refuse to start without an API key — all /api/* routes
+      // would be wide open to the internet otherwise.
+      log("[Security] FATAL: CORDON_API_KEY is not set. Refusing to start in production.");
+      process.exit(1);
     } else {
       log("[Security] CORDON_API_KEY not set — API key auth disabled in development");
     }
@@ -83,15 +116,28 @@ function setupApiKeyAuth(app: express.Application) {
   log("[Security] API key auth enabled for /api/* routes");
 
   app.use("/api", (req: Request, res: Response, next: NextFunction) => {
-    // Allow health check without auth
+    // Allow health check without auth (uptime monitors)
     if (req.path === "/solana/health" || req.path === "/health") {
+      return next();
+    }
+
+    // Allow auth routes without API key — these are browser-based OAuth
+    // redirect flows and mobile poll endpoints that can't send custom headers
+    if (req.path.startsWith("/auth/")) {
       return next();
     }
 
     const providedKey = req.header("X-API-Key");
 
-    if (!providedKey || providedKey !== apiKey) {
-      return res.status(401).json({ error: "Unauthorized: invalid or missing API key" });
+    if (!providedKey) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    // Timing-safe comparison to prevent key extraction via timing side-channel
+    const a = Buffer.from(providedKey);
+    const b = Buffer.from(apiKey);
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+      return res.status(401).json({ error: "Unauthorized" });
     }
 
     next();
@@ -103,13 +149,14 @@ function setupBodyParsing(app: express.Application) {
   
   app.use(
     express.json({
+      limit: "1mb", // Prevent large-payload DoS
       verify: (req, _res, buf) => {
         req.rawBody = buf;
       },
     }),
   );
 
-  app.use(express.urlencoded({ extended: false }));
+  app.use(express.urlencoded({ extended: false, limit: "1mb" }));
 }
 
 function setupRequestLogging(app: express.Application) {
@@ -204,8 +251,16 @@ function serveLandingPage({
   const protocol = forwardedProto || req.protocol || "https";
   const forwardedHost = req.header("x-forwarded-host");
   const host = forwardedHost || req.get("host");
-  const baseUrl = `${protocol}://${host}`;
-  const expsUrl = `${host}`;
+
+  // Security: validate host to prevent host-header injection
+  const hostStr = String(host || "");
+  if (!/^[a-zA-Z0-9._:-]+$/.test(hostStr)) {
+    res.status(400).send("Bad Request");
+    return;
+  }
+
+  const baseUrl = `${protocol}://${hostStr}`;
+  const expsUrl = `${hostStr}`;
   
   // Get tunnel URL if available (from Expo's ngrok tunnel)
   const tunnelUrl = getTunnelUrl();
@@ -279,15 +334,19 @@ function setupErrorHandler(app: express.Application) {
     };
 
     const status = error.status || error.statusCode || 500;
-    const message = error.message || "Internal Server Error";
 
-    res.status(status).json({ message });
+    // Security: never leak internal error messages to clients
+    const safeMessage = status < 500 ? (error.message || "Bad Request") : "Internal Server Error";
 
-    throw err;
+    // Log the full error server-side for debugging
+    console.error("[Error]", error.message || err);
+
+    res.status(status).json({ message: safeMessage });
   });
 }
 
 (async () => {
+  setupSecurityHeaders(app);
   setupCors(app);
   setupBodyParsing(app);
   setupApiKeyAuth(app);

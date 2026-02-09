@@ -106,5 +106,8 @@
     "prettier": "3.6.2",
     "typescript": "~5.9.2"
   },
-  "private": true
+  "private": true,
+  "overrides": {
+    "elliptic": "^6.6.1"
+  }
 }

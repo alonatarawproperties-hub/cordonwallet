@@ -165,47 +165,22 @@ diagRouter.get("/jupiter", async (_req: Request, res: Response) => {
   res.json(results);
 });
 
-diagRouter.get("/dns", async (req: Request, res: Response) => {
-  const host = req.query.host as string;
-  
-  if (!host || typeof host !== "string") {
-    return res.status(400).json({ ok: false, error: "Missing ?host= parameter" });
-  }
+// Security: Arbitrary DNS/TCP endpoints removed — they allow SSRF and internal
+// network reconnaissance.  The /jupiter diagnostic above is safe because it only
+// contacts hardcoded Jupiter hosts.
 
-  const sanitizedHost = host.replace(/[^a-zA-Z0-9.-]/g, "").slice(0, 253);
-  
-  if (sanitizedHost.length === 0) {
-    return res.status(400).json({ ok: false, error: "Invalid host" });
-  }
-
-  const result = await dnsLookup(sanitizedHost);
-  res.json(result);
+diagRouter.get("/dns", (_req: Request, res: Response) => {
+  res.status(403).json({ error: "Endpoint disabled for security" });
 });
 
-diagRouter.get("/tcp", async (req: Request, res: Response) => {
-  const host = req.query.host as string;
-  const port = parseInt(req.query.port as string) || 443;
-
-  if (!host || typeof host !== "string") {
-    return res.status(400).json({ ok: false, error: "Missing ?host= parameter" });
-  }
-
-  const sanitizedHost = host.replace(/[^a-zA-Z0-9.-]/g, "").slice(0, 253);
-  
-  if (sanitizedHost.length === 0 || port < 1 || port > 65535) {
-    return res.status(400).json({ ok: false, error: "Invalid host or port" });
-  }
-
-  const result = await tcpConnect(sanitizedHost, port, 5000);
-  res.json(result);
+diagRouter.get("/tcp", (_req: Request, res: Response) => {
+  res.status(403).json({ error: "Endpoint disabled for security" });
 });
 
-diagRouter.get("/env", async (_req: Request, res: Response) => {
+diagRouter.get("/env", (_req: Request, res: Response) => {
+  // Only expose non-sensitive runtime info
   res.json({
     ts: Date.now(),
-    JUPITER_BASE_URL: process.env.JUPITER_BASE_URL || "(default: https://quote-api.jup.ag)",
-    JUPITER_FALLBACK_URLS: process.env.JUPITER_FALLBACK_URLS || "(not set)",
-    SOLANA_RPC_URL: process.env.SOLANA_RPC_URL ? "configured" : "missing",
     NODE_ENV: process.env.NODE_ENV || "development",
   });
 });

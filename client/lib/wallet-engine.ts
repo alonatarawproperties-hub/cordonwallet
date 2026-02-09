@@ -14,6 +14,26 @@ import { privateKeyToAccount } from "viem/accounts";
 import * as nacl from "tweetnacl";
 import bs58 from "bs58";
 
+// --- Security: Hard-block wallet operations on web ---
+// localStorage is not a safe place for private keys. Until a secure web
+// storage backend (e.g. WebAuthn PRF / non-extractable CryptoKey) is
+// implemented, wallet functionality is mobile-only.
+const IS_WEB = Platform.OS === "web";
+
+export class WebPlatformBlockedError extends Error {
+  code = "WEB_BLOCKED";
+  constructor() {
+    super("Wallet operations are not available on web. Please use the mobile app.");
+    this.name = "WebPlatformBlockedError";
+  }
+}
+
+function requireNativePlatform(): void {
+  if (IS_WEB) {
+    throw new WebPlatformBlockedError();
+  }
+}
+
 // Check if native crypto is available (Web Crypto API)
 const hasNativeCrypto = typeof globalThis.crypto?.subtle?.deriveBits === "function";
 
@@ -554,6 +574,7 @@ export async function createWallet(
   pin: string,
   walletType: WalletType = "multi-chain"
 ): Promise<WalletRecord> {
+  requireNativePlatform();
   if (!validateMnemonic(mnemonic)) {
     throw new Error("Invalid mnemonic");
   }
@@ -642,6 +663,7 @@ export class PinLockedError extends Error {
 }
 
 export async function unlockWithPin(pin: string): Promise<boolean> {
+  requireNativePlatform();
   // Security: Check PIN attempt lockout
   await loadPinAttemptState();
   if (isPinLocked()) {
@@ -709,6 +731,7 @@ export async function unlockWithPin(pin: string): Promise<boolean> {
 // Security: This bypasses PBKDF2 derivation by using a cached key stored in secure storage.
 // Only call this when the user has been verified via biometrics (Face ID/Touch ID/fingerprint).
 export async function unlockWithCachedKey(): Promise<boolean> {
+  requireNativePlatform();
   const vaultJson = await getSecureItem(STORAGE_KEYS.VAULT);
   if (!vaultJson) {
     return false;
@@ -813,6 +836,7 @@ export async function renameWallet(walletId: string, newName: string): Promise<v
 }
 
 export async function getMnemonic(walletId: string): Promise<string | null> {
+  requireNativePlatform();
   if (__DEV__) {
     console.log("[WalletEngine] getMnemonic called", {
       walletId,
@@ -851,6 +875,7 @@ export async function getMnemonic(walletId: string): Promise<string | null> {
 }
 
 export async function getWalletPrivateKey(walletId: string): Promise<{ type: "evm" | "solana"; key: string } | null> {
+  requireNativePlatform();
   if (!getCachedSecrets()) {
     return null;
   }
@@ -872,6 +897,7 @@ export function requireUnlocked(): void {
 }
 
 export async function getActiveWalletMnemonic(): Promise<string> {
+  requireNativePlatform();
   requireUnlocked();
   
   const meta = await loadVaultMeta();
@@ -953,6 +979,7 @@ export async function verifyPinFast(pin: string): Promise<boolean> {
 }
 
 export async function changePin(currentPin: string, newPin: string, skipVerification = false): Promise<boolean> {
+  requireNativePlatform();
   if (!skipVerification) {
     // Use fast verification with cached key when available
     const isCurrentValid = await verifyPinFast(currentPin);
@@ -1013,6 +1040,7 @@ export async function addWalletToExistingVault(
   name: string,
   walletType: WalletType = "multi-chain"
 ): Promise<WalletRecord> {
+  requireNativePlatform();
   if (!getIsVaultUnlocked() || !getCachedSecrets()) {
     throw new WalletLockedError();
   }
@@ -1099,6 +1127,7 @@ export async function addWalletFromPrivateKey(
   chainType: "evm" | "solana",
   name: string
 ): Promise<WalletRecord> {
+  requireNativePlatform();
   if (!getIsVaultUnlocked() || !getCachedSecrets()) {
     throw new WalletLockedError();
   }
