@@ -15,6 +15,9 @@ import {
 import { validateSwapTxServer, type SwapSecurityResult } from "./swap/txSecurity";
 import { quoteRateLimiter, tokenListRateLimiter, swapBuildRateLimiter } from "./middleware/rateLimit";
 import { fetchWithBackoff } from "./lib/fetchWithBackoff";
+import { db } from "./db";
+import { tokenSafetyCache } from "../shared/schema";
+import { eq } from "drizzle-orm";
 
 const ETHERSCAN_V2_API = "https://api.etherscan.io/v2/api";
 const COINGECKO_API = "https://api.coingecko.com/api/v3";
@@ -1647,6 +1650,75 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error: any) {
       console.error("[Solana API] Send raw transaction error:", error);
       res.status(500).json({ error: error.message || "Failed to send transaction" });
+    }
+  });
+
+  // Token Safety Cache - shared across all users
+  // GET: returns cached safety report if available and not expired
+  app.get("/api/token-safety/:mint", async (req: Request, res: Response) => {
+    try {
+      const { mint } = req.params;
+      if (!mint || mint.length < 32 || mint.length > 64) {
+        return res.status(400).json({ error: "Invalid mint address" });
+      }
+
+      const rows = await db.select().from(tokenSafetyCache).where(eq(tokenSafetyCache.mint, mint)).limit(1);
+      if (rows.length === 0) {
+        return res.json({ report: null, cached: false });
+      }
+
+      const row = rows[0];
+      const isExpired = Date.now() > row.expiresAt;
+
+      if (isExpired) {
+        return res.json({ report: null, cached: false, expired: true });
+      }
+
+      console.log(`[TokenSafety] Cache HIT for ${mint.slice(0, 8)}... (verdict: ${row.verdictLevel})`);
+      return res.json({ report: row.report, cached: true, scannedAt: row.scannedAt });
+    } catch (error) {
+      console.error("[TokenSafety] GET error:", error);
+      return res.json({ report: null, cached: false });
+    }
+  });
+
+  // PUT: store a fresh safety report after a full scan
+  app.put("/api/token-safety/:mint", async (req: Request, res: Response) => {
+    try {
+      const { mint } = req.params;
+      if (!mint || mint.length < 32 || mint.length > 64) {
+        return res.status(400).json({ error: "Invalid mint address" });
+      }
+
+      const { report, verdictLevel, expiresAt } = req.body;
+      if (!report || !verdictLevel || !expiresAt) {
+        return res.status(400).json({ error: "Missing report, verdictLevel, or expiresAt" });
+      }
+
+      await db.insert(tokenSafetyCache).values({
+        mint,
+        chain: "solana",
+        verdictLevel,
+        report,
+        scanVersion: 2,
+        scannedAt: Date.now(),
+        expiresAt,
+      }).onConflictDoUpdate({
+        target: tokenSafetyCache.mint,
+        set: {
+          verdictLevel,
+          report,
+          scanVersion: 2,
+          scannedAt: Date.now(),
+          expiresAt,
+        },
+      });
+
+      console.log(`[TokenSafety] Cache STORED for ${mint.slice(0, 8)}... (verdict: ${verdictLevel})`);
+      res.json({ ok: true });
+    } catch (error) {
+      console.error("[TokenSafety] PUT error:", error);
+      res.status(500).json({ error: "Failed to store safety report" });
     }
   });
 
