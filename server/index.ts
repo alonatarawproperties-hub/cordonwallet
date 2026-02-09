@@ -103,7 +103,10 @@ function setupApiKeyAuth(app: express.Application) {
 
   if (!apiKey) {
     if (process.env.NODE_ENV === "production") {
-      log("[Security] WARNING: CORDON_API_KEY not set — API key auth is DISABLED in production!");
+      // In production, refuse to start without an API key — all /api/* routes
+      // would be wide open to the internet otherwise.
+      log("[Security] FATAL: CORDON_API_KEY is not set. Refusing to start in production.");
+      process.exit(1);
     } else {
       log("[Security] CORDON_API_KEY not set — API key auth disabled in development");
     }
@@ -113,8 +116,14 @@ function setupApiKeyAuth(app: express.Application) {
   log("[Security] API key auth enabled for /api/* routes");
 
   app.use("/api", (req: Request, res: Response, next: NextFunction) => {
-    // Allow health check without auth
+    // Allow health check without auth (uptime monitors)
     if (req.path === "/solana/health" || req.path === "/health") {
+      return next();
+    }
+
+    // Allow auth routes without API key — these are browser-based OAuth
+    // redirect flows and mobile poll endpoints that can't send custom headers
+    if (req.path.startsWith("/auth/")) {
       return next();
     }
 
