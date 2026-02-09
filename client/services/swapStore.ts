@@ -4,6 +4,7 @@ import { TxStatus } from "./txBroadcaster";
 
 const SWAP_HISTORY_KEY = "swap_history_v1";
 const SWAP_LOGS_KEY = "swap_debug_logs_v1";
+const SPEED_PREF_KEY = "swap_speed_pref_v1";
 const MAX_HISTORY_ITEMS = 100;
 const MAX_LOG_ITEMS = 20;
 
@@ -222,6 +223,34 @@ export function calculateSwapStats(records: SwapRecord[]): {
     modeDistribution,
     failureReasons,
   };
+}
+
+export interface SpeedPreference {
+  speed: SwapSpeed;
+  customCapSol: number | null;
+}
+
+export async function saveSpeedPreference(speed: SwapSpeed, customCapSol: number | null): Promise<void> {
+  try {
+    await AsyncStorage.setItem(SPEED_PREF_KEY, JSON.stringify({ speed, customCapSol }));
+  } catch (error) {
+    console.warn("[SwapStore] Failed to save speed preference:", error);
+  }
+}
+
+export async function loadSpeedPreference(): Promise<SpeedPreference | null> {
+  try {
+    const json = await AsyncStorage.getItem(SPEED_PREF_KEY);
+    if (json) {
+      const pref = JSON.parse(json) as SpeedPreference;
+      if (pref.speed && ["standard", "fast", "turbo"].includes(pref.speed)) {
+        return pref;
+      }
+    }
+  } catch (error) {
+    console.warn("[SwapStore] Failed to load speed preference:", error);
+  }
+  return null;
 }
 
 export function formatSwapForDisplay(record: SwapRecord): {

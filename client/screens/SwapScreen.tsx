@@ -74,7 +74,7 @@ import {
   instantSend,
 } from "@/services/solanaSwapApi";
 import { classifyError, getExplorerUrl, checkSignatureDirectly, clientDirectBroadcast } from "@/services/txBroadcaster";
-import { addSwapRecord, addDebugLog, getDebugLogs, clearDebugLogs, type SwapLogEntry } from "@/services/swapStore";
+import { addSwapRecord, addDebugLog, getDebugLogs, clearDebugLogs, saveSpeedPreference, loadSpeedPreference, type SwapLogEntry } from "@/services/swapStore";
 import { getApiUrl, getApiHeaders } from "@/lib/query-client";
 import {
   estimateFeeReserveLamports,
@@ -427,6 +427,29 @@ export default function SwapScreen({ route }: Props) {
   useEffect(() => {
     quoteEngineRef.current.setSpeedMode(speed);
   }, [speed]);
+
+  // Load persisted speed preference on mount
+  useEffect(() => {
+    loadSpeedPreference().then((pref) => {
+      if (pref) {
+        setSpeed(pref.speed);
+        setCustomCapSol(pref.customCapSol);
+        if (pref.customCapSol !== null) {
+          setCustomInputValue(String(pref.customCapSol));
+        }
+      }
+    });
+  }, []);
+
+  // Persist speed preference when it changes
+  const speedPrefInitialised = useRef(false);
+  useEffect(() => {
+    if (!speedPrefInitialised.current) {
+      speedPrefInitialised.current = true;
+      return;
+    }
+    saveSpeedPreference(speed, customCapSol);
+  }, [speed, customCapSol]);
 
   useEffect(() => {
     loadRecentCustomTokens().then(setRecentCustomTokens);
