@@ -446,7 +446,7 @@ export function registerCordonAuthRoutes(app: Express) {
               
               <div class="code-container">
                 <div class="code-label">Your verification code</div>
-                <div class="code" id="code">${authCode}</div>
+                <div class="code" id="code">${escapeHtml(authCode)}</div>
               </div>
               
               <div class="buttons">
@@ -463,9 +463,9 @@ export function registerCordonAuthRoutes(app: Express) {
               
               <div id="debug">
                 <div>Status: CODE_ISSUED</div>
-                <div>Code: ${authCode}</div>
-                <div>User: ${userEmail}</div>
-                <div>Time: ${new Date().toISOString()}</div>
+                <div>Code: ${escapeHtml(authCode)}</div>
+                <div>User: ${escapeHtml(userEmail)}</div>
+                <div>Time: ${escapeHtml(new Date().toISOString())}</div>
               </div>
             </div>
             
@@ -579,21 +579,23 @@ export function registerCordonAuthRoutes(app: Express) {
       return res.status(400).json({ error: "Code required" });
     }
 
-    const authCode = authCodes.get(code.toUpperCase());
-    
+    const codeKey = code.toUpperCase();
+    const authCode = authCodes.get(codeKey);
+
     if (!authCode) {
-      console.log("[Cordon Auth] Invalid code:", code);
       return res.status(400).json({ error: "Invalid or expired code" });
     }
 
+    // Security: Atomically delete the code from the map BEFORE processing.
+    // This prevents race conditions where two parallel requests both read
+    // the same code as valid and both create sessions.
+    authCodes.delete(codeKey);
+
     if (authCode.used) {
-      console.log("[Cordon Auth] Code already used:", code);
       return res.status(400).json({ error: "Invalid or expired code" });
     }
 
     if (Date.now() - authCode.createdAt > CODE_EXPIRY_MS) {
-      console.log("[Cordon Auth] Code expired:", code);
-      authCodes.delete(code);
       return res.status(400).json({ error: "Invalid or expired code" });
     }
 

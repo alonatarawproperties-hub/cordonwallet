@@ -2,6 +2,7 @@ import { getApiUrl, getApiHeaders } from "@/lib/query-client";
 import { deriveSolanaKeypair } from "./keys";
 import { getSolanaExplorerTxUrl } from "./client";
 import * as nacl from "tweetnacl";
+import bs58 from "bs58";
 
 function base64ToUint8Array(base64: string): Uint8Array {
   const binaryString = atob(base64);
@@ -19,36 +20,94 @@ function wipeBytes(arr: Uint8Array): void {
 
 /**
  * Security: Validate that a Solana transaction message references the expected
- * recipient and that the sender is the fee payer (first account key).
+ * sender (as fee payer) and the expected recipient in the account keys.
  *
- * Solana transaction messages encode account keys as consecutive 32-byte pubkeys
- * starting at a known offset. We do a best-effort check that the expected
- * recipient address appears somewhere in the account keys, and that the first
- * key (fee payer) matches the sender.
+ * Solana legacy message layout:
+ *   [0]    numRequiredSignatures
+ *   [1]    numReadonlySignedAccounts
+ *   [2]    numReadonlyUnsignedAccounts
+ *   [3]    numAccountKeys (compact-u16, usually 1 byte for small tx)
+ *   [4..]  account keys (32 bytes each)
+ *
+ * We verify:
+ *   1. The first account key (fee payer) matches the sender.
+ *   2. The expected recipient address appears somewhere in the account keys.
+ *
+ * This is a defense-in-depth check — a compromised server returning a
+ * transaction to a different address will be caught before signing.
  */
 function validateTransactionMessage(
   messageBytes: Uint8Array,
   expectedSenderPubkey: string,
   expectedRecipientAddress: string,
 ): void {
-  // Solana message v0/legacy: first byte(s) are header, then account keys (32 bytes each)
-  // We check that the expected addresses appear in the raw message bytes.
-  // This is a defense-in-depth check - not a full deserialization.
-
-  const messageHex = Array.from(messageBytes).map(b => b.toString(16).padStart(2, '0')).join('');
-
-  // Base58 decode the expected addresses to raw bytes, then check if they exist in the message
-  // For simplicity, we check the hex representation of the addresses in the message bytes
-  // This catches substitution attacks where the server replaces the recipient
-
-  // We must have at least the header + 2 account keys (64 bytes + header)
   if (messageBytes.length < 68) {
     throw new Error("Transaction message too short to be valid");
   }
 
-  // The message must not be empty
   if (messageBytes.every(b => b === 0)) {
     throw new Error("Transaction message is empty/zeroed");
+  }
+
+  // Decode expected addresses from base58 to raw 32-byte pubkeys
+  let senderBytes: Uint8Array;
+  let recipientBytes: Uint8Array;
+  try {
+    senderBytes = bs58.decode(expectedSenderPubkey);
+    recipientBytes = bs58.decode(expectedRecipientAddress);
+  } catch {
+    throw new Error("Invalid sender or recipient address for validation");
+  }
+
+  if (senderBytes.length !== 32 || recipientBytes.length !== 32) {
+    throw new Error("Address must be 32 bytes");
+  }
+
+  // Parse compact-u16 for number of account keys (byte at offset 3)
+  // For transactions with < 128 accounts this is a single byte
+  const numAccountKeys = messageBytes[3];
+  if (numAccountKeys < 2) {
+    throw new Error("Transaction has fewer than 2 account keys");
+  }
+
+  const accountKeysStart = 4; // after the 3 header bytes + 1 compact-u16 byte
+  const accountKeysEnd = accountKeysStart + numAccountKeys * 32;
+
+  if (accountKeysEnd > messageBytes.length) {
+    throw new Error("Transaction message truncated — not enough bytes for declared account keys");
+  }
+
+  // Check 1: Fee payer (first account key) must be the sender
+  const feePayer = messageBytes.slice(accountKeysStart, accountKeysStart + 32);
+  let feePayerMatch = true;
+  for (let i = 0; i < 32; i++) {
+    if (feePayer[i] !== senderBytes[i]) {
+      feePayerMatch = false;
+      break;
+    }
+  }
+  if (!feePayerMatch) {
+    throw new Error("Transaction fee payer does not match sender — possible substitution attack");
+  }
+
+  // Check 2: Recipient must appear somewhere in the account keys
+  let recipientFound = false;
+  for (let k = 0; k < numAccountKeys; k++) {
+    const offset = accountKeysStart + k * 32;
+    let match = true;
+    for (let i = 0; i < 32; i++) {
+      if (messageBytes[offset + i] !== recipientBytes[i]) {
+        match = false;
+        break;
+      }
+    }
+    if (match) {
+      recipientFound = true;
+      break;
+    }
+  }
+  if (!recipientFound) {
+    throw new Error("Expected recipient not found in transaction — possible substitution attack");
   }
 }
 
