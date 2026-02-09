@@ -786,6 +786,52 @@ export function isUnlocked(): boolean {
   return getIsVaultUnlocked();
 }
 
+/**
+ * Ensures the vault is unlocked and secrets are in memory.
+ * Attempts recovery in order:
+ *   1. Check if already unlocked (fast path)
+ *   2. Try unlockWithCachedKey() — no user interaction
+ *   3. Try biometric unlock — shows Face ID / Touch ID prompt
+ * Returns true if the vault is unlocked after recovery, false otherwise.
+ */
+export async function ensureUnlocked(): Promise<boolean> {
+  // Fast path: vault is already fully unlocked with secrets in memory
+  try {
+    requireUnlocked();
+    return true;
+  } catch {
+    // Vault needs recovery — continue below
+  }
+
+  // Try fast recovery via cached vault key (no user interaction)
+  try {
+    const recoveredFast = await unlockWithCachedKey();
+    if (recoveredFast) return true;
+  } catch (err) {
+    if (__DEV__) {
+      console.log("[WalletEngine] ensureUnlocked: cached key recovery failed:", err);
+    }
+  }
+
+  // Try biometric recovery (shows Face ID / Touch ID prompt)
+  try {
+    const hasBiometric = await hasBiometricPinEnabled();
+    if (hasBiometric) {
+      const pin = await getPinWithBiometrics();
+      if (pin) {
+        const success = await unlockWithPin(pin);
+        if (success) return true;
+      }
+    }
+  } catch (err) {
+    if (__DEV__) {
+      console.log("[WalletEngine] ensureUnlocked: biometric recovery failed:", err);
+    }
+  }
+
+  return false;
+}
+
 export async function listWallets(): Promise<WalletRecord[]> {
   const meta = await loadVaultMeta();
   
