@@ -260,7 +260,16 @@ export function WalletConnectHandler({ children }: { children: React.ReactNode }
       } else {
         await respondError("Unsupported method");
       }
-    } catch (err) {
+    } catch (err: any) {
+      // If the signing itself throws a wallet-locked error (e.g. mnemonic not
+      // found because secrets were evicted between ensureUnlocked and the
+      // actual sign call), show the PIN modal instead of forwarding the error.
+      if (err?.code === "WALLET_LOCKED" || err?.name === "WalletLockedError") {
+        setIsSigning(false);
+        setPinError(null);
+        setShowPinModal(true);
+        return;
+      }
       const message = err instanceof Error ? err.message : "Signing failed";
       console.error("[WC] Sign error:", err);
       try {
