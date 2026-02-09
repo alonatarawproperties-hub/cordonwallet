@@ -19,7 +19,7 @@ import { useDevSettings } from "@/context/DevSettingsContext";
 import { NETWORKS } from "@/lib/types";
 import { getChainById } from "@/lib/blockchain/chains";
 import { FEATURES } from "@/config/features";
-import { hasBiometricPinEnabled, isBiometricAvailable, savePinForBiometrics, disableBiometrics, verifyPinFast, changePin, getPinWithBiometrics } from "@/lib/wallet-engine";
+import { hasBiometricPinEnabled, isBiometricAvailable, savePinForBiometrics, disableBiometrics, verifyPin, verifyPinFast, changePin, getPinWithBiometrics } from "@/lib/wallet-engine";
 import * as WebBrowser from "expo-web-browser";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 
