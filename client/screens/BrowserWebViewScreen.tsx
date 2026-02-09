@@ -2083,6 +2083,7 @@ export default function BrowserWebViewScreen() {
   const handlePinCancel = useCallback(() => {
     setShowPinModal(false);
     setPinError(null);
+    setIsSigning(false);
     // Return error to dApp and close sign sheet
     if (signSheet) {
       const response = { error: "User cancelled unlock" };
@@ -2096,16 +2097,17 @@ export default function BrowserWebViewScreen() {
 
   const handleSignReject = useCallback(() => {
     if (!signSheet) return;
-    
+
     const response = signSheet.isDrainerBlocked
       ? { error: "Transaction blocked: Wallet drainer detected" }
       : { error: "User rejected signing" };
-    
+
     webViewRef.current?.injectJavaScript(`
       window.cordon._handleResponse(${signSheet.requestId}, ${JSON.stringify(response)});
       true;
     `);
-    
+
+    setIsSigning(false);
     setSignSheet(null);
   }, [signSheet]);
 
