@@ -2027,9 +2027,6 @@ export default function SwapScreen({ route }: Props) {
             ) : null}
           </View>
 
-          <ThemedText type="caption" style={{ color: theme.textSecondary, marginTop: Spacing.sm, fontSize: 10, textAlign: "center", opacity: 0.7 }}>
-            Fees: Priority (shown above) + network (~0.00001 SOL). Jupiter platform fee is currently disabled.
-          </ThemedText>
           {__DEV__ ? (
             <Pressable
               style={[styles.debugToggle, { borderColor: theme.glassBorder }]}
