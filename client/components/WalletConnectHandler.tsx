@@ -137,7 +137,10 @@ export function WalletConnectHandler({ children }: { children: React.ReactNode }
   }, [currentRequest, policySettings, isCapSheetVisible]);
 
   const handleApproveSession = useCallback(async () => {
-    if (!activeWallet?.addresses?.evm) {
+    const hasEvm = !!activeWallet?.addresses?.evm;
+    const hasSolana = !!activeWallet?.addresses?.solana;
+
+    if (!hasEvm && !hasSolana) {
       Alert.alert("Error", "No wallet available");
       return;
     }
@@ -145,8 +148,8 @@ export function WalletConnectHandler({ children }: { children: React.ReactNode }
     setIsApproving(true);
     try {
       await approve({
-        evm: activeWallet.addresses.evm as `0x${string}`,
-        solana: activeWallet.addresses.solana,
+        evm: (activeWallet!.addresses?.evm || "") as `0x${string}`,
+        solana: activeWallet!.addresses?.solana,
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to approve session";
