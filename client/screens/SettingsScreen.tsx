@@ -235,6 +235,7 @@ export default function SettingsScreen() {
   };
 
   const handleVersionTap = () => {
+    if (!__DEV__) return;
     const now = Date.now();
     if (now - lastTapRef.current < 500) {
       tapCountRef.current += 1;
@@ -443,7 +444,7 @@ export default function SettingsScreen() {
       </View>
 
 
-      {showDebug ? (
+      {__DEV__ && showDebug ? (
         <View style={styles.section}>
           <ThemedText type="small" style={[styles.sectionTitle, { color: theme.accent }]}>
             Demo Mode
@@ -478,7 +479,7 @@ export default function SettingsScreen() {
         </View>
       ) : null}
 
-      {showDebug ? (
+      {__DEV__ && showDebug ? (
         <View style={styles.section}>
           <ThemedText type="small" style={[styles.sectionTitle, { color: theme.warning }]}>
             Developer Debug
