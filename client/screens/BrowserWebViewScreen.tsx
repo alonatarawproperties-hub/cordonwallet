@@ -1963,12 +1963,14 @@ export default function BrowserWebViewScreen() {
     //   3. Biometric prompt (Face ID / Touch ID)
     try {
       const walletEngine = await import("@/lib/wallet-engine");
-      const unlocked = await walletEngine.ensureUnlocked();
+      const unlocked = await walletEngine.ensureUnlocked({ skipBiometric: true });
       if (!unlocked) {
         // Show PIN modal as fallback instead of failing immediately.
         // The vault secrets may have been evicted from memory (e.g. during
         // OAuth redirect or app backgrounding) and automatic recovery
-        // (cached key / biometric) couldn't restore them.
+        // (cached key) couldn't restore them. We skip biometric here because
+        // the Face ID prompt would appear behind the sign sheet and be
+        // invisible — the PIN modal is a more reliable fallback.
         setIsSigning(false);
         setPinError(null);
         setShowPinModal(true);
