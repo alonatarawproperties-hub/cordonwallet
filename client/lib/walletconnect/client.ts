@@ -116,24 +116,29 @@ export function buildNamespaces(
   proposal: SessionProposal,
   addresses: MultiChainAddresses
 ): Record<string, { accounts: string[]; methods: string[]; events: string[]; chains?: string[] }> {
+  const hasValidEvmAddress = !!addresses.evm && addresses.evm.length > 2;
+  const hasValidSolanaAddress = !!addresses.solana && addresses.solana.length > 0;
+
   const evmChainIds = Object.values(SUPPORTED_EVM_CHAINS).map((c) => c.namespace);
 
   const evmAccounts: string[] = [];
-  for (const chainNamespace of evmChainIds) {
-    evmAccounts.push(`${chainNamespace}:${addresses.evm}`);
+  if (hasValidEvmAddress) {
+    for (const chainNamespace of evmChainIds) {
+      evmAccounts.push(`${chainNamespace}:${addresses.evm}`);
+    }
   }
 
   const requiredNamespaces = proposal.params.requiredNamespaces || {};
   const optionalNamespaces = proposal.params.optionalNamespaces || {};
-  
-  const needsSolana = 
-    "solana" in requiredNamespaces || 
+
+  const needsSolana =
+    "solana" in requiredNamespaces ||
     "solana" in optionalNamespaces ||
     Object.values(requiredNamespaces).some(ns => ns.chains?.some(c => c.startsWith("solana:"))) ||
     Object.values(optionalNamespaces).some(ns => ns.chains?.some(c => c.startsWith("solana:")));
 
-  const needsEvm = 
-    "eip155" in requiredNamespaces || 
+  const needsEvm =
+    "eip155" in requiredNamespaces ||
     "eip155" in optionalNamespaces ||
     Object.values(requiredNamespaces).some(ns => ns.chains?.some(c => c.startsWith("eip155:"))) ||
     Object.values(optionalNamespaces).some(ns => ns.chains?.some(c => c.startsWith("eip155:"))) ||
@@ -141,7 +146,7 @@ export function buildNamespaces(
 
   const supportedNamespaces: Record<string, { chains: string[]; methods: string[]; events: string[]; accounts: string[] }> = {};
 
-  if (needsEvm) {
+  if (needsEvm && hasValidEvmAddress) {
     supportedNamespaces.eip155 = {
       chains: evmChainIds,
       methods: SUPPORTED_EVM_METHODS,
@@ -150,7 +155,7 @@ export function buildNamespaces(
     };
   }
 
-  if (needsSolana && addresses.solana) {
+  if (needsSolana && hasValidSolanaAddress) {
     supportedNamespaces.solana = {
       chains: [SOLANA_MAINNET_CHAIN],
       methods: SUPPORTED_SOLANA_METHODS,
@@ -173,8 +178,8 @@ export function buildNamespaces(
   }
 
   const fallback: Record<string, { accounts: string[]; methods: string[]; events: string[]; chains: string[] }> = {};
-  
-  if (needsEvm) {
+
+  if (needsEvm && hasValidEvmAddress) {
     fallback.eip155 = {
       accounts: evmAccounts,
       methods: SUPPORTED_EVM_METHODS,
@@ -182,8 +187,8 @@ export function buildNamespaces(
       chains: evmChainIds,
     };
   }
-  
-  if (needsSolana && addresses.solana) {
+
+  if (needsSolana && hasValidSolanaAddress) {
     fallback.solana = {
       accounts: [`${SOLANA_MAINNET_CHAIN}:${addresses.solana}`],
       methods: SUPPORTED_SOLANA_METHODS,
@@ -201,13 +206,24 @@ export async function approveSession(
 ): Promise<WCSession> {
   const wallet = await initWalletConnect();
 
+  const hasValidEvmAddress = !!addresses.evm && addresses.evm.length > 2;
+  const hasValidSolanaAddress = !!addresses.solana && addresses.solana.length > 0;
+
   const requiredNamespaces = proposal.params.requiredNamespaces || {};
-  const requiresSolana = 
+  const requiresSolana =
     "solana" in requiredNamespaces ||
     Object.values(requiredNamespaces).some(ns => ns.chains?.some(c => c?.startsWith("solana:")));
 
-  if (requiresSolana && !addresses.solana) {
+  const requiresEvm =
+    "eip155" in requiredNamespaces ||
+    Object.values(requiredNamespaces).some(ns => ns.chains?.some(c => c?.startsWith("eip155:")));
+
+  if (requiresSolana && !hasValidSolanaAddress) {
     throw new Error("This dApp requires Solana but your wallet does not have a Solana address configured");
+  }
+
+  if (requiresEvm && !hasValidEvmAddress) {
+    throw new Error("This dApp requires EVM chains but your wallet does not have an EVM address. Try importing or creating a multi-chain wallet.");
   }
 
   const namespaces = buildNamespaces(proposal, addresses);
