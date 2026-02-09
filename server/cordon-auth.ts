@@ -85,7 +85,8 @@ const RATE_LIMIT_WINDOW_MS = 60 * 1000;
 const RATE_LIMIT_MAX = 10;
 
 function generateCode(): string {
-  return crypto.randomBytes(3).toString("hex").toUpperCase();
+  // 8 bytes = 64-bit entropy (was 3 bytes / 24-bit — too brute-forceable)
+  return crypto.randomBytes(8).toString("hex").toUpperCase();
 }
 
 // Security fix: Generate fallback secret ONCE at startup, not per-call
@@ -185,12 +186,29 @@ function corsMiddleware(req: Request, res: Response, next: NextFunction) {
   next();
 }
 
+// Security: only allow redirects back to our own domains
+const ALLOWED_RETURN_HOSTS = new Set([
+  "app.cordonwallet.com",
+  "roachy.games",
+]);
+
+function isReturnUrlAllowed(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "https:") return false;
+    return ALLOWED_RETURN_HOSTS.has(parsed.hostname);
+  } catch {
+    return false;
+  }
+}
+
 export function registerCordonAuthRoutes(app: Express) {
   app.use("/auth/cordon", corsMiddleware);
   app.use("/api/auth/cordon", corsMiddleware);
 
   app.get("/auth/cordon/start", (req: Request, res: Response) => {
-    const returnUrl = req.query.returnUrl as string || "https://roachy.games";
+    const rawReturnUrl = req.query.returnUrl as string || "https://roachy.games";
+    const returnUrl = isReturnUrlAllowed(rawReturnUrl) ? rawReturnUrl : "https://roachy.games";
     const state = crypto.randomBytes(16).toString("hex");
     
     console.log("[Cordon Auth] Starting Google OAuth flow");
@@ -306,8 +324,7 @@ export function registerCordonAuthRoutes(app: Express) {
         used: false,
       });
 
-      console.log("[Cordon Auth] Code issued:", authCode);
-      console.log("[Cordon Auth] User:", userEmail);
+      console.log("[Cordon Auth] Code issued for user");
 
       res.send(`
         <!DOCTYPE html>
@@ -539,16 +556,12 @@ export function registerCordonAuthRoutes(app: Express) {
       used: false,
     });
 
-    console.log("[Cordon Auth] Code requested:", code, "for", email);
+    console.log("[Cordon Auth] Code requested for user");
 
     res.json({
       success: true,
       code,
       expiresIn: CODE_EXPIRY_MS / 1000,
-      debug: {
-        step: "CODE_ISSUED",
-        timestamp: new Date().toISOString(),
-      },
     });
   });
 
@@ -570,18 +583,18 @@ export function registerCordonAuthRoutes(app: Express) {
     
     if (!authCode) {
       console.log("[Cordon Auth] Invalid code:", code);
-      return res.status(400).json({ error: "Invalid code", debug: { step: "CODE_INVALID" } });
+      return res.status(400).json({ error: "Invalid or expired code" });
     }
 
     if (authCode.used) {
       console.log("[Cordon Auth] Code already used:", code);
-      return res.status(400).json({ error: "Code already used", debug: { step: "CODE_USED" } });
+      return res.status(400).json({ error: "Invalid or expired code" });
     }
 
     if (Date.now() - authCode.createdAt > CODE_EXPIRY_MS) {
       console.log("[Cordon Auth] Code expired:", code);
       authCodes.delete(code);
-      return res.status(400).json({ error: "Code expired", debug: { step: "CODE_EXPIRED" } });
+      return res.status(400).json({ error: "Invalid or expired code" });
     }
 
     authCode.used = true;
@@ -601,8 +614,7 @@ export function registerCordonAuthRoutes(app: Express) {
     
     sessions.set(sessionId, session);
 
-    console.log("[Cordon Auth] Code exchanged:", code);
-    console.log("[Cordon Auth] Session created:", sessionId);
+    console.log("[Cordon Auth] Code exchanged, session created");
 
     res.cookie("cordon_session", sessionId, {
       httpOnly: true,
@@ -622,10 +634,6 @@ export function registerCordonAuthRoutes(app: Express) {
       jwt,
       sessionId,
       expiresIn: SESSION_EXPIRY_MS / 1000,
-      debug: {
-        step: "LOGGED_IN",
-        timestamp: new Date().toISOString(),
-      },
     });
   });
 
@@ -642,17 +650,13 @@ export function registerCordonAuthRoutes(app: Express) {
     if (!session && authHeader?.startsWith("Bearer ")) {
       const token = authHeader.slice(7);
       const { valid, payload } = verifyJWT(token);
-      
+
       if (valid && payload) {
         return res.json({
           authenticated: true,
           user: {
             id: payload.sub,
             email: payload.email,
-          },
-          debug: {
-            method: "jwt",
-            step: "LOGGED_IN",
           },
         });
       }
@@ -661,11 +665,6 @@ export function registerCordonAuthRoutes(app: Express) {
     if (!session || Date.now() > session.expiresAt) {
       return res.json({
         authenticated: false,
-        debug: {
-          step: "NO_SESSION",
-          hasCookie: !!sessionId,
-          hasJwt: !!authHeader,
-        },
       });
     }
 
@@ -675,11 +674,6 @@ export function registerCordonAuthRoutes(app: Express) {
         id: session.userId,
         email: session.email,
         name: session.name,
-      },
-      debug: {
-        method: "session",
-        step: "LOGGED_IN",
-        sessionId: session.id.slice(0, 8) + "...",
       },
     });
   });
@@ -692,7 +686,7 @@ export function registerCordonAuthRoutes(app: Express) {
     }
 
     res.clearCookie("cordon_session", { path: "/" });
-    res.json({ success: true, debug: { step: "LOGGED_OUT" } });
+    res.json({ success: true });
   });
 
   app.post("/api/auth/cordon/mobile/start", async (req: Request, res: Response) => {
@@ -954,63 +948,11 @@ export function registerCordonAuthRoutes(app: Express) {
     }
   });
 
-  app.get("/api/auth/cordon/debug", async (req: Request, res: Response) => {
-    // Security: Debug endpoint must never be available in production
-    if (process.env.NODE_ENV === "production") {
-      return res.status(404).json({ error: "Not found" });
-    }
-
-    const activeCodes = Array.from(authCodes.entries())
-      .filter(([, c]) => !c.used && Date.now() - c.createdAt < CODE_EXPIRY_MS)
-      .map(([code, c]) => ({
-        code,
-        email: c.email,
-        age: Math.floor((Date.now() - c.createdAt) / 1000) + "s",
-      }));
-
-    const activeSessions = Array.from(sessions.entries())
-      .filter(([, s]) => Date.now() < s.expiresAt)
-      .map(([id, s]) => ({
-        id: id.slice(0, 8) + "...",
-        email: s.email,
-        expiresIn: Math.floor((s.expiresAt - Date.now()) / 1000 / 60) + "m",
-      }));
-
-    let activeMobileSessions: any[] = [];
-    try {
-      const dbSessions = await db.select().from(mobileAuthSessionsTable);
-      activeMobileSessions = dbSessions
-        .filter(s => Date.now() - s.createdAt < MOBILE_SESSION_EXPIRY_MS)
-        .map(s => ({
-          id: s.sessionId.slice(0, 8) + "...",
-          status: s.status,
-          age: Math.floor((Date.now() - s.createdAt) / 1000) + "s",
-        }));
-    } catch (err) {
-      console.error("[Cordon Auth Debug] Failed to fetch mobile sessions:", err);
-    }
-
-    res.json({
-      activeCodes,
-      activeCodeCount: activeCodes.length,
-      activeSessions,
-      activeSessionCount: activeSessions.length,
-      activeMobileSessions,
-      activeMobileSessionCount: activeMobileSessions.length,
-      timestamp: new Date().toISOString(),
-    });
+  // Security: Debug endpoint removed — it leaked active auth codes and sessions.
+  // Kept as a 404 so existing clients don't hang.
+  app.get("/api/auth/cordon/debug", (_req: Request, res: Response) => {
+    res.status(404).json({ error: "Not found" });
   });
 
-  console.log("[Cordon Auth] Routes registered:");
-  console.log("  GET  /auth/cordon/start");
-  console.log("  GET  /auth/cordon/callback");
-  console.log("  POST /api/auth/cordon/request-code");
-  console.log("  POST /api/auth/cordon/exchange-code");
-  console.log("  GET  /api/auth/cordon/session");
-  console.log("  POST /api/auth/cordon/logout");
-  console.log("  POST /api/auth/cordon/mobile/start");
-  console.log("  GET  /auth/cordon/mobile/start");
-  console.log("  GET  /auth/cordon/mobile/callback");
-  console.log("  GET  /api/auth/cordon/mobile/poll");
-  console.log("  GET  /api/auth/cordon/debug");
+  console.log("[Cordon Auth] Routes registered");
 }
