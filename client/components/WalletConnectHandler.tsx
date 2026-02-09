@@ -173,21 +173,31 @@ export function WalletConnectHandler({ children }: { children: React.ReactNode }
       return;
     }
 
-    // If wallet is locked, try auto-recovery before failing
-    if (!isUnlocked) {
+    // Ensure vault is actually unlocked before signing. The React isUnlocked
+    // state can be stale (true) while cachedSecrets have been cleared from
+    // memory due to memory pressure or hot reload. requireUnlocked() checks
+    // both the flag AND cached secrets, so use it as the source of truth.
+    try {
+      const walletEngine = await import("@/lib/wallet-engine");
       try {
-        const { unlockWithCachedKey } = await import("@/lib/wallet-engine");
-        const recovered = await unlockWithCachedKey();
+        walletEngine.requireUnlocked();
+      } catch {
+        // Vault secrets lost — attempt auto-recovery via cached key
+        const recovered = await walletEngine.unlockWithCachedKey();
         if (!recovered) {
           await respondError("Wallet is locked. Please unlock your wallet and try again.");
           Alert.alert("Wallet Locked", "Please unlock your wallet first, then retry the action in the dApp.");
           return;
         }
-      } catch {
+      }
+    } catch (e: any) {
+      if (e?.code === "WALLET_LOCKED" || e?.message?.includes("locked")) {
         await respondError("Wallet is locked. Please unlock your wallet and try again.");
         Alert.alert("Wallet Locked", "Please unlock your wallet first, then retry the action in the dApp.");
         return;
       }
+      // Non-lock error from import/recovery — let signing attempt proceed
+      console.warn("[WC] Pre-sign unlock check error:", e);
     }
 
     if (isDrainerBlocked) {
