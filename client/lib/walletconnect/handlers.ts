@@ -50,12 +50,24 @@ export interface SolanaSignAllTransactionsRequest {
   pubkey: string;
 }
 
-export type SolanaRequest = 
-  | SolanaSignMessageRequest 
-  | SolanaSignTransactionRequest 
+export interface SignTypedDataRequest {
+  method: "eth_signTypedData" | "eth_signTypedData_v4";
+  address: `0x${string}`;
+  typedData: {
+    domain: Record<string, unknown>;
+    types: Record<string, Array<{ name: string; type: string }>>;
+    primaryType: string;
+    message: Record<string, unknown>;
+  };
+  displaySummary: string;
+}
+
+export type SolanaRequest =
+  | SolanaSignMessageRequest
+  | SolanaSignTransactionRequest
   | SolanaSignAllTransactionsRequest;
 
-export type ParsedRequest = PersonalSignRequest | SendTransactionRequest | SolanaRequest;
+export type ParsedRequest = PersonalSignRequest | SendTransactionRequest | SignTypedDataRequest | SolanaRequest;
 
 export function parsePersonalSign(params: unknown[]): PersonalSignRequest {
   let message: string;
@@ -208,6 +220,34 @@ export function parseSolanaSignAllTransactions(params: unknown[]): SolanaSignAll
   };
 }
 
+export function parseSignTypedData(
+  method: "eth_signTypedData" | "eth_signTypedData_v4",
+  params: unknown[]
+): SignTypedDataRequest {
+  // eth_signTypedData_v4 params are [address, jsonString]
+  const address = params[0] as `0x${string}`;
+  let typedData: SignTypedDataRequest["typedData"];
+
+  const raw = params[1];
+  if (typeof raw === "string") {
+    typedData = JSON.parse(raw);
+  } else {
+    typedData = raw as SignTypedDataRequest["typedData"];
+  }
+
+  const domainName = (typedData.domain as Record<string, unknown>)?.name as string | undefined;
+  const displaySummary = domainName
+    ? `Sign typed data from ${domainName}`
+    : "Sign structured data";
+
+  return {
+    method,
+    address,
+    typedData,
+    displaySummary,
+  };
+}
+
 export function parseSessionRequest(
   method: string,
   params: unknown[],
@@ -223,6 +263,12 @@ export function parseSessionRequest(
 
     case "eth_sign":
       return parsePersonalSign(params);
+
+    case "eth_signTypedData":
+      return parseSignTypedData("eth_signTypedData", params);
+
+    case "eth_signTypedData_v4":
+      return parseSignTypedData("eth_signTypedData_v4", params);
 
     case "solana_signMessage":
       return parseSolanaSignMessage(params);

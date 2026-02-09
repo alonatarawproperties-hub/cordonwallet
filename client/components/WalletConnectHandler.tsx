@@ -6,16 +6,18 @@ import { useWallet } from "@/lib/wallet-context";
 import { useCapAllowance, BlockedApprovalContext } from "@/lib/cap-allowance-context";
 import { SessionApprovalSheet } from "@/components/SessionApprovalSheet";
 import { SignRequestSheet } from "@/components/SignRequestSheet";
-import { 
-  PersonalSignRequest, 
+import {
+  PersonalSignRequest,
   SendTransactionRequest,
+  SignTypedDataRequest,
   SolanaSignMessageRequest,
   SolanaSignTransactionRequest,
   SolanaSignAllTransactionsRequest,
 } from "@/lib/walletconnect/handlers";
-import { 
-  signPersonalMessage, 
+import {
+  signPersonalMessage,
   sendRawTransaction,
+  signTypedData,
   signSolanaMessage,
   signSolanaTransaction,
   signAllSolanaTransactions,
@@ -229,6 +231,13 @@ export function WalletConnectHandler({ children }: { children: React.ReactNode }
           gas: txReq.tx.gas ? BigInt(txReq.tx.gas) : undefined,
         });
         await respondSuccess(result.hash);
+      } else if (parsed.method === "eth_signTypedData" || parsed.method === "eth_signTypedData_v4") {
+        const typedReq = parsed as SignTypedDataRequest;
+        const signature = await signTypedData({
+          walletId: activeWallet.id,
+          typedData: typedReq.typedData as any,
+        });
+        await respondSuccess(signature);
       } else if (parsed.method === "solana_signMessage") {
         const solanaReq = parsed as SolanaSignMessageRequest;
         const signature = await signSolanaMessage({
@@ -259,7 +268,13 @@ export function WalletConnectHandler({ children }: { children: React.ReactNode }
     } catch (err) {
       const message = err instanceof Error ? err.message : "Signing failed";
       console.error("[WC] Sign error:", err);
-      await respondError(message);
+      try {
+        await respondError(message);
+      } catch (respondErr) {
+        // respondError already clears currentRequest in its finally block,
+        // so just log the failure to send the error back to the dApp
+        console.error("[WC] Failed to send error response to dApp:", respondErr);
+      }
       Alert.alert("Signing Failed", message);
     } finally {
       setIsSigning(false);
@@ -270,7 +285,9 @@ export function WalletConnectHandler({ children }: { children: React.ReactNode }
     try {
       await respondError("User rejected");
     } catch (err) {
-      console.error("Reject request error:", err);
+      // respondError already clears currentRequest in its finally block,
+      // so the sheet will close regardless. Just log the WC send failure.
+      console.error("[WC] Reject request error:", err);
     }
   }, [respondError]);
 
@@ -293,14 +310,17 @@ export function WalletConnectHandler({ children }: { children: React.ReactNode }
         setPendingApprovalData(null);
       },
       onCancel: () => {
-        clearCurrentRequest();
+        // Reject the WC request so the dApp doesn't hang, then clean up local state
+        respondError("User cancelled approval").catch((err) => {
+          console.warn("[WC] Failed to send cancel response:", err);
+        });
         setIsApprovalBlocked(false);
         setPendingApprovalData(null);
       },
     };
 
     showCapAllowanceSheet(capContext);
-  }, [pendingApprovalData, currentRequest, activeWallet, policySettings, showCapAllowanceSheet, respondSuccess, clearCurrentRequest]);
+  }, [pendingApprovalData, currentRequest, activeWallet, policySettings, showCapAllowanceSheet, respondSuccess, respondError]);
 
   const getDappInfo = useCallback(() => {
     if (currentProposal) {
