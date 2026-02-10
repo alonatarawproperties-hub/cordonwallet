@@ -23,19 +23,10 @@ import {
   groupTransactionsByDate,
 } from "@/lib/blockchain/explorer-api";
 import { supportedChains, getChainById, getExplorerAddressUrl } from "@/lib/blockchain/chains";
-import { NetworkId } from "@/lib/types";
 import { getApiUrl, getApiHeaders } from "@/lib/query-client";
 import { getCustomTokens, CustomToken, buildCustomTokenMap } from "@/lib/token-preferences";
-import { FEATURES } from "@/config/features";
 
-const NETWORK_TO_CHAIN_ID: Record<NetworkId, number> = {
-  ethereum: 1,
-  polygon: 137,
-  bsc: 56,
-  arbitrum: 42161,
-  base: 8453,
-  solana: 0,
-};
+const NETWORK_TO_CHAIN_ID: Record<string, number> = { solana: 0 };
 
 function formatAmountTrader(value: string | number | undefined): string {
   if (value === undefined || value === null) return "0";
@@ -294,58 +285,45 @@ export default function ActivityScreen() {
       console.error("[Activity] Cleanup error:", e);
     }
 
-    const evmAddress = activeWallet.addresses?.evm || activeWallet.address || "";
     const solanaAddress = activeWallet.addresses?.solana || "";
-    const isSolanaOnly = activeWallet.walletType === "solana-only";
 
-    console.log("[Activity] Loading transactions for EVM:", evmAddress?.slice(0, 8), "Solana:", solanaAddress?.slice(0, 8));
+    console.log("[Activity] Loading transactions for Solana:", solanaAddress?.slice(0, 8));
 
     try {
       const tokens = await getCustomTokens(solanaAddress);
       setCustomTokens(tokens);
-      
-      const explorerPromise = (!isSolanaOnly && evmAddress) 
-        ? fetchAllChainsHistory(evmAddress).catch(e => {
+
+      const explorerPromise = solanaAddress
+        ? fetchAllChainsHistory(solanaAddress).catch(e => {
             console.error("[Activity] Explorer fetch error:", e);
             return [] as TxRecord[];
           })
         : Promise.resolve([] as TxRecord[]);
       
-      const localEvmPromise = evmAddress 
-        ? getTransactionsByWallet(evmAddress).catch(() => [] as TxRecord[])
-        : Promise.resolve([] as TxRecord[]);
-      
-      const localSolanaPromise = solanaAddress 
+      const localSolanaPromise = solanaAddress
         ? getTransactionsByWallet(solanaAddress).catch(() => [] as TxRecord[])
         : Promise.resolve([] as TxRecord[]);
-      
-      const solanaHistoryPromise = solanaAddress 
+
+      const solanaHistoryPromise = solanaAddress
         ? fetchSolanaHistory(solanaAddress, tokens).catch(e => {
             console.error("[Activity] Solana history error:", e);
             return [] as TxRecord[];
           })
         : Promise.resolve([] as TxRecord[]);
 
-      const [explorerTxs, localEvmTxs, localSolanaTxs, solanaTxs, priceData] = await Promise.all([
+      const [explorerTxs, localSolanaTxs, solanaTxs, priceData] = await Promise.all([
         explorerPromise,
-        localEvmPromise,
         localSolanaPromise,
         solanaHistoryPromise,
         fetchPrices().catch(() => ({} as Record<string, number>)),
       ]);
 
-      console.log("[Activity] Explorer txs:", explorerTxs.length, 
-        "Local EVM:", localEvmTxs.length, 
-        "Local Solana:", localSolanaTxs.length, 
+      console.log("[Activity] Explorer txs:", explorerTxs.length,
+        "Local Solana:", localSolanaTxs.length,
         "Solana API:", solanaTxs.length);
 
-      const explorerHashes = new Set(explorerTxs.map((tx) => tx.hash.toLowerCase()));
       const localSolanaMap = new Map(localSolanaTxs.map((tx) => [tx.hash.toLowerCase(), tx]));
-      
-      const uniqueLocalEvmTxs = localEvmTxs.filter(
-        (tx) => !explorerHashes.has(tx.hash.toLowerCase())
-      );
-      
+
       const mergedSolanaTxs = solanaTxs.map((apiTx) => {
         const localTx = localSolanaMap.get(apiTx.hash.toLowerCase());
         if (localTx) {
@@ -366,7 +344,7 @@ export default function ActivityScreen() {
         (tx) => !mergedHashes.has(tx.hash.toLowerCase())
       );
 
-      const allTxs = [...uniqueLocalEvmTxs, ...uniqueLocalSolanaTxs, ...explorerTxs, ...mergedSolanaTxs];
+      const allTxs = [...uniqueLocalSolanaTxs, ...explorerTxs, ...mergedSolanaTxs];
       allTxs.sort((a, b) => b.createdAt - a.createdAt);
 
       console.log("[Activity] Total transactions:", allTxs.length);
@@ -386,13 +364,11 @@ export default function ActivityScreen() {
       setCachedActivity(walletId, finalTxs, finalPrices);
     } catch (error) {
       console.error("[Activity] Failed to load transactions:", error);
-      const evmAddr = activeWallet.addresses?.evm || activeWallet.address || "";
       const solAddr = activeWallet.addresses?.solana || "";
-      const [evmTxs, solanaTxs] = await Promise.all([
-        evmAddr ? getTransactionsByWallet(evmAddr).catch(() => []) : [],
-        solAddr ? getTransactionsByWallet(solAddr).catch(() => []) : [],
-      ]);
-      setTransactions(filterTreasuryTransactions([...evmTxs, ...solanaTxs]));
+      const solanaTxs = solAddr
+        ? await getTransactionsByWallet(solAddr).catch(() => [] as TxRecord[])
+        : [];
+      setTransactions(filterTreasuryTransactions(solanaTxs));
     } finally {
       setLoading(false);
     }
@@ -430,10 +406,7 @@ export default function ActivityScreen() {
     setRefreshing(false);
   }, [loadTransactions]);
 
-  // Filter out EVM transactions when EVM is disabled
-  const chainFilteredTransactions = FEATURES.EVM_ENABLED 
-    ? transactions 
-    : transactions.filter((tx) => tx.chainId === 0);
+  const chainFilteredTransactions = transactions.filter((tx) => tx.chainId === 0);
   
   const filteredTransactions =
     networkFilter === "all"
@@ -675,9 +648,7 @@ export default function ActivityScreen() {
                 <Feather name="check" size={16} color={theme.accent} />
               ) : null}
             </Pressable>
-            {supportedChains
-              .filter((chain) => FEATURES.EVM_ENABLED || chain.chainId === 0)
-              .map((chain) => (
+            {supportedChains.map((chain) => (
               <Pressable
                 key={chain.chainId}
                 style={styles.networkOption}

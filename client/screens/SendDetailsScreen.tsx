@@ -27,15 +27,25 @@ import { getMintTransferRules, checkTransferability } from "@/lib/solana/token20
 
 const SOLANA_RPC_URL = process.env.SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com";
 
-import {
-  sendNative,
-  sendERC20,
-  estimateNativeGas,
-  estimateERC20Gas,
-  GasEstimate,
-  TransactionFailedError,
-} from "@/lib/blockchain/transactions";
 import { sendSol, sendSplToken, SolanaKeypair } from "@/lib/solana/transactions";
+
+interface GasEstimate {
+  gasLimit: bigint;
+  maxFeePerGas: bigint;
+  maxPriorityFeePerGas: bigint;
+  estimatedFeeNative: string;
+  estimatedFeeFormatted: string;
+  nativeSymbol: string;
+}
+
+class TransactionFailedError extends Error {
+  code: string;
+  constructor(message: string, code: string) {
+    super(message);
+    this.code = code;
+  }
+}
+
 import { getMnemonic, getWalletPrivateKey } from "@/lib/wallet-engine";
 import bs58 from "bs58";
 import * as nacl from "tweetnacl";
@@ -60,10 +70,6 @@ function isValidSolanaAddress(address: string): boolean {
   if (!address || address.length < 32 || address.length > 44) return false;
   const base58Regex = /^[1-9A-HJ-NP-Za-km-z]+$/;
   return base58Regex.test(address);
-}
-
-function isValidEvmAddress(address: string): boolean {
-  return address.startsWith("0x") && address.length === 42;
 }
 
 export default function SendDetailsScreen({ navigation, route }: Props) {
@@ -99,7 +105,6 @@ export default function SendDetailsScreen({ navigation, route }: Props) {
     message: string;
   }>({ visible: false, title: "", message: "" });
 
-  const evmAddress = activeWallet?.addresses?.evm || activeWallet?.address || "";
   const solanaAddress = activeWallet?.addresses?.solana || "";
   
   useEffect(() => {
@@ -157,45 +162,7 @@ export default function SendDetailsScreen({ navigation, route }: Props) {
       }
       return;
     }
-
-    if (!activeWallet || !recipient || !amount) return;
-    if (!isValidEvmAddress(recipient)) return;
-    
-    const parsedAmount = parseFloat(amount);
-    if (isNaN(parsedAmount) || parsedAmount <= 0) return;
-
-    setGasLoading(true);
-    setGasError(null);
-
-    try {
-      let estimate: GasEstimate;
-      
-      if (params.isNative) {
-        estimate = await estimateNativeGas(
-          params.chainId,
-          evmAddress as `0x${string}`,
-          recipient as `0x${string}`,
-          amount
-        );
-      } else {
-        estimate = await estimateERC20Gas(
-          params.chainId,
-          evmAddress as `0x${string}`,
-          params.tokenAddress as `0x${string}`,
-          recipient as `0x${string}`,
-          amount,
-          params.decimals
-        );
-      }
-
-      setGasEstimate(estimate);
-    } catch (error) {
-      console.error("Gas estimation failed:", error);
-      setGasError("Could not estimate fee. Transaction may fail.");
-    } finally {
-      setGasLoading(false);
-    }
-  }, [activeWallet, recipient, amount, params, evmAddress]);
+  }, [activeWallet, recipient, amount, params]);
 
   useEffect(() => {
     const timeout = setTimeout(() => {
@@ -205,10 +172,7 @@ export default function SendDetailsScreen({ navigation, route }: Props) {
   }, [estimateGas]);
 
   const isValidAddress = (addr: string) => {
-    if (params.chainType === "solana") {
-      return isValidSolanaAddress(addr);
-    }
-    return isValidEvmAddress(addr);
+    return isValidSolanaAddress(addr);
   };
 
   const risk = useMemo((): RiskAssessment => {
@@ -251,7 +215,7 @@ export default function SendDetailsScreen({ navigation, route }: Props) {
     }
 
     if (!isValidAddress(recipient)) {
-      reasons.push(`Invalid ${params.chainType === "solana" ? "Solana" : "EVM"} address format`);
+      reasons.push("Invalid Solana address format");
       level = "high";
       canProceed = false;
       return { level, reasons, canProceed };
@@ -398,38 +362,6 @@ export default function SendDetailsScreen({ navigation, route }: Props) {
           setIsSending(false);
           return;
         }
-      } else {
-        if (params.isNative) {
-          result = await sendNative({
-            chainId: params.chainId,
-            walletId: activeWallet.id,
-            to: recipient as `0x${string}`,
-            amountNative: amount,
-          });
-        } else {
-          result = await sendERC20({
-            chainId: params.chainId,
-            walletId: activeWallet.id,
-            tokenAddress: params.tokenAddress as `0x${string}`,
-            tokenDecimals: params.decimals,
-            to: recipient as `0x${string}`,
-            amount,
-          });
-        }
-
-        await saveTransaction({
-          chainId: params.chainId,
-          walletAddress: evmAddress,
-          hash: result.hash,
-          type: params.isNative ? "native" : "erc20",
-          activityType: "send",
-          tokenAddress: params.tokenAddress,
-          tokenSymbol: params.tokenSymbol,
-          to: recipient,
-          amount,
-          priceUsd: params.priceUsd,
-          explorerUrl: result.explorerUrl,
-        });
       }
 
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -652,13 +584,7 @@ export default function SendDetailsScreen({ navigation, route }: Props) {
   };
 
   const getNetworkName = () => {
-    if (params.chainType === "solana") return "Solana";
-    switch (params.chainId) {
-      case 1: return "Ethereum";
-      case 137: return "Polygon";
-      case 56: return "BNB Chain";
-      default: return "EVM";
-    }
+    return "Solana";
   };
 
   const handleScamModalClose = () => {

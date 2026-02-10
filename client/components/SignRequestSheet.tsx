@@ -30,10 +30,16 @@ import {
   getChainName,
 } from "@/lib/walletconnect/handlers";
 import { getChainById } from "@/lib/blockchain/chains";
-import { formatAllowance } from "@/lib/approvals/firewall";
-import { getSpenderLabel } from "@/lib/approvals/spenders";
 import { decodeSolanaTransaction, decodeSolanaTransactions, DecodedSolanaTransaction } from "@/lib/solana/decoder";
 import { analyzeSignMessage, RiskLevel } from "@/lib/walletconnect/message-analyzer";
+
+// Stubs for removed EVM approval modules (EVM disabled in Phase I)
+function formatAllowance(amountRaw: string, decimals: number, symbol: string): string {
+  return amountRaw;
+}
+function getSpenderLabel(chainId: number, spender: string): string | null {
+  return null;
+}
 
 interface Props {
   visible: boolean;

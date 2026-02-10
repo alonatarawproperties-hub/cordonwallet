@@ -14,23 +14,19 @@ import { Spacing, BorderRadius } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
 import { useWallet } from "@/lib/wallet-context";
-import { useAllChainsPortfolio, MultiChainAsset } from "@/hooks/useAllChainsPortfolio";
 import { useSolanaPortfolio, SolanaAsset } from "@/hooks/useSolanaPortfolio";
 import { getCustomTokens, CustomToken } from "@/lib/token-preferences";
 import { getTokenLogoUrl as getStandardTokenLogo } from "@/lib/token-logos";
-import { ChainBadge } from "@/components/ChainBadge";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
-import { FEATURES } from "@/config/features";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Receive">;
 
 interface UnifiedAsset {
   symbol: string;
   name: string;
-  chainId: number | string;
+  chainId: string;
   chainName: string;
-  chainType: "evm" | "solana";
-  address?: string;
+  chainType: "solana";
   mint?: string;
   logoUrl?: string;
 }
@@ -42,48 +38,18 @@ interface ChainFilter {
   logoUrl?: string;
 }
 
-const ALL_CHAIN_FILTERS: (ChainFilter & { isEvm?: boolean })[] = [
+const CHAIN_FILTERS: ChainFilter[] = [
   { id: "all", name: "All", color: "#22C55E" },
-  { id: "ethereum", name: "ETH", color: "#627EEA", logoUrl: "https://assets.coingecko.com/coins/images/279/small/ethereum.png", isEvm: true },
-  { id: "polygon", name: "POL", color: "#8247E5", logoUrl: "https://coin-images.coingecko.com/coins/images/32440/small/polygon.png", isEvm: true },
-  { id: "bsc", name: "BNB", color: "#F0B90B", logoUrl: "https://assets.coingecko.com/coins/images/825/small/bnb-icon2_2x.png", isEvm: true },
-  { id: "arbitrum", name: "ARB", color: "#28A0F0", logoUrl: "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/arbitrum/info/logo.png", isEvm: true },
-  { id: "base", name: "BASE", color: "#0052FF", logoUrl: "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/base/info/logo.png", isEvm: true },
-  { id: "solana", name: "SOL", color: "#9945FF", logoUrl: "https://assets.coingecko.com/coins/images/4128/small/solana.png", isEvm: false },
+  { id: "solana", name: "SOL", color: "#9945FF", logoUrl: "https://assets.coingecko.com/coins/images/4128/small/solana.png" },
 ];
 
-const CHAIN_FILTERS: ChainFilter[] = ALL_CHAIN_FILTERS.filter(f =>
-  f.isEvm === undefined || (FEATURES.EVM_ENABLED && f.isEvm) || (FEATURES.SOLANA_ENABLED && !f.isEvm)
-);
-
-function getChainFilterKey(chainId: number | string): string {
-  if (chainId === "solana" || chainId === 0) return "solana";
-  switch (chainId) {
-    case 1:
-    case 11155111:
-      return "ethereum";
-    case 137:
-    case 80002:
-      return "polygon";
-    case 56:
-    case 97:
-      return "bsc";
-    case 42161:
-      return "arbitrum";
-    case 8453:
-      return "base";
-    default:
-      return String(chainId);
-  }
+function getChainFilterKey(chainId: string): string {
+  if (chainId === "solana") return "solana";
+  return chainId;
 }
 
 function getChainColor(chainName: string): string {
   const colors: Record<string, string> = {
-    "Ethereum": "#627EEA",
-    "Polygon": "#8247E5",
-    "BNB Chain": "#F0B90B",
-    "Arbitrum": "#12AAFF",
-    "Base": "#0052FF",
     "Solana": "#9945FF",
   };
   return colors[chainName] || "#6B7280";
@@ -121,9 +87,7 @@ export default function ReceiveScreen({ navigation, route }: Props) {
   const [selectedAsset, setSelectedAsset] = useState<UnifiedAsset | null>(null);
   const [copiedAddress, setCopiedAddress] = useState(false);
 
-  const evmAddress = route.params.walletAddress;
   const solanaAddress = route.params.solanaAddress || activeWallet?.addresses?.solana || "";
-  const isSolanaOnly = activeWallet?.walletType === "solana-only";
   const preselectedToken = route.params.preselectedToken;
 
   // Auto-select preselected token on mount
@@ -135,16 +99,12 @@ export default function ReceiveScreen({ navigation, route }: Props) {
         chainId: preselectedToken.chainId,
         chainName: preselectedToken.chainName,
         chainType: preselectedToken.chainType,
-        address: preselectedToken.address,
         mint: preselectedToken.mint,
         logoUrl: preselectedToken.logoUrl,
       });
     }
   }, [preselectedToken]);
 
-  const { assets: evmAssets, isLoading: evmLoading } = useAllChainsPortfolio(
-    isSolanaOnly ? undefined : evmAddress || undefined
-  );
   const { assets: solanaAssets, isLoading: solanaLoading } = useSolanaPortfolio(solanaAddress || undefined);
 
   useEffect(() => {
@@ -153,29 +113,9 @@ export default function ReceiveScreen({ navigation, route }: Props) {
     }
   }, [solanaAddress]);
 
-  const showEvmAssets = FEATURES.EVM_ENABLED && !isSolanaOnly;
-  
   const unifiedAssets = useMemo((): UnifiedAsset[] => {
     const assets: UnifiedAsset[] = [];
     const seen = new Set<string>();
-
-    if (showEvmAssets) {
-      evmAssets.forEach((asset: MultiChainAsset) => {
-        const key = `${asset.chainId}-${asset.symbol}`;
-        if (!seen.has(key)) {
-          seen.add(key);
-          assets.push({
-            symbol: asset.symbol,
-            name: asset.name,
-            chainId: asset.chainId,
-            chainName: asset.chainName,
-            chainType: "evm",
-            address: asset.address,
-            logoUrl: asset.logoURI,
-          });
-        }
-      });
-    }
 
     solanaAssets.forEach((asset: SolanaAsset) => {
       const key = `solana-${asset.mint || "native"}`;
@@ -194,7 +134,7 @@ export default function ReceiveScreen({ navigation, route }: Props) {
     });
 
     return assets;
-  }, [evmAssets, solanaAssets, showEvmAssets]);
+  }, [solanaAssets]);
 
   const filteredAssets = useMemo(() => {
     let filtered = unifiedAssets;
@@ -229,8 +169,8 @@ export default function ReceiveScreen({ navigation, route }: Props) {
     return counts;
   }, [unifiedAssets]);
 
-  const getAddressForAsset = (asset: UnifiedAsset): string => {
-    return asset.chainType === "solana" ? solanaAddress : evmAddress;
+  const getAddressForAsset = (_asset: UnifiedAsset): string => {
+    return solanaAddress;
   };
 
   const handleCopyAddress = async (asset: UnifiedAsset) => {
@@ -246,7 +186,7 @@ export default function ReceiveScreen({ navigation, route }: Props) {
     setSelectedAsset(asset);
   };
 
-  const isLoading = evmLoading || solanaLoading;
+  const isLoading = solanaLoading;
 
   const renderChainFilter = (filter: ChainFilter) => {
     const isSelected = selectedFilter === filter.id;
@@ -286,14 +226,6 @@ export default function ReceiveScreen({ navigation, route }: Props) {
     const logoUrl = getTokenLogoUrl(item, customTokens);
     const walletAddress = getAddressForAsset(item);
 
-    const badgeChainId: any = item.chainId ?? null;
-    const numericChainId = typeof badgeChainId === "string" ? Number(badgeChainId) : (badgeChainId as number | null);
-    const isSolana = badgeChainId === 0 || badgeChainId === "solana" || item.chainType === "solana";
-    const isPolygon = numericChainId === 137;
-    const isBsc = numericChainId === 56;
-    const isArb = numericChainId === 42161;
-    const shouldShowBadge = !isSolana && (isPolygon || isBsc || isArb);
-
     return (
       <View style={[styles.tokenRow, { borderBottomColor: theme.border }]}>
         <View style={styles.tokenLeft}>
@@ -307,11 +239,6 @@ export default function ReceiveScreen({ navigation, route }: Props) {
                 </ThemedText>
               )}
             </View>
-            {shouldShowBadge ? (
-              <View style={styles.badgePos}>
-                <ChainBadge chainId={badgeChainId} size={14} />
-              </View>
-            ) : null}
           </View>
           <View style={styles.tokenInfo}>
             <View style={styles.tokenNameRow}>
@@ -402,14 +329,12 @@ export default function ReceiveScreen({ navigation, route }: Props) {
               </ThemedText>
             </View>
 
-            {selectedAsset.chainType === "solana" ? (
-              <View style={[styles.warningBox, { backgroundColor: theme.warning + "15" }]}>
-                <Feather name="alert-triangle" size={16} color={theme.warning} />
-                <ThemedText type="caption" style={{ color: theme.warning, flex: 1 }}>
-                  Only send Solana (SOL) and SPL tokens to this address
-                </ThemedText>
-              </View>
-            ) : null}
+            <View style={[styles.warningBox, { backgroundColor: theme.warning + "15" }]}>
+              <Feather name="alert-triangle" size={16} color={theme.warning} />
+              <ThemedText type="caption" style={{ color: theme.warning, flex: 1 }}>
+                Only send Solana (SOL) and SPL tokens to this address
+              </ThemedText>
+            </View>
 
             <Pressable
               style={[styles.copyButton, { backgroundColor: theme.accent }]}
@@ -484,7 +409,7 @@ export default function ReceiveScreen({ navigation, route }: Props) {
           <FlatList
             data={filteredAssets}
             renderItem={renderTokenItem}
-            keyExtractor={(item) => `${item.chainId}-${item.symbol}-${item.address || item.mint || "native"}`}
+            keyExtractor={(item) => `${item.chainId}-${item.symbol}-${item.mint || "native"}`}
             contentContainerStyle={{ paddingBottom: insets.bottom + Spacing.xl }}
             showsVerticalScrollIndicator={false}
             ListEmptyComponent={
@@ -581,11 +506,6 @@ const styles = StyleSheet.create({
     height: 40,
     justifyContent: "center",
     alignItems: "center",
-  },
-  badgePos: {
-    position: "absolute",
-    right: -2,
-    bottom: -2,
   },
   tokenIcon: {
     width: 40,

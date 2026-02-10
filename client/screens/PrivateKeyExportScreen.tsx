@@ -13,7 +13,8 @@ import { ThemedText } from "@/components/ThemedText";
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius } from "@/constants/theme";
 import { getMnemonic } from "@/lib/wallet-engine";
-import { deriveEvmPrivateKey, deriveSolanaPrivateKey } from "@/lib/blockchain/keys";
+import { deriveSolanaKeypair } from "@/lib/solana/keys";
+import bs58 from "bs58";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 
 type Props = NativeStackScreenProps<RootStackParamList, "PrivateKeyExport">;
@@ -23,10 +24,8 @@ export default function PrivateKeyExportScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
   const { theme } = useTheme();
-  const [evmPrivateKey, setEvmPrivateKey] = useState<string | null>(null);
   const [solanaPrivateKey, setSolanaPrivateKey] = useState<string | null>(null);
   const [isRevealed, setIsRevealed] = useState(false);
-  const [copiedEvm, setCopiedEvm] = useState(false);
   const [copiedSolana, setCopiedSolana] = useState(false);
   const [timeLeft, setTimeLeft] = useState(60);
   const clipboardTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -81,13 +80,11 @@ export default function PrivateKeyExportScreen({ navigation, route }: Props) {
 
       const mnemonic = await getMnemonic(walletId);
       if (mnemonic) {
-        const evmKey = deriveEvmPrivateKey(mnemonic);
-        const solanaKey = deriveSolanaPrivateKey(mnemonic);
-        setEvmPrivateKey(evmKey);
-        setSolanaPrivateKey(solanaKey);
+        const keypair = deriveSolanaKeypair(mnemonic);
+        setSolanaPrivateKey(bs58.encode(keypair.secretKey));
         setIsRevealed(true);
       } else {
-        Alert.alert("Error", "Could not retrieve private keys. Please unlock your wallet first.");
+        Alert.alert("Error", "Could not retrieve private key. Please unlock your wallet first.");
         navigation.goBack();
       }
     } catch (error) {
@@ -96,16 +93,6 @@ export default function PrivateKeyExportScreen({ navigation, route }: Props) {
       navigation.goBack();
     }
   };
-
-  const handleCopyEvm = useCallback(async () => {
-    if (!evmPrivateKey) return;
-    
-    await Clipboard.setStringAsync(evmPrivateKey);
-    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    setCopiedEvm(true);
-    setTimeout(() => setCopiedEvm(false), 3000);
-    scheduleClipboardClear();
-  }, [evmPrivateKey, scheduleClipboardClear]);
 
   const handleCopySolana = useCallback(async () => {
     if (!solanaPrivateKey) return;
@@ -148,44 +135,6 @@ export default function PrivateKeyExportScreen({ navigation, route }: Props) {
           {walletName}
         </ThemedText>
 
-        {evmPrivateKey ? (
-          <View style={[styles.keyCard, { backgroundColor: theme.backgroundSecondary }]}>
-            <View style={styles.keyHeader}>
-              <View style={[styles.chainDot, { backgroundColor: "#627EEA" }]} />
-              <ThemedText type="body" style={styles.chainName}>
-                EVM Networks
-              </ThemedText>
-              <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                ETH, Polygon, BSC, ARB, Base
-              </ThemedText>
-            </View>
-            <View style={[styles.keyBox, { backgroundColor: theme.backgroundRoot }]}>
-              <ThemedText type="small" style={[styles.keyText, { color: theme.text }]} selectable>
-                {evmPrivateKey}
-              </ThemedText>
-            </View>
-            <Pressable
-              onPress={handleCopyEvm}
-              style={styles.copyRow}
-              accessibilityRole="button"
-              accessibilityLabel="Copy EVM private key"
-              accessibilityHint="Copies your EVM private key to the clipboard"
-            >
-              <Feather 
-                name={copiedEvm ? "check" : "copy"} 
-                size={14} 
-                color={copiedEvm ? theme.success : theme.accent} 
-              />
-              <ThemedText 
-                type="small" 
-                style={[styles.copyText, { color: copiedEvm ? theme.success : theme.accent }]}
-              >
-                {copiedEvm ? "Copied" : "Copy"}
-              </ThemedText>
-            </Pressable>
-          </View>
-        ) : null}
-
         {solanaPrivateKey ? (
           <View style={[styles.keyCard, { backgroundColor: theme.backgroundSecondary }]}>
             <View style={styles.keyHeader}>
@@ -227,7 +176,7 @@ export default function PrivateKeyExportScreen({ navigation, route }: Props) {
         <View style={styles.infoRow}>
           <Feather name="info" size={14} color={theme.textSecondary} />
           <ThemedText type="small" style={[styles.infoText, { color: theme.textSecondary }]}>
-            Use these keys to import your wallet into other apps. Each blockchain requires its specific key format.
+            Use this key to import your wallet into other apps.
           </ThemedText>
         </View>
       </ScrollView>

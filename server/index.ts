@@ -4,7 +4,7 @@ import cookieParser from "cookie-parser";
 import crypto from "crypto";
 import { registerRoutes } from "./routes";
 import { registerCordonAuthRoutes } from "./cordon-auth";
-import { registerEvmRoutes } from "./evm-api";
+
 import { swapRouter } from "./swap";
 import { registerAdminRoutes } from "./admin";
 import { activityLoggerMiddleware } from "./middleware/activityLogger";
@@ -360,9 +360,6 @@ function setupErrorHandler(app: express.Application) {
   // Auth routes must be registered BEFORE static file serving
   // to prevent Expo SPA from intercepting /auth/* paths
   registerCordonAuthRoutes(app);
-
-  // EVM API routes (token discovery, security, approvals)
-  registerEvmRoutes(app);
 
   // Swap API routes
   app.use("/api/swap", swapRouter);

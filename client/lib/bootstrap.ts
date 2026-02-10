@@ -4,7 +4,6 @@ import * as Font from "expo-font";
 import { hasVault, isUnlocked, getActiveWallet } from "./wallet-engine";
 import { initWalletConnect, getActiveSessions } from "./walletconnect/client";
 import { supportedChains, getDefaultChain } from "./blockchain/chains";
-import { createPublicClient, http } from "viem";
 import { getApiUrl, getApiHeaders } from "./query-client";
 import { prefetchPortfolioCache } from "./portfolio-cache";
 
@@ -180,9 +179,8 @@ async function prefetchPortfolioCacheData(
   try {
     const activeWallet = await getActiveWallet();
     if (activeWallet?.addresses) {
-      const evmAddress = activeWallet.addresses.evm;
       const solanaAddress = activeWallet.addresses.solana;
-      await prefetchPortfolioCache(evmAddress, solanaAddress);
+      await prefetchPortfolioCache(solanaAddress);
     }
   } catch (error) {
     console.warn("[Bootstrap] Portfolio prefetch failed:", error);
@@ -197,28 +195,6 @@ async function pingLastSelectedRPC(
 ): Promise<DegradedInfo[]> {
   onProgress("pingRPC", 0);
   const degraded: DegradedInfo[] = [];
-
-  try {
-    const chainId = settings.lastChainId || getDefaultChain().chainId;
-    const chain = supportedChains.find((c) => c.chainId === chainId) || getDefaultChain();
-
-    const client = createPublicClient({
-      chain: chain.viemChain,
-      transport: http(chain.rpcUrl),
-    });
-
-    const blockNumber = await withTimeout(
-      client.getBlockNumber(),
-      STEP_TIMEOUTS.pingRPC,
-      null
-    );
-
-    if (blockNumber === null) {
-      degraded.push({ chainKey: chain.name, reason: "RPC timeout" });
-    }
-  } catch (error: any) {
-    degraded.push({ chainKey: "EVM", reason: error.message || "RPC error" });
-  }
 
   try {
     // Use backend health endpoint instead of direct RPC (avoids CORS/access issues)

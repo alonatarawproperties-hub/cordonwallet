@@ -158,14 +158,9 @@ function formatTxAmount(amount: string | number): string {
 
 function getChainColor(chainName: string): string {
   const colorMap: Record<string, string> = {
-    Ethereum: "#627EEA",
-    Polygon: "#8247E5",
-    "BNB Chain": "#F3BA2F",
-    Arbitrum: "#12AAFF",
-    Base: "#0052FF",
     Solana: "#9945FF",
   };
-  return colorMap[chainName] || "#888";
+  return colorMap[chainName] || "#9945FF";
 }
 
 export default function AssetDetailScreen({ route }: Props) {
@@ -327,110 +322,101 @@ export default function AssetDetailScreen({ route }: Props) {
     try {
       let allTxs: TxRecord[] = [];
       
-      if (chainId === 0) {
-        const solanaAddr = activeWallet.addresses?.solana || "";
-        if (solanaAddr) {
-          // Fetch from blockchain API for Solana transaction history
-          try {
-            const apiUrl = getApiUrl();
-            const url = new URL(`/api/solana/history/${solanaAddr}`, apiUrl);
-            url.searchParams.set("limit", "30");
-            const response = await fetch(url.toString(), { headers: getApiHeaders() });
+      const solanaAddr = activeWallet.addresses?.solana || "";
+      if (solanaAddr) {
+        // Fetch from blockchain API for Solana transaction history
+        try {
+          const apiUrl = getApiUrl();
+          const url = new URL(`/api/solana/history/${solanaAddr}`, apiUrl);
+          url.searchParams.set("limit", "30");
+          const response = await fetch(url.toString(), { headers: getApiHeaders() });
 
-            if (response.ok) {
-              const solanaHistory = await response.json();
-              // Convert Solana API response to TxRecord format and filter by token
-              allTxs = solanaHistory
-                .filter((tx: any) => {
-                  // For native SOL viewing
-                  if (isNative && tx.tokenSymbol === "SOL") return true;
-                  // For swaps involving SOL, check swapInfo
-                  if (isNative && tx.type === "swap" && tx.swapInfo) {
-                    return tx.swapInfo.fromSymbol === "SOL" || tx.swapInfo.toSymbol === "SOL";
+          if (response.ok) {
+            const solanaHistory = await response.json();
+            // Convert Solana API response to TxRecord format and filter by token
+            allTxs = solanaHistory
+              .filter((tx: any) => {
+                // For native SOL viewing
+                if (isNative && tx.tokenSymbol === "SOL") return true;
+                // For swaps involving SOL, check swapInfo
+                if (isNative && tx.type === "swap" && tx.swapInfo) {
+                  return tx.swapInfo.fromSymbol === "SOL" || tx.swapInfo.toSymbol === "SOL";
+                }
+                // For SPL token viewing - match by mint address
+                if (!isNative && address && tx.tokenMint === address) return true;
+                // For SPL token - check swapInfo for token involvement
+                if (!isNative && tx.type === "swap" && tx.swapInfo) {
+                  return tx.swapInfo.fromSymbol === tokenSymbol || tx.swapInfo.toSymbol === tokenSymbol;
+                }
+                if (!isNative && tx.tokenSymbol === tokenSymbol) return true;
+                return false;
+              })
+              .map((tx: any) => {
+                // Determine activity type correctly for swaps
+                let activityType: "send" | "receive" | "swap" = "send";
+                let displayAmount = tx.amount || "0";
+                let displaySymbol = tx.tokenSymbol || tokenSymbol;
+
+                if (tx.type === "swap" && tx.swapInfo) {
+                  activityType = "swap";
+                  // Determine if user received or sent the token being viewed
+                  const viewingSymbol = isNative ? "SOL" : tokenSymbol;
+                  if (tx.swapInfo.toSymbol === viewingSymbol) {
+                    // User received this token in the swap
+                    displayAmount = tx.swapInfo.toAmount;
+                    displaySymbol = tx.swapInfo.toSymbol;
+                  } else if (tx.swapInfo.fromSymbol === viewingSymbol) {
+                    // User sent this token in the swap
+                    displayAmount = tx.swapInfo.fromAmount;
+                    displaySymbol = tx.swapInfo.fromSymbol;
                   }
-                  // For SPL token viewing - match by mint address
-                  if (!isNative && address && tx.tokenMint === address) return true;
-                  // For SPL token - check swapInfo for token involvement
-                  if (!isNative && tx.type === "swap" && tx.swapInfo) {
-                    return tx.swapInfo.fromSymbol === tokenSymbol || tx.swapInfo.toSymbol === tokenSymbol;
-                  }
-                  if (!isNative && tx.tokenSymbol === tokenSymbol) return true;
-                  return false;
-                })
-                .map((tx: any) => {
-                  // Determine activity type correctly for swaps
-                  let activityType: "send" | "receive" | "swap" = "send";
-                  let displayAmount = tx.amount || "0";
-                  let displaySymbol = tx.tokenSymbol || tokenSymbol;
-                  
-                  if (tx.type === "swap" && tx.swapInfo) {
-                    activityType = "swap";
-                    // Determine if user received or sent the token being viewed
-                    const viewingSymbol = isNative ? "SOL" : tokenSymbol;
-                    if (tx.swapInfo.toSymbol === viewingSymbol) {
-                      // User received this token in the swap
-                      displayAmount = tx.swapInfo.toAmount;
-                      displaySymbol = tx.swapInfo.toSymbol;
-                    } else if (tx.swapInfo.fromSymbol === viewingSymbol) {
-                      // User sent this token in the swap
-                      displayAmount = tx.swapInfo.fromAmount;
-                      displaySymbol = tx.swapInfo.fromSymbol;
-                    }
-                  } else if (tx.type === "send") {
-                    activityType = "send";
-                  } else if (tx.type === "receive") {
-                    activityType = "receive";
-                  }
-                  
-                  return {
-                    id: tx.signature,
-                    hash: tx.signature,
-                    chainId: 0,
-                    activityType,
-                    tokenSymbol: displaySymbol,
-                    tokenAddress: tx.tokenMint || address,
-                    amount: displayAmount,
-                    from: tx.from || "",
-                    to: tx.to || "",
-                    status: tx.err ? "failed" : "confirmed",
-                    createdAt: tx.blockTime ? tx.blockTime * 1000 : Date.now(),
-                    explorerUrl: `https://solscan.io/tx/${tx.signature}`,
-                    walletAddress: activeWallet?.addresses?.solana || "",
-                    type: tx.type || "transfer",
-                    swapInfo: tx.swapInfo,
-                  } as TxRecord;
-                });
-            }
-          } catch (apiError) {
-            console.error("Failed to fetch Solana history from API:", apiError);
+                } else if (tx.type === "send") {
+                  activityType = "send";
+                } else if (tx.type === "receive") {
+                  activityType = "receive";
+                }
+
+                return {
+                  id: tx.signature,
+                  hash: tx.signature,
+                  chainId: 0,
+                  activityType,
+                  tokenSymbol: displaySymbol,
+                  tokenAddress: tx.tokenMint || address,
+                  amount: displayAmount,
+                  from: tx.from || "",
+                  to: tx.to || "",
+                  status: tx.err ? "failed" : "confirmed",
+                  createdAt: tx.blockTime ? tx.blockTime * 1000 : Date.now(),
+                  explorerUrl: `https://solscan.io/tx/${tx.signature}`,
+                  walletAddress: activeWallet?.addresses?.solana || "",
+                  type: tx.type || "transfer",
+                  swapInfo: tx.swapInfo,
+                } as TxRecord;
+              });
           }
-          
-          // Also merge with local transactions for pending/recent ones
-          const localTxs = await getTransactionsByWallet(solanaAddr);
-          const localFiltered = localTxs.filter(tx => 
-            tx.chainId === 0 && 
-            (tx.tokenSymbol === tokenSymbol || 
-             (address && tx.tokenAddress?.toLowerCase() === address.toLowerCase()))
-          );
-          
-          // Merge and dedupe by hash
-          const seenHashes = new Set(allTxs.map(tx => tx.hash));
-          for (const localTx of localFiltered) {
-            if (!seenHashes.has(localTx.hash)) {
-              allTxs.push(localTx);
-            }
-          }
-          
-          // Sort by timestamp descending
-          allTxs.sort((a, b) => b.createdAt - a.createdAt);
+        } catch (apiError) {
+          console.error("Failed to fetch Solana history from API:", apiError);
         }
-      } else {
-        const history = await fetchTransactionHistory(activeWallet.address, chainId);
-        allTxs = history.filter(tx => {
-          if (tx.tokenSymbol.toUpperCase() === tokenSymbol.toUpperCase()) return true;
-          if (address && tx.tokenAddress?.toLowerCase() === address.toLowerCase()) return true;
-          return false;
-        });
+
+        // Also merge with local transactions for pending/recent ones
+        const localTxs = await getTransactionsByWallet(solanaAddr);
+        const localFiltered = localTxs.filter(tx =>
+          tx.chainId === 0 &&
+          (tx.tokenSymbol === tokenSymbol ||
+           (address && tx.tokenAddress?.toLowerCase() === address.toLowerCase()))
+        );
+
+        // Merge and dedupe by hash
+        const seenHashes = new Set(allTxs.map(tx => tx.hash));
+        for (const localTx of localFiltered) {
+          if (!seenHashes.has(localTx.hash)) {
+            allTxs.push(localTx);
+          }
+        }
+
+        // Sort by timestamp descending
+        allTxs.sort((a, b) => b.createdAt - a.createdAt);
       }
       
       setTransactions(filterTreasuryTransactions(allTxs));
