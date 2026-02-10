@@ -11,7 +11,6 @@ import {
   rejectRequest,
   parseChainId,
   isSolanaChain,
-  shouldRejectProposalForDisabledChains,
   WCSession,
   SessionProposal,
   SessionRequest,
@@ -68,18 +67,9 @@ export function WalletConnectProvider({ children }: { children: React.ReactNode 
           params: proposal.params,
         };
         
-        const rejection = shouldRejectProposalForDisabledChains(sessionProposal);
-        if (rejection) {
-          console.log("[WalletConnect] Rejecting proposal:", rejection.reason);
-          try {
-            await rejectSession(proposal.id);
-          } catch (err) {
-            console.warn("[WalletConnect] Error rejecting session:", err);
-          }
-          setEvmRejectionReason(rejection.reason);
-          return;
-        }
-        
+        // Do not auto-reject proposals based on rollout feature flags.
+        // Let the user explicitly approve/reject from the WalletConnect sheet.
+        setEvmRejectionReason(null);
         setCurrentProposal(sessionProposal);
       });
 
