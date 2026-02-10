@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
-import { View, StyleSheet, Pressable, FlatList, TextInput, ScrollView, Alert, ActivityIndicator } from "react-native";
+import { View, StyleSheet, Pressable, FlatList, TextInput, ScrollView, ActivityIndicator } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
@@ -12,12 +12,10 @@ import { Spacing, BorderRadius } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
 import { useWallet } from "@/lib/wallet-context";
-import { useAllChainsPortfolio, MultiChainAsset } from "@/hooks/useAllChainsPortfolio";
 import { useSolanaPortfolio, SolanaAsset } from "@/hooks/useSolanaPortfolio";
 import { getCustomTokens, CustomToken } from "@/lib/token-preferences";
 import { getTokenLogoUrl as getStandardTokenLogo } from "@/lib/token-logos";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
-import { FEATURES } from "@/config/features";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Send">;
 
@@ -31,7 +29,7 @@ interface UnifiedAsset {
   mint?: string;
   chainId: number | string;
   chainName: string;
-  chainType: "evm" | "solana";
+  chainType: "solana";
   priceUsd?: number;
   valueUsd?: number;
   logoUrl?: string;
@@ -44,48 +42,18 @@ interface ChainFilter {
   logoUrl?: string;
 }
 
-const ALL_CHAIN_FILTERS: (ChainFilter & { isEvm?: boolean })[] = [
+const CHAIN_FILTERS: ChainFilter[] = [
   { id: "all", name: "All", color: "#22C55E" },
-  { id: "ethereum", name: "ETH", color: "#627EEA", logoUrl: "https://assets.coingecko.com/coins/images/279/small/ethereum.png", isEvm: true },
-  { id: "polygon", name: "POL", color: "#8247E5", logoUrl: "https://coin-images.coingecko.com/coins/images/32440/small/polygon.png", isEvm: true },
-  { id: "bsc", name: "BNB", color: "#F0B90B", logoUrl: "https://assets.coingecko.com/coins/images/825/small/bnb-icon2_2x.png", isEvm: true },
-  { id: "arbitrum", name: "ARB", color: "#28A0F0", logoUrl: "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/arbitrum/info/logo.png", isEvm: true },
-  { id: "base", name: "BASE", color: "#0052FF", logoUrl: "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/base/info/logo.png", isEvm: true },
-  { id: "solana", name: "SOL", color: "#9945FF", logoUrl: "https://assets.coingecko.com/coins/images/4128/small/solana.png", isEvm: false },
+  { id: "solana", name: "SOL", color: "#9945FF", logoUrl: "https://assets.coingecko.com/coins/images/4128/small/solana.png" },
 ];
-
-const CHAIN_FILTERS: ChainFilter[] = ALL_CHAIN_FILTERS.filter(f =>
-  f.isEvm === undefined || (FEATURES.EVM_ENABLED && f.isEvm) || (FEATURES.SOLANA_ENABLED && !f.isEvm)
-);
 
 function getChainFilterKey(chainId: number | string): string {
   if (chainId === "solana" || chainId === 0) return "solana";
-  switch (chainId) {
-    case 1:
-    case 11155111:
-      return "ethereum";
-    case 137:
-    case 80002:
-      return "polygon";
-    case 56:
-    case 97:
-      return "bsc";
-    case 42161:
-      return "arbitrum";
-    case 8453:
-      return "base";
-    default:
-      return String(chainId);
-  }
+  return String(chainId);
 }
 
 function getChainColor(chainName: string): string {
   const colors: Record<string, string> = {
-    "Ethereum": "#627EEA",
-    "Polygon": "#8247E5",
-    "BNB Chain": "#F0B90B",
-    "Arbitrum": "#12AAFF",
-    "Base": "#0052FF",
     "Solana": "#9945FF",
   };
   return colors[chainName] || "#6B7280";
@@ -136,16 +104,8 @@ export default function SendScreen({ navigation, route }: Props) {
     }
   }, [presetAsset?.symbol]);
 
-  const evmAddress = activeWallet?.addresses?.evm || activeWallet?.address || "";
   const solanaAddress = activeWallet?.addresses?.solana || "";
-  const isSolanaOnly = activeWallet?.walletType === "solana-only";
 
-  const {
-    assets: evmAssets,
-    isLoading: evmLoading,
-    error: evmError,
-    refresh: refreshEvmAssets,
-  } = useAllChainsPortfolio(isSolanaOnly ? undefined : evmAddress || undefined);
   const {
     assets: solanaAssets,
     isLoading: solanaLoading,
@@ -159,29 +119,8 @@ export default function SendScreen({ navigation, route }: Props) {
     }
   }, [solanaAddress]);
 
-  const showEvmAssets = FEATURES.EVM_ENABLED && !isSolanaOnly;
-  
   const unifiedAssets = useMemo((): UnifiedAsset[] => {
     const assets: UnifiedAsset[] = [];
-
-    if (showEvmAssets) {
-      evmAssets.forEach((asset: MultiChainAsset) => {
-        assets.push({
-          symbol: asset.symbol,
-          name: asset.name,
-          balance: asset.balance,
-          decimals: asset.decimals,
-          isNative: asset.isNative,
-          address: asset.address,
-          chainId: asset.chainId,
-          chainName: asset.chainName,
-          chainType: "evm",
-          priceUsd: asset.priceUsd,
-          valueUsd: asset.valueUsd,
-          logoUrl: asset.logoURI,
-        });
-      });
-    }
 
     solanaAssets.forEach((asset: SolanaAsset) => {
       assets.push({
@@ -203,7 +142,7 @@ export default function SendScreen({ navigation, route }: Props) {
     assets.sort((a, b) => (b.valueUsd || 0) - (a.valueUsd || 0));
 
     return assets;
-  }, [evmAssets, solanaAssets, showEvmAssets]);
+  }, [solanaAssets]);
 
   const filteredAssets = useMemo(() => {
     let filtered = unifiedAssets;
@@ -254,11 +193,10 @@ export default function SendScreen({ navigation, route }: Props) {
     });
   };
 
-  const isLoading = evmLoading || solanaLoading;
-  const errorMessage = evmError || solanaError;
+  const isLoading = solanaLoading;
+  const errorMessage = solanaError;
 
   const handleRetry = () => {
-    refreshEvmAssets();
     refreshSolanaAssets();
   };
 

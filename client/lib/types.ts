@@ -1,5 +1,5 @@
-export type NetworkId = "ethereum" | "polygon" | "bsc" | "arbitrum" | "base" | "solana";
-export type ChainType = "evm" | "solana";
+export type NetworkId = "solana";
+export type ChainType = "solana";
 
 export interface Network {
   id: NetworkId;
@@ -64,18 +64,6 @@ export interface Transaction {
   gasFee?: string;
 }
 
-export interface Approval {
-  id: string;
-  tokenSymbol: string;
-  tokenAddress: string;
-  spenderAddress: string;
-  spenderName?: string;
-  allowance: string;
-  isUnlimited: boolean;
-  networkId: NetworkId;
-  createdAt: number;
-}
-
 export interface PolicySettings {
   blockUnlimitedApprovals: boolean;
   maxSpendPerTransaction: string;
@@ -84,67 +72,7 @@ export interface PolicySettings {
   denylistedAddresses: string[];
 }
 
-export interface FirewallPreview {
-  actionType: "Transfer" | "Approve" | "Swap" | "Contract Interaction";
-  youPay?: { amount: string; symbol: string };
-  youReceive?: { amount: string; symbol: string };
-  destination?: string;
-  spender?: string;
-  approvalAmount?: string;
-  isUnlimitedApproval?: boolean;
-  gasFee: string;
-  riskLevel: "Low" | "Medium" | "High";
-  riskReasons: string[];
-  policyResult: "Allowed" | "Blocked";
-  policyReason?: string;
-}
-
 export const NETWORKS: Record<NetworkId, Network> = {
-  ethereum: {
-    id: "ethereum",
-    name: "Ethereum",
-    chainId: 1,
-    rpcUrl: "https://eth.llamarpc.com",
-    explorerUrl: "https://etherscan.io",
-    nativeSymbol: "ETH",
-    color: "#627EEA",
-  },
-  polygon: {
-    id: "polygon",
-    name: "Polygon",
-    chainId: 137,
-    rpcUrl: "https://polygon.llamarpc.com",
-    explorerUrl: "https://polygonscan.com",
-    nativeSymbol: "MATIC",
-    color: "#8247E5",
-  },
-  bsc: {
-    id: "bsc",
-    name: "BNB Chain",
-    chainId: 56,
-    rpcUrl: "https://bsc-dataseed.binance.org",
-    explorerUrl: "https://bscscan.com",
-    nativeSymbol: "BNB",
-    color: "#F0B90B",
-  },
-  arbitrum: {
-    id: "arbitrum",
-    name: "Arbitrum",
-    chainId: 42161,
-    rpcUrl: "https://arb1.arbitrum.io/rpc",
-    explorerUrl: "https://arbiscan.io",
-    nativeSymbol: "ETH",
-    color: "#12AAFF",
-  },
-  base: {
-    id: "base",
-    name: "Base",
-    chainId: 8453,
-    rpcUrl: "https://base-rpc.publicnode.com",
-    explorerUrl: "https://basescan.org",
-    nativeSymbol: "ETH",
-    color: "#0052FF",
-  },
   solana: {
     id: "solana",
     name: "Solana",
@@ -157,5 +85,5 @@ export const NETWORKS: Record<NetworkId, Network> = {
 };
 
 export function getChainType(networkId: NetworkId): ChainType {
-  return networkId === "solana" ? "solana" : "evm";
+  return "solana";
 }

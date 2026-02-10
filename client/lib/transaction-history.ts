@@ -1,5 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { getPublicClient } from "@/lib/blockchain/client";
+
 import { getCordonSolTreasury } from "@/constants/treasury";
 
 const STORAGE_KEY = "@cordon/transaction_history";
@@ -123,34 +123,8 @@ export async function clearSolanaTransactions(): Promise<number> {
 }
 
 export async function pollPendingTransactions(): Promise<{ updated: number }> {
-  const transactions = await getTransactionHistory();
-  const pending = transactions.filter((tx) => tx.status === "pending");
-  
-  if (pending.length === 0) {
-    return { updated: 0 };
-  }
-
-  let updatedCount = 0;
-  
-  for (const tx of pending) {
-    try {
-      const publicClient = getPublicClient(tx.chainId);
-      const receipt = await publicClient.getTransactionReceipt({
-        hash: tx.hash as `0x${string}`,
-      });
-      
-      if (receipt) {
-        const newStatus = receipt.status === "success" ? "confirmed" : "failed";
-        await updateTransactionStatus(tx.hash, newStatus);
-        updatedCount++;
-      }
-    } catch (error) {
-      // Transaction not yet mined or RPC error - skip
-      continue;
-    }
-  }
-  
-  return { updated: updatedCount };
+  // EVM polling removed for Phase I (Solana-only)
+  return { updated: 0 };
 }
 
 export function formatTransactionDate(timestamp: number): string {

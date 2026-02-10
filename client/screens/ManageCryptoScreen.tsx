@@ -21,30 +21,34 @@ import { ThemedText } from "@/components/ThemedText";
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing } from "@/constants/theme";
 import { useWallet } from "@/lib/wallet-context";
-import { useAllChainsPortfolio, MultiChainAsset } from "@/hooks/useAllChainsPortfolio";
 import { useSolanaPortfolio } from "@/hooks/useSolanaPortfolio";
 import { getHiddenTokens, hideToken, showToken, getCustomTokens, removeCustomToken, CustomToken, buildCustomTokenMap, clearGlobalCustomTokens } from "@/lib/token-preferences";
 import { supportedChains, ChainConfig } from "@/lib/blockchain/chains";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { getTokenLogoUrl } from "@/lib/token-logos";
-import { ChainBadge } from "@/components/ChainBadge";
-import { FEATURES } from "@/config/features";
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
-const allChainFilters = [
-  { id: "all", name: "All", icon: "globe", color: "#6366F1", isEvm: null },
-  { id: "1", name: "ETH", color: "#627EEA", logoUrl: "https://assets.coingecko.com/coins/images/279/small/ethereum.png", isEvm: true },
-  { id: "137", name: "POL", color: "#8247E5", logoUrl: "https://coin-images.coingecko.com/coins/images/32440/small/polygon.png", isEvm: true },
-  { id: "56", name: "BNB", color: "#F3BA2F", logoUrl: "https://assets.coingecko.com/coins/images/825/small/bnb-icon2_2x.png", isEvm: true },
-  { id: "42161", name: "ARB", color: "#12AAFF", logoUrl: "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/arbitrum/info/logo.png", isEvm: true },
-  { id: "8453", name: "BASE", color: "#0052FF", logoUrl: "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/base/info/logo.png", isEvm: true },
-  { id: "solana", name: "SOL", color: "#9945FF", logoUrl: "https://assets.coingecko.com/coins/images/4128/small/solana.png", isEvm: false },
-];
+type AssetItem = {
+  symbol: string;
+  name: string;
+  chainId: number;
+  chainName: string;
+  isNative: boolean;
+  balance: string;
+  rawBalance: bigint;
+  decimals: number;
+  address?: string;
+  valueUsd?: number;
+  priceUsd?: number;
+  logoURI?: string;
+  logoUrl?: string;
+};
 
-const chainFilters = allChainFilters.filter(f => 
-  f.isEvm === null || (FEATURES.EVM_ENABLED && f.isEvm) || (FEATURES.SOLANA_ENABLED && !f.isEvm)
-);
+const chainFilters = [
+  { id: "all", name: "All", icon: "globe", color: "#6366F1" },
+  { id: "solana", name: "SOL", color: "#9945FF", logoUrl: "https://assets.coingecko.com/coins/images/4128/small/solana.png" },
+];
 
 export default function ManageCryptoScreen() {
   const { theme } = useTheme();
@@ -53,13 +57,8 @@ export default function ManageCryptoScreen() {
   const navigation = useNavigation<NavigationProp>();
   const { activeWallet } = useWallet();
   
-  const walletType = (activeWallet as any)?.walletType || "multi-chain";
-  const evmAddress = activeWallet?.addresses?.evm || activeWallet?.address;
   const solanaAddress = activeWallet?.addresses?.solana;
-  
-  const { assets: evmAssets, isLoading: evmLoading } = useAllChainsPortfolio(
-    walletType === "solana-only" ? undefined : evmAddress
-  );
+
   const { assets: solanaAssets, isLoading: solanaLoading, refresh: refreshSolana } = useSolanaPortfolio(solanaAddress);
   
   const [searchQuery, setSearchQuery] = useState("");
@@ -70,28 +69,24 @@ export default function ManageCryptoScreen() {
   
   const customTokenMap = buildCustomTokenMap(customTokens);
   
-  const showEvmAssets = FEATURES.EVM_ENABLED && walletType !== "solana-only";
-  const assets: MultiChainAsset[] = [
-    ...(showEvmAssets ? evmAssets : []),
-    ...solanaAssets.map(a => {
-      const customToken = a.mint ? customTokenMap.get(a.mint.toLowerCase()) : undefined;
-      return {
-        symbol: customToken?.symbol || a.symbol,
-        name: customToken?.name || a.name,
-        chainId: 0,
-        chainName: "Solana",
-        isNative: a.isNative,
-        balance: a.balance,
-        rawBalance: a.rawBalance,
-        decimals: a.decimals,
-        address: a.mint,
-        valueUsd: a.valueUsd,
-        priceUsd: a.priceUsd,
-        logoUrl: customToken?.logoUrl || a.logoUrl, // Preserve original logo from portfolio
-      };
-    }),
-  ];
-  const isLoading = (showEvmAssets ? evmLoading : false) || solanaLoading;
+  const assets: AssetItem[] = solanaAssets.map(a => {
+    const customToken = a.mint ? customTokenMap.get(a.mint.toLowerCase()) : undefined;
+    return {
+      symbol: customToken?.symbol || a.symbol,
+      name: customToken?.name || a.name,
+      chainId: 0,
+      chainName: "Solana",
+      isNative: a.isNative,
+      balance: a.balance,
+      rawBalance: a.rawBalance,
+      decimals: a.decimals,
+      address: a.mint,
+      valueUsd: a.valueUsd,
+      priceUsd: a.priceUsd,
+      logoUrl: customToken?.logoUrl || a.logoUrl, // Preserve original logo from portfolio
+    };
+  });
+  const isLoading = solanaLoading;
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -170,8 +165,8 @@ export default function ManageCryptoScreen() {
     return supportedChains.find((c: ChainConfig) => c.chainId === chainId)?.name || "Unknown";
   };
 
-  type AssetWithLogo = MultiChainAsset & { logoUrl?: string };
-  
+  type AssetWithLogo = AssetItem & { logoUrl?: string };
+
   const assetsWithLogos: AssetWithLogo[] = assets.map(a => ({ ...a })); // Preserve existing logoUrl
   const customAssetsWithLogos: AssetWithLogo[] = customTokens.map((ct: CustomToken) => ({
     symbol: ct.symbol,
@@ -204,11 +199,6 @@ export default function ManageCryptoScreen() {
   const getChainColor = (chainId: number) => {
     switch (chainId) {
       case 0: return "#9945FF";
-      case 1: return "#627EEA";
-      case 137: return "#8247E5";
-      case 56: return "#F3BA2F";
-      case 42161: return "#28A0F0";
-      case 8453: return "#0052FF";
       default: return theme.textSecondary;
     }
   };
@@ -221,27 +211,18 @@ export default function ManageCryptoScreen() {
     return customToken?.logoUrl;
   };
 
-  const renderAssetItem = ({ item }: { item: MultiChainAsset & { logoUrl?: string } }) => {
+  const renderAssetItem = ({ item }: { item: AssetItem & { logoUrl?: string } }) => {
     const visible = !isHidden(item.chainId, item.symbol);
     const itemIsCustom = isCustomToken(item.chainId, item.address);
     const itemLogoUrl = item.logoURI || item.logoUrl || getCustomTokenLogoUrl(item.chainId, item.address) || getTokenLogoUrl(item.symbol);
-    
-    const badgeChainId: any = item.chainId ?? null;
-    const numericChainId = typeof badgeChainId === "string" ? Number(badgeChainId) : (badgeChainId as number | null);
-    const isSolana = badgeChainId === 0 || badgeChainId === "solana";
-    const isPolygon = numericChainId === 137;
-    const isBsc = numericChainId === 56;
-    const isArb = numericChainId === 42161;
-    const isBase = numericChainId === 8453;
-    const shouldShowBadge = !isSolana && (isPolygon || isBsc || isArb || isBase);
-    
+
     return (
       <View style={[styles.assetRow, { borderBottomColor: theme.border }]}>
         <View style={styles.iconWrap}>
           <View style={[styles.assetIcon, { backgroundColor: getChainColor(item.chainId) + "20" }]}>
             {itemLogoUrl ? (
-              <Image 
-                source={{ uri: itemLogoUrl }} 
+              <Image
+                source={{ uri: itemLogoUrl }}
                 style={styles.tokenLogoImage}
               />
             ) : (
@@ -250,11 +231,6 @@ export default function ManageCryptoScreen() {
               </ThemedText>
             )}
           </View>
-          {shouldShowBadge ? (
-            <View style={styles.badgePos}>
-              <ChainBadge chainId={badgeChainId} size={14} />
-            </View>
-          ) : null}
         </View>
         <View style={styles.assetInfo}>
           <View style={styles.assetNameRow}>

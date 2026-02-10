@@ -19,7 +19,6 @@ import ReceiveScreen from "@/screens/ReceiveScreen";
 import AssetDetailScreen from "@/screens/AssetDetailScreen";
 import TransactionDetailScreen from "@/screens/TransactionDetailScreen";
 import WalletManagerScreen from "@/screens/WalletManagerScreen";
-import ApprovalsScreen from "@/screens/ApprovalsScreen";
 import PolicySettingsScreen from "@/screens/PolicySettingsScreen";
 import SettingsScreen from "@/screens/SettingsScreen";
 import CreateBundleScreen from "@/screens/CreateBundleScreen";
@@ -30,7 +29,6 @@ import ScanQRScreen from "@/screens/ScanQRScreen";
 import WalletConnectScreen from "@/screens/WalletConnectScreen";
 import WCScannerScreen from "@/screens/WCScannerScreen";
 import DemoFlowScreen from "@/screens/DemoFlowScreen";
-import BrowserWebViewScreen from "@/screens/BrowserWebViewScreen";
 import ExportWalletScreen from "@/screens/ExportWalletScreen";
 import SeedPhraseExportScreen from "@/screens/SeedPhraseExportScreen";
 import PrivateKeyExportScreen from "@/screens/PrivateKeyExportScreen";
@@ -69,7 +67,7 @@ export type RootStackParamList = {
     presetAsset?: {
       symbol: string;
       name: string;
-      chainType: "evm" | "solana";
+      chainType: "solana";
       chainId: number;
       decimals: number;
       balance: string;
@@ -80,13 +78,13 @@ export type RootStackParamList = {
       logoUrl?: string;
     };
   } | undefined;
-  Receive: { 
-    walletAddress: string; 
+  Receive: {
+    walletAddress: string;
     solanaAddress?: string;
     preselectedToken?: {
       symbol: string;
       name: string;
-      chainType: "evm" | "solana";
+      chainType: "solana";
       chainId: number | string;
       chainName: string;
       logoUrl?: string;
@@ -105,13 +103,12 @@ export type RootStackParamList = {
     priceUsd?: number;
     valueUsd?: number;
     priceChange24h?: number;
-    chainType?: "evm" | "solana";
+    chainType?: "solana";
     logoUrl?: string;
     decimals: number;
   };
   TransactionDetail: TransactionDetailParams;
   WalletManager: undefined;
-  Approvals: undefined;
   PolicySettings: undefined;
   Settings: undefined;
   CreateBundle: undefined;
@@ -120,7 +117,7 @@ export type RootStackParamList = {
   SendDetails: {
     tokenSymbol: string;
     tokenAddress?: string;
-    chainType: "evm" | "solana";
+    chainType: "solana";
     chainId: number;
     decimals: number;
     balance: string;
@@ -133,7 +130,6 @@ export type RootStackParamList = {
   WalletConnect: undefined;
   WCScanner: undefined;
   DemoFlow: undefined;
-  BrowserWebView: { url: string; title?: string };
   ExportWallet: { walletId: string; walletName: string };
   SeedPhraseExport: { walletId: string; walletName: string };
   PrivateKeyExport: { walletId: string; walletName: string };
@@ -247,11 +243,6 @@ export default function RootStackNavigator() {
         options={{ headerTitle: "Wallets", presentation: "modal" }}
       />
       <Stack.Screen
-        name="Approvals"
-        component={ApprovalsScreen}
-        options={{ headerTitle: "Security", presentation: "modal" }}
-      />
-      <Stack.Screen
         name="PolicySettings"
         component={PolicySettingsScreen}
         options={{ headerTitle: "Policy Settings", presentation: "modal" }}
@@ -307,11 +298,6 @@ export default function RootStackNavigator() {
         name="DemoFlow"
         component={DemoFlowScreen}
         options={{ headerTitle: "Demo Mode", presentation: "modal" }}
-      />
-      <Stack.Screen
-        name="BrowserWebView"
-        component={BrowserWebViewScreen}
-        options={{ headerShown: false, presentation: "fullScreenModal" }}
       />
       <Stack.Screen
         name="ExportWallet"

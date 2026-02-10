@@ -22,36 +22,23 @@ import { useTheme } from "@/hooks/useTheme";
 import { Spacing } from "@/constants/theme";
 import { addCustomToken } from "@/lib/token-preferences";
 import { useWallet } from "@/lib/wallet-context";
-import { supportedChains, ChainConfig } from "@/lib/blockchain/chains";
 import { getApiUrl, getApiHeaders } from "@/lib/query-client";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
 interface NetworkOption {
-  id: number | string;
+  id: number;
   name: string;
   color: string;
 }
 
 function getChainColor(chainId: number): string {
-  switch (chainId) {
-    case 1: return "#627EEA";
-    case 137: return "#8247E5";
-    case 56: return "#F3BA2F";
-    case 42161: return "#12AAFF";
-    case 8453: return "#0052FF";
-    default: return "#888888";
-  }
+  return chainId === 0 ? "#9945FF" : "#888888";
 }
 
 const networkOptions: NetworkOption[] = [
-  ...supportedChains.filter((c: ChainConfig) => !c.isTestnet).map((c: ChainConfig) => ({
-    id: c.chainId,
-    name: c.name,
-    color: getChainColor(c.chainId),
-  })),
-  { id: "solana", name: "Solana", color: "#9945FF" },
+  { id: 0, name: "Solana", color: "#9945FF" },
 ];
 
 export default function ImportTokenScreen() {
@@ -62,7 +49,7 @@ export default function ImportTokenScreen() {
   const { activeWallet } = useWallet();
   const solanaAddress = activeWallet?.addresses?.solana;
 
-  const [selectedNetwork, setSelectedNetwork] = useState<number | string>(137);
+  const [selectedNetwork, setSelectedNetwork] = useState<number>(0);
   const [contractAddress, setContractAddress] = useState("");
   const [name, setName] = useState("");
   const [symbol, setSymbol] = useState("");
@@ -73,7 +60,7 @@ export default function ImportTokenScreen() {
   const [metadataFetched, setMetadataFetched] = useState(false);
   const [showChainPicker, setShowChainPicker] = useState(false);
 
-  const isSolana = selectedNetwork === "solana";
+  const isSolana = selectedNetwork === 0;
   const selectedChain = networkOptions.find(n => n.id === selectedNetwork);
 
   const validateSolanaAddress = useCallback((address: string): boolean => {
@@ -224,7 +211,7 @@ export default function ImportTokenScreen() {
                   onPress={() => {
                     setSelectedNetwork(network.id);
                     setShowChainPicker(false);
-                    if (network.id === "solana") {
+                    if (network.id === 0) {
                       setDecimals("9");
                     } else {
                       setDecimals("18");

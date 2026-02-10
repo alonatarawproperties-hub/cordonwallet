@@ -13,13 +13,9 @@ import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
 import { useWallet } from "@/lib/wallet-context";
-import { useAllChainsPortfolio, MultiChainAsset } from "@/hooks/useAllChainsPortfolio";
 import { useSolanaPortfolio, SolanaAsset } from "@/hooks/useSolanaPortfolio";
-import { FEATURES } from "@/config/features";
-import { formatTimeSince } from "@/hooks/usePortfolio";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { getTokenLogoUrl } from "@/lib/token-logos";
-import type { ChainType } from "@/components/ChainSelector";
 import { getCustomTokens, getHiddenTokens, CustomToken, buildCustomTokenMap } from "@/lib/token-preferences";
 import { savePortfolioDisplayCache } from "@/lib/portfolio-cache";
 import { AnimatedRefreshIndicator } from "@/components/AnimatedRefreshIndicator";
@@ -30,30 +26,29 @@ import type { RiskLevel } from "@/lib/token-security-ui";
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
+function formatTimeSince(timestamp: number): string {
+  const seconds = Math.floor((Date.now() - timestamp) / 1000);
+  if (seconds < 60) return "just now";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
 function getTokenIcon(symbol: string): keyof typeof Feather.glyphMap {
   const iconMap: Record<string, keyof typeof Feather.glyphMap> = {
-    ETH: "hexagon",
-    MATIC: "octagon",
-    POL: "octagon",
-    BNB: "circle",
+    SOL: "sun",
     USDC: "dollar-sign",
     USDT: "dollar-sign",
     DAI: "disc",
-    WBTC: "box",
-    BTCB: "box",
-    WETH: "hexagon",
-    SOL: "sun",
   };
   return iconMap[symbol] || "disc";
 }
 
 function getChainColor(chainName: string): string {
   const colorMap: Record<string, string> = {
-    Ethereum: "#627EEA",
-    Polygon: "#8247E5",
-    "BNB Chain": "#F3BA2F",
-    Arbitrum: "#12AAFF",
-    Base: "#0052FF",
     Solana: "#9945FF",
   };
   return colorMap[chainName] || "#888";
@@ -76,7 +71,7 @@ function formatValue(value: number): string {
   return `$${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-type UnifiedAsset = (MultiChainAsset | SolanaAsset) & { chainType: ChainType };
+type UnifiedAsset = SolanaAsset & { chainType: "solana" };
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
@@ -157,11 +152,6 @@ function AssetRow({
 
   const getChainLogoUrl = (chainName: string): string | null => {
     const chainLogos: Record<string, string> = {
-      "Ethereum": "https://assets.coingecko.com/coins/images/279/small/ethereum.png",
-      "Polygon": "https://coin-images.coingecko.com/coins/images/32440/small/polygon.png",
-      "BNB Chain": "https://assets.coingecko.com/coins/images/825/small/bnb-icon2_2x.png",
-      "Arbitrum": "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/arbitrum/info/logo.png",
-      "Base": "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/base/info/logo.png",
       "Solana": "https://assets.coingecko.com/coins/images/4128/small/solana.png",
     };
     return chainLogos[chainName] || null;
@@ -263,11 +253,8 @@ export default function PortfolioScreen() {
   const [selectedSecurityAsset, setSelectedSecurityAsset] = useState<{ assessment: TokenSecurityAssessment; name: string; symbol: string } | null>(null);
   const [securityModalVisible, setSecurityModalVisible] = useState(false);
 
-  const walletType = activeWallet?.walletType || "multi-chain";
-  const evmAddress = activeWallet?.addresses?.evm || activeWallet?.address;
   const solanaAddress = activeWallet?.addresses?.solana;
 
-  const evmPortfolio = useAllChainsPortfolio(walletType === "solana-only" ? undefined : evmAddress);
   const solanaPortfolio = useSolanaPortfolio(solanaAddress);
   
   useFocusEffect(
@@ -282,13 +269,6 @@ export default function PortfolioScreen() {
   const customTokenMap = buildCustomTokenMap(customTokens);
 
   const { assets, isLoading, isRefreshing, error, lastUpdated, totalValue } = useMemo(() => {
-    const showEvmAssets = FEATURES.EVM_ENABLED && walletType !== "solana-only";
-    const evmAssets: UnifiedAsset[] = showEvmAssets ? evmPortfolio.assets.map((a) => ({
-      ...a,
-      chainType: "evm" as ChainType,
-      logoUrl: a.logoURI,
-    })) : [];
-    
     const solAssets: UnifiedAsset[] = solanaPortfolio.assets.map((a) => {
       const customToken = a.mint ? customTokenMap.get(a.mint.toLowerCase()) : undefined;
       return {
@@ -297,21 +277,16 @@ export default function PortfolioScreen() {
         name: customToken?.name || a.name,
         logoUrl: customToken?.logoUrl || a.logoUrl,
         chainId: 0,
-        chainType: "solana" as ChainType,
+        chainType: "solana" as const,
       };
     });
 
-    const isRefreshingAny = (showEvmAssets ? evmPortfolio.isRefreshing : false) || solanaPortfolio.isRefreshing;
-    const isLoadingAny = (showEvmAssets ? evmPortfolio.isLoading : false) || solanaPortfolio.isLoading;
-
-    const combined = [...evmAssets, ...solAssets];
-    
     let allAssets: UnifiedAsset[];
-    if (isRefreshingAny && stableAssetsRef.current.length > 0) {
+    if (solanaPortfolio.isRefreshing && stableAssetsRef.current.length > 0) {
       const prevOrder = new Map(stableAssetsRef.current.map((a, i) => [
         `${a.chainType}_${a.symbol}_${a.chainId}`, i
       ]));
-      allAssets = combined.map((asset) => {
+      allAssets = solAssets.map((asset) => {
         const key = `${asset.chainType}_${asset.symbol}_${asset.chainId}`;
         const prevAsset = stableAssetsRef.current.find(
           (a) => `${a.chainType}_${a.symbol}_${a.chainId}` === key
@@ -325,14 +300,14 @@ export default function PortfolioScreen() {
         return orderA - orderB;
       });
     } else {
-      allAssets = combined.sort((a, b) => {
+      allAssets = solAssets.sort((a, b) => {
         const valueDiff = (b.valueUsd || 0) - (a.valueUsd || 0);
         if (valueDiff !== 0) return valueDiff;
         if (a.isNative && !b.isNative) return -1;
         if (!a.isNative && b.isNative) return 1;
         return a.symbol.localeCompare(b.symbol);
       });
-      if (!isLoadingAny) {
+      if (!solanaPortfolio.isLoading) {
         stableAssetsRef.current = allAssets;
       }
     }
@@ -342,31 +317,26 @@ export default function PortfolioScreen() {
       // Check if token is hidden
       const tokenKey = `${asset.chainId}:${asset.symbol}`;
       if (hiddenTokens.includes(tokenKey)) return false;
-      
+
       // Hide zero-balance assets by default on homepage
       const balance = parseFloat(asset.balance || "0");
       return balance > 0;
     });
 
     const total = visibleAssets.reduce((sum, asset) => sum + (asset.valueUsd || 0), 0);
-    const errorAny = (showEvmAssets ? evmPortfolio.error : null) || solanaPortfolio.error;
-    const latestUpdate = Math.max(
-      showEvmAssets ? (evmPortfolio.lastUpdated || 0) : 0, 
-      solanaPortfolio.lastUpdated || 0
-    );
+    const latestUpdate = solanaPortfolio.lastUpdated || 0;
 
     return {
       assets: visibleAssets,
-      isLoading: isLoadingAny,
-      isRefreshing: isRefreshingAny,
-      error: errorAny,
+      isLoading: solanaPortfolio.isLoading,
+      isRefreshing: solanaPortfolio.isRefreshing,
+      error: solanaPortfolio.error,
       lastUpdated: latestUpdate > 0 ? latestUpdate : null,
       totalValue: total,
     };
-  }, [evmPortfolio, solanaPortfolio, walletType, customTokenMap, hiddenTokens]);
+  }, [solanaPortfolio, customTokenMap, hiddenTokens]);
 
   const handleRefresh = () => {
-    evmPortfolio.refresh();
     solanaPortfolio.refresh();
   };
 
@@ -405,7 +375,6 @@ export default function PortfolioScreen() {
     });
   };
 
-  const [activeTab, setActiveTab] = useState<"assets" | "approvals">("assets");
   const [refreshing, setRefreshing] = useState(false);
   const REFRESH_TIMEOUT = 15000;
 
@@ -414,27 +383,24 @@ export default function PortfolioScreen() {
     setRefreshing(true);
     try {
       await Promise.race([
-        Promise.all([
-          evmPortfolio.refresh(),
-          solanaPortfolio.refresh(),
-        ]),
+        solanaPortfolio.refresh(),
         new Promise(resolve => setTimeout(resolve, REFRESH_TIMEOUT)),
       ]);
     } finally {
       setRefreshing(false);
     }
-  }, [evmPortfolio, solanaPortfolio]);
+  }, [solanaPortfolio]);
 
   useEffect(() => {
-    if (!isLoading && !isRefreshing && lastUpdated && (evmPortfolio.assets.length > 0 || solanaPortfolio.assets.length > 0)) {
+    if (!isLoading && !isRefreshing && lastUpdated && solanaPortfolio.assets.length > 0) {
       savePortfolioDisplayCache(
-        evmPortfolio.assets,
+        [],
         solanaPortfolio.assets,
-        evmAddress,
+        undefined,
         solanaAddress
       );
     }
-  }, [lastUpdated, isLoading, isRefreshing, evmPortfolio.assets, solanaPortfolio.assets, evmAddress, solanaAddress]);
+  }, [lastUpdated, isLoading, isRefreshing, solanaPortfolio.assets, solanaAddress]);
 
   useEffect(() => {
     if (Platform.OS === "web") return;
@@ -557,38 +523,19 @@ export default function PortfolioScreen() {
 
       <View style={styles.assetsSection}>
         <View style={[styles.tabsContainer, { backgroundColor: theme.backgroundSecondary }]}>
-          <Pressable
+          <View
             style={[
               styles.tab,
-              activeTab === "assets" && { backgroundColor: theme.backgroundDefault },
+              { backgroundColor: theme.backgroundDefault },
             ]}
-            onPress={() => setActiveTab("assets")}
           >
-            <ThemedText 
-              type="small" 
-              style={[styles.tabText, activeTab === "assets" && { fontWeight: "600" }]}
+            <ThemedText
+              type="small"
+              style={[styles.tabText, { fontWeight: "600" }]}
             >
               Assets
             </ThemedText>
-          </Pressable>
-          <Pressable
-            style={[
-              styles.tab,
-              activeTab === "approvals" && { backgroundColor: theme.backgroundDefault },
-            ]}
-            onPress={() => {
-              setActiveTab("approvals");
-              navigation.navigate("Approvals");
-            }}
-          >
-            <Feather name="shield" size={12} color={activeTab === "approvals" ? theme.text : theme.textSecondary} style={{ marginRight: 4 }} />
-            <ThemedText 
-              type="small" 
-              style={[styles.tabText, activeTab === "approvals" && { fontWeight: "600" }]}
-            >
-              Security
-            </ThemedText>
-          </Pressable>
+          </View>
         </View>
 
         {error ? (

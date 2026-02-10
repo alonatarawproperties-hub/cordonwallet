@@ -3,7 +3,7 @@ import { Feather } from "@expo/vector-icons";
 import { useTheme } from "@/hooks/useTheme";
 import { ThemedText } from "@/components/ThemedText";
 import { Spacing, BorderRadius } from "@/constants/theme";
-import type { RiskLevel } from "@/lib/approvals/discovery";
+type RiskLevel = "high" | "medium" | "low";
 
 interface SecuritySummaryCardProps {
   type: "evm" | "solana";

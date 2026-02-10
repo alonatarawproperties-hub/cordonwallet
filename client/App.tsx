@@ -19,7 +19,7 @@ import { StatusBar } from "expo-status-bar";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { queryClient } from "@/lib/query-client";
 import { WalletProvider } from "@/lib/wallet-context";
-import { CapAllowanceProvider } from "@/lib/cap-allowance-context";
+
 import { WalletConnectProvider } from "@/lib/walletconnect/context";
 import { WalletConnectHandler } from "@/components/WalletConnectHandler";
 import { DemoProvider } from "@/lib/demo/context";
@@ -42,7 +42,6 @@ export default function App() {
           <DemoProvider>
             <DevSettingsProvider>
               <SafeAreaProvider>
-              <CapAllowanceProvider>
                 <WalletConnectProvider>
                   <WalletConnectHandler>
                     <SecurityOverlayProvider>
@@ -63,7 +62,6 @@ export default function App() {
                     </SecurityOverlayProvider>
                   </WalletConnectHandler>
                 </WalletConnectProvider>
-              </CapAllowanceProvider>
             </SafeAreaProvider>
               </DevSettingsProvider>
             </DemoProvider>
