@@ -879,7 +879,7 @@ export async function sendRawTransaction(params: SendRawTransactionParams): Prom
 
 export interface SignSolanaMessageParams {
   walletId: string;
-  message: string;
+  message: string | Uint8Array;
 }
 
 export async function signSolanaMessage(params: SignSolanaMessageParams): Promise<string> {
@@ -897,12 +897,10 @@ export async function signSolanaMessage(params: SignSolanaMessageParams): Promis
     
     const { secretKey } = deriveSolanaKeypair(mnemonic);
     
-    let messageBytes: Uint8Array;
-    try {
-      messageBytes = bs58.default.decode(message);
-    } catch {
-      messageBytes = new TextEncoder().encode(message);
-    }
+    const messageBytes =
+      message instanceof Uint8Array
+        ? message
+        : new TextEncoder().encode(message);
     
     const signature = nacl.sign.detached(messageBytes, secretKey);
     return bs58.default.encode(signature);

@@ -255,7 +255,14 @@ const CORDON_INJECTED_SCRIPT = `
     signMessage: function(message, encoding) {
       console.log('[Cordon Solana] signMessage() called');
       if (!solanaConnected) return Promise.reject(new Error('Wallet not connected'));
-      var msgArray = Array.from(message);
+      var msgArray;
+      if (typeof message === 'string') {
+        msgArray = Array.from(new TextEncoder().encode(message));
+      } else if (message && typeof message.length === 'number') {
+        msgArray = Array.from(message);
+      } else {
+        return Promise.reject(new Error('Invalid message format'));
+      }
       return sendRequest('cordon_solana_signMessage', { 
         message: msgArray,
         encoding: encoding || 'utf8'
@@ -1189,6 +1196,7 @@ export default function BrowserWebViewScreen() {
     signType: "message" | "transaction";
     requestId: number;
     message?: string;
+    messageBytesBase64?: string;
     transactionData?: string;
     isDrainerBlocked?: boolean;
     drainerType?: "SetAuthority" | "Assign";
@@ -1597,8 +1605,23 @@ export default function BrowserWebViewScreen() {
         });
       } else if (data.type === "cordon_solana_signMessage") {
         console.log("[BrowserWebView] Solana sign message request");
-        const messageBytes = new Uint8Array(data.message);
+        let messageBytes: Uint8Array;
+        if (Array.isArray(data.message)) {
+          messageBytes = new Uint8Array(data.message);
+        } else if (typeof data.message === "string") {
+          messageBytes = new TextEncoder().encode(data.message);
+        } else if (data.message && data.message.type === "Buffer" && Array.isArray(data.message.data)) {
+          messageBytes = new Uint8Array(data.message.data);
+        } else {
+          const response = { error: "Invalid message format" };
+          webViewRef.current?.injectJavaScript(`
+            window.cordon._handleResponse(${data.requestId}, ${JSON.stringify(response)});
+            true;
+          `);
+          return;
+        }
         const messageText = new TextDecoder().decode(messageBytes);
+        const messageBytesBase64 = btoa(String.fromCharCode(...messageBytes));
         const siteName = pageTitle || currentUrl;
         const walletId = activeWallet?.id;
         
@@ -1619,6 +1642,7 @@ export default function BrowserWebViewScreen() {
           signType: "message",
           requestId: data.requestId,
           message: messageText,
+          messageBytesBase64,
         });
       } else if (data.type === "cordon_solana_signTransaction" || data.type === "cordon_solana_signAndSendTransaction") {
         console.log("[BrowserWebView] Solana sign transaction request");
@@ -1993,7 +2017,10 @@ export default function BrowserWebViewScreen() {
         if (currentSignSheet.signType === "message") {
           const { signSolanaMessage } = await import("@/lib/blockchain/transactions");
           const bs58 = await import("bs58");
-          const signatureBase58 = await signSolanaMessage({ walletId, message: currentSignSheet.message! });
+          const messageBytes = currentSignSheet.messageBytesBase64
+            ? new Uint8Array(atob(currentSignSheet.messageBytesBase64).split("").map(c => c.charCodeAt(0)))
+            : currentSignSheet.message!;
+          const signatureBase58 = await signSolanaMessage({ walletId, message: messageBytes });
           const signatureBytes = bs58.default.decode(signatureBase58);
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
           const solanaAddress = activeWallet?.addresses?.solana;
