@@ -1,5 +1,9 @@
 import { Core } from "@walletconnect/core";
-import { Web3Wallet, Web3WalletTypes, IWeb3Wallet } from "@walletconnect/web3wallet";
+import {
+  Web3Wallet,
+  Web3WalletTypes,
+  IWeb3Wallet,
+} from "@walletconnect/web3wallet";
 import { getSdkError, buildApprovedNamespaces } from "@walletconnect/utils";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { FEATURES } from "@/config/features";
@@ -26,16 +30,22 @@ export const SUPPORTED_EVM_METHODS = [
   "personal_sign",
   "eth_sign",
   "eth_signTypedData",
+  "eth_signTypedData_v1",
+  "eth_signTypedData_v3",
   "eth_signTypedData_v4",
 ];
 
 export const SUPPORTED_SOLANA_METHODS = [
   "solana_signMessage",
   "solana_signTransaction",
+  "solana_signAndSendTransaction",
   "solana_signAllTransactions",
 ];
 
-export const SUPPORTED_METHODS = [...SUPPORTED_EVM_METHODS, ...SUPPORTED_SOLANA_METHODS];
+export const SUPPORTED_METHODS = [
+  ...SUPPORTED_EVM_METHODS,
+  ...SUPPORTED_SOLANA_METHODS,
+];
 
 export const SUPPORTED_EVENTS = ["chainChanged", "accountsChanged"];
 
@@ -65,7 +75,7 @@ export interface SessionRequest {
   params: {
     request: {
       method: string;
-      params: unknown[];
+      params: unknown;
     };
     chainId: string;
   };
@@ -77,7 +87,9 @@ export async function initWalletConnect(): Promise<IWeb3Wallet> {
   }
 
   if (!WC_PROJECT_ID) {
-    throw new Error("WalletConnect Project ID not configured. Set EXPO_PUBLIC_WC_PROJECT_ID in environment.");
+    throw new Error(
+      "WalletConnect Project ID not configured. Set EXPO_PUBLIC_WC_PROJECT_ID in environment.",
+    );
   }
 
   core = new Core({
@@ -118,12 +130,18 @@ export interface MultiChainAddresses {
 
 export function buildNamespaces(
   proposal: SessionProposal,
-  addresses: MultiChainAddresses
-): Record<string, { accounts: string[]; methods: string[]; events: string[]; chains?: string[] }> {
+  addresses: MultiChainAddresses,
+): Record<
+  string,
+  { accounts: string[]; methods: string[]; events: string[]; chains?: string[] }
+> {
   const hasValidEvmAddress = !!addresses.evm && addresses.evm.length > 2;
-  const hasValidSolanaAddress = !!addresses.solana && addresses.solana.length > 0;
+  const hasValidSolanaAddress =
+    !!addresses.solana && addresses.solana.length > 0;
 
-  const evmChainIds = Object.values(SUPPORTED_EVM_CHAINS).map((c) => c.namespace);
+  const evmChainIds = Object.values(SUPPORTED_EVM_CHAINS).map(
+    (c) => c.namespace,
+  );
 
   const evmAccounts: string[] = [];
   if (hasValidEvmAddress) {
@@ -138,17 +156,33 @@ export function buildNamespaces(
   const needsSolana =
     "solana" in requiredNamespaces ||
     "solana" in optionalNamespaces ||
-    Object.values(requiredNamespaces).some(ns => ns.chains?.some(c => c.startsWith("solana:"))) ||
-    Object.values(optionalNamespaces).some(ns => ns.chains?.some(c => c.startsWith("solana:")));
+    Object.values(requiredNamespaces).some((ns) =>
+      ns.chains?.some((c) => c.startsWith("solana:")),
+    ) ||
+    Object.values(optionalNamespaces).some((ns) =>
+      ns.chains?.some((c) => c.startsWith("solana:")),
+    );
 
   const needsEvm =
     "eip155" in requiredNamespaces ||
     "eip155" in optionalNamespaces ||
-    Object.values(requiredNamespaces).some(ns => ns.chains?.some(c => c.startsWith("eip155:"))) ||
-    Object.values(optionalNamespaces).some(ns => ns.chains?.some(c => c.startsWith("eip155:"))) ||
+    Object.values(requiredNamespaces).some((ns) =>
+      ns.chains?.some((c) => c.startsWith("eip155:")),
+    ) ||
+    Object.values(optionalNamespaces).some((ns) =>
+      ns.chains?.some((c) => c.startsWith("eip155:")),
+    ) ||
     Object.keys(requiredNamespaces).length === 0;
 
-  const supportedNamespaces: Record<string, { chains: string[]; methods: string[]; events: string[]; accounts: string[] }> = {};
+  const supportedNamespaces: Record<
+    string,
+    {
+      chains: string[];
+      methods: string[];
+      events: string[];
+      accounts: string[];
+    }
+  > = {};
 
   if (needsEvm && hasValidEvmAddress) {
     supportedNamespaces.eip155 = {
@@ -178,10 +212,21 @@ export function buildNamespaces(
       return approvedNamespaces;
     }
   } catch (err) {
-    console.warn("[WalletConnect] buildApprovedNamespaces failed, using fallback:", err);
+    console.warn(
+      "[WalletConnect] buildApprovedNamespaces failed, using fallback:",
+      err,
+    );
   }
 
-  const fallback: Record<string, { accounts: string[]; methods: string[]; events: string[]; chains: string[] }> = {};
+  const fallback: Record<
+    string,
+    {
+      accounts: string[];
+      methods: string[];
+      events: string[];
+      chains: string[];
+    }
+  > = {};
 
   if (needsEvm && hasValidEvmAddress) {
     fallback.eip155 = {
@@ -206,33 +251,45 @@ export function buildNamespaces(
 
 export async function approveSession(
   proposal: SessionProposal,
-  addresses: MultiChainAddresses
+  addresses: MultiChainAddresses,
 ): Promise<WCSession> {
   const wallet = await initWalletConnect();
 
   const hasValidEvmAddress = !!addresses.evm && addresses.evm.length > 2;
-  const hasValidSolanaAddress = !!addresses.solana && addresses.solana.length > 0;
+  const hasValidSolanaAddress =
+    !!addresses.solana && addresses.solana.length > 0;
 
   const requiredNamespaces = proposal.params.requiredNamespaces || {};
   const requiresSolana =
     "solana" in requiredNamespaces ||
-    Object.values(requiredNamespaces).some(ns => ns.chains?.some(c => c?.startsWith("solana:")));
+    Object.values(requiredNamespaces).some((ns) =>
+      ns.chains?.some((c) => c?.startsWith("solana:")),
+    );
 
   const requiresEvm =
     "eip155" in requiredNamespaces ||
-    Object.values(requiredNamespaces).some(ns => ns.chains?.some(c => c?.startsWith("eip155:")));
+    Object.values(requiredNamespaces).some((ns) =>
+      ns.chains?.some((c) => c?.startsWith("eip155:")),
+    );
 
   if (requiresSolana && !hasValidSolanaAddress) {
-    throw new Error("This dApp requires Solana but your wallet does not have a Solana address configured");
+    throw new Error(
+      "This dApp requires Solana but your wallet does not have a Solana address configured",
+    );
   }
 
   if (requiresEvm && !hasValidEvmAddress) {
-    throw new Error("This dApp requires EVM chains but your wallet does not have an EVM address. Try importing or creating a multi-chain wallet.");
+    throw new Error(
+      "This dApp requires EVM chains but your wallet does not have an EVM address. Try importing or creating a multi-chain wallet.",
+    );
   }
 
   const namespaces = buildNamespaces(proposal, addresses);
-  
-  console.log("[WalletConnect] Approving session with namespaces:", JSON.stringify(namespaces, null, 2));
+
+  console.log(
+    "[WalletConnect] Approving session with namespaces:",
+    JSON.stringify(namespaces, null, 2),
+  );
 
   if (!namespaces || Object.keys(namespaces).length === 0) {
     throw new Error("Failed to build namespaces for session approval");
@@ -252,7 +309,7 @@ export async function approveSession(
       icons: session.peer.metadata.icons,
     },
     chains: Object.keys(session.namespaces).flatMap(
-      (ns) => session.namespaces[ns].chains || []
+      (ns) => session.namespaces[ns].chains || [],
     ),
     expiry: session.expiry,
   };
@@ -287,7 +344,7 @@ export function getActiveSessions(): WCSession[] {
       icons: session.peer.metadata.icons,
     },
     chains: Object.keys(session.namespaces).flatMap(
-      (ns) => session.namespaces[ns].chains || []
+      (ns) => session.namespaces[ns].chains || [],
     ),
     expiry: session.expiry,
   }));
@@ -296,7 +353,7 @@ export function getActiveSessions(): WCSession[] {
 export async function respondToRequest(
   topic: string,
   requestId: number,
-  result: unknown
+  result: unknown,
 ): Promise<void> {
   const wallet = await initWalletConnect();
   await wallet.respondSessionRequest({
@@ -312,7 +369,7 @@ export async function respondToRequest(
 export async function rejectRequest(
   topic: string,
   requestId: number,
-  message?: string
+  message?: string,
 ): Promise<void> {
   const wallet = await initWalletConnect();
   await wallet.respondSessionRequest({
@@ -343,41 +400,51 @@ export function isSolanaChain(wcChainId: string): boolean {
 export function proposalRequiresEvm(proposal: SessionProposal): boolean {
   const requiredNamespaces = proposal.params.requiredNamespaces || {};
   const optionalNamespaces = proposal.params.optionalNamespaces || {};
-  
-  const needsEvm = 
-    "eip155" in requiredNamespaces || 
+
+  const needsEvm =
+    "eip155" in requiredNamespaces ||
     "eip155" in optionalNamespaces ||
-    Object.values(requiredNamespaces).some(ns => ns.chains?.some(c => c.startsWith("eip155:"))) ||
-    Object.values(optionalNamespaces).some(ns => ns.chains?.some(c => c.startsWith("eip155:"))) ||
+    Object.values(requiredNamespaces).some((ns) =>
+      ns.chains?.some((c) => c.startsWith("eip155:")),
+    ) ||
+    Object.values(optionalNamespaces).some((ns) =>
+      ns.chains?.some((c) => c.startsWith("eip155:")),
+    ) ||
     Object.keys(requiredNamespaces).length === 0;
-  
+
   return needsEvm;
 }
 
 export function proposalRequiresSolana(proposal: SessionProposal): boolean {
   const requiredNamespaces = proposal.params.requiredNamespaces || {};
   const optionalNamespaces = proposal.params.optionalNamespaces || {};
-  
+
   return (
-    "solana" in requiredNamespaces || 
+    "solana" in requiredNamespaces ||
     "solana" in optionalNamespaces ||
-    Object.values(requiredNamespaces).some(ns => ns.chains?.some(c => c.startsWith("solana:"))) ||
-    Object.values(optionalNamespaces).some(ns => ns.chains?.some(c => c.startsWith("solana:")))
+    Object.values(requiredNamespaces).some((ns) =>
+      ns.chains?.some((c) => c.startsWith("solana:")),
+    ) ||
+    Object.values(optionalNamespaces).some((ns) =>
+      ns.chains?.some((c) => c.startsWith("solana:")),
+    )
   );
 }
 
-export function shouldRejectProposalForDisabledChains(proposal: SessionProposal): { reject: boolean; reason: string } | null {
+export function shouldRejectProposalForDisabledChains(
+  proposal: SessionProposal,
+): { reject: boolean; reason: string } | null {
   const needsEvm = proposalRequiresEvm(proposal);
   const needsSolana = proposalRequiresSolana(proposal);
-  
+
   if (!FEATURES.EVM_ENABLED && needsEvm && !needsSolana) {
     return { reject: true, reason: "EVM chains coming soon" };
   }
-  
+
   if (!FEATURES.SOLANA_ENABLED && needsSolana && !needsEvm) {
     return { reject: true, reason: "Solana coming soon" };
   }
-  
+
   return null;
 }
 

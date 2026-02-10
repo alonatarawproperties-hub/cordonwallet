@@ -9,6 +9,7 @@ import { PinInputModal } from "@/components/PinInputModal";
 import {
   SolanaSignMessageRequest,
   SolanaSignTransactionRequest,
+  SolanaSignAndSendTransactionRequest,
   SolanaSignAllTransactionsRequest,
 } from "@/lib/walletconnect/handlers";
 import {
@@ -18,7 +19,11 @@ import {
 } from "@/lib/solana/signing";
 import { decodeSolanaTransaction, decodeSolanaTransactions } from "@/lib/solana/decoder";
 
-export function WalletConnectHandler({ children }: { children: React.ReactNode }) {
+export function WalletConnectHandler({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const {
     currentProposal,
     currentRequest,
@@ -52,9 +57,15 @@ export function WalletConnectHandler({ children }: { children: React.ReactNode }
     if (parsed.method === "solana_signTransaction") {
       const solanaReq = parsed as SolanaSignTransactionRequest;
       if (solanaReq.transaction) {
-        const decoded = decodeSolanaTransaction(solanaReq.transaction, { userPubkey, intent: "sign" });
+        const decoded = decodeSolanaTransaction(solanaReq.transaction, {
+          userPubkey,
+          intent: "sign",
+        });
         if (decoded.drainerDetection?.isBlocked) {
-          console.warn("[WC] DRAINER BLOCKED:", decoded.drainerDetection.attackType);
+          console.warn(
+            "[WC] DRAINER BLOCKED:",
+            decoded.drainerDetection.attackType,
+          );
           setIsDrainerBlocked(true);
           return;
         }
@@ -62,9 +73,15 @@ export function WalletConnectHandler({ children }: { children: React.ReactNode }
     } else if (parsed.method === "solana_signAllTransactions") {
       const solanaReq = parsed as SolanaSignAllTransactionsRequest;
       if (solanaReq.transactions?.length > 0) {
-        const decoded = decodeSolanaTransactions(solanaReq.transactions, { userPubkey, intent: "sign" });
+        const decoded = decodeSolanaTransactions(solanaReq.transactions, {
+          userPubkey,
+          intent: "sign",
+        });
         if (decoded.drainerDetection?.isBlocked) {
-          console.warn("[WC] DRAINER BLOCKED in batch:", decoded.drainerDetection.attackType);
+          console.warn(
+            "[WC] DRAINER BLOCKED in batch:",
+            decoded.drainerDetection.attackType,
+          );
           setIsDrainerBlocked(true);
           return;
         }
@@ -89,7 +106,8 @@ export function WalletConnectHandler({ children }: { children: React.ReactNode }
         solana: activeWallet!.addresses?.solana,
       });
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to approve session";
+      const message =
+        err instanceof Error ? err.message : "Failed to approve session";
       Alert.alert("Error", message);
     } finally {
       setIsApproving(false);
@@ -112,7 +130,9 @@ export function WalletConnectHandler({ children }: { children: React.ReactNode }
 
     try {
       const walletEngine = await import("@/lib/wallet-engine");
-      const unlocked = await walletEngine.ensureUnlocked({ skipBiometric: true });
+      const unlocked = await walletEngine.ensureUnlocked({
+        skipBiometric: true,
+      });
       if (!unlocked) {
         setPinError(null);
         setShowPinModal(true);
@@ -123,7 +143,9 @@ export function WalletConnectHandler({ children }: { children: React.ReactNode }
     }
 
     if (isDrainerBlocked) {
-      console.error("[WC] Attempted to sign blocked drainer transaction - aborting");
+      console.error(
+        "[WC] Attempted to sign blocked drainer transaction - aborting",
+      );
       await respondError("Transaction blocked: Wallet drainer detected");
       return;
     }
@@ -141,17 +163,43 @@ export function WalletConnectHandler({ children }: { children: React.ReactNode }
         });
         await respondSuccess({ signature });
       } else if (parsed.method === "solana_signTransaction") {
-        const solanaReq = parsed as SolanaSignTransactionRequest;
+        const solanaReq = parsed as
+          | SolanaSignTransactionRequest
+          | SolanaSignAndSendTransactionRequest;
         const signedTx = await signSolanaTransaction({
           walletId: activeWallet.id,
           transaction: solanaReq.transaction,
         });
         await respondSuccess({ transaction: signedTx });
+      } else if (parsed.method === "solana_signAndSendTransaction") {
+        const solanaReq = parsed as SolanaSignAndSendTransactionRequest;
+        const signedTx = await signSolanaTransaction({
+          walletId: activeWallet.id,
+          transaction: solanaReq.transaction,
+        });
+
+        const sendUrl = new URL(
+          "/api/solana/send-raw-transaction",
+          getApiUrl(),
+        );
+        const response = await fetch(sendUrl.toString(), {
+          method: "POST",
+          headers: getApiHeaders({ "Content-Type": "application/json" }),
+          body: JSON.stringify({ transactionBase64: signedTx }),
+        });
+
+        if (!response.ok) {
+          const err = await response.json().catch(() => ({}));
+          throw new Error(err?.error || "Failed to broadcast transaction");
+        }
+
+        const data = await response.json();
+        await respondSuccess({ signature: data.signature });
       } else if (parsed.method === "solana_signAllTransactions") {
         const solanaReq = parsed as SolanaSignAllTransactionsRequest;
         const signedTxs = await signAllSolanaTransactions(
           activeWallet.id,
-          solanaReq.transactions
+          solanaReq.transactions,
         );
         await respondSuccess({ transactions: signedTxs });
       } else {
@@ -175,7 +223,15 @@ export function WalletConnectHandler({ children }: { children: React.ReactNode }
     } finally {
       setIsSigning(false);
     }
-  }, [currentRequest, currentProposal, activeWallet, isUnlocked, isDrainerBlocked, respondSuccess, respondError]);
+  }, [
+    currentRequest,
+    currentProposal,
+    activeWallet,
+    isUnlocked,
+    isDrainerBlocked,
+    respondSuccess,
+    respondError,
+  ]);
 
   handleSignRef.current = handleSign;
 
