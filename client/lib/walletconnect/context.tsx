@@ -276,17 +276,11 @@ export function WalletConnectProvider({
         throw new Error("No proposal to approve");
       }
 
-    const proposalToApprove = currentProposal;
+      const proposalToApprove = currentProposal;
 
-    try {
-      const session = await approveSession(proposalToApprove, addresses);
-      setSessions(getActiveSessions());
-      setCurrentProposal(null);
-      return session;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      if (message.includes("deleted") || message.includes("Missing or invalid")) {
-        console.warn("[WalletConnect] Proposal was deleted or expired:", message);
+      try {
+        const session = await approveSession(proposalToApprove, addresses);
+        setSessions(getActiveSessions());
         setCurrentProposal(null);
         return session;
       } catch (err) {
