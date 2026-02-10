@@ -1,7 +1,53 @@
-import { formatEther, hexToString, isHex } from "viem";
 import { getChainById } from "../blockchain/chains";
-import { detectApproveIntent } from "../approvals/detect";
-import type { DetectedApproval } from "../approvals/types";
+
+// Inline DetectedApproval type (approvals module removed for Phase I)
+export interface DetectedApproval {
+  tokenAddress: string;
+  spender: string;
+  amountRaw: string;
+  isUnlimited: boolean;
+}
+
+// Inline viem utilities needed for EVM parsing (kept for WC compatibility)
+function isHex(value: string): boolean {
+  return typeof value === "string" && /^0x[0-9a-fA-F]*$/.test(value);
+}
+
+function hexToString(hex: string): string {
+  const cleanHex = hex.startsWith("0x") ? hex.slice(2) : hex;
+  let str = "";
+  for (let i = 0; i < cleanHex.length; i += 2) {
+    const code = parseInt(cleanHex.substring(i, i + 2), 16);
+    if (code === 0) break;
+    str += String.fromCharCode(code);
+  }
+  return str;
+}
+
+function formatEther(value: bigint): string {
+  const str = value.toString();
+  if (str.length <= 18) {
+    return "0." + str.padStart(18, "0").replace(/0+$/, "") || "0";
+  }
+  const intPart = str.slice(0, str.length - 18);
+  const decPart = str.slice(str.length - 18).replace(/0+$/, "");
+  return decPart ? `${intPart}.${decPart}` : intPart;
+}
+
+// Inline approval detection (approvals module removed for Phase I)
+function detectApproveIntent(data: string, to: string): DetectedApproval | null {
+  if (!data || data.length < 10) return null;
+  const selector = data.slice(0, 10).toLowerCase();
+  // ERC20 approve(address,uint256) = 0x095ea7b3
+  if (selector !== "0x095ea7b3") return null;
+  if (data.length < 138) return null;
+  const spender = "0x" + data.slice(34, 74);
+  const amountHex = data.slice(74, 138);
+  const amountRaw = BigInt("0x" + amountHex).toString();
+  const MAX_UINT256 = BigInt("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+  const isUnlimited = BigInt("0x" + amountHex) >= MAX_UINT256 / 2n;
+  return { tokenAddress: to, spender, amountRaw, isUnlimited };
+}
 
 export interface PersonalSignRequest {
   method: "personal_sign";
