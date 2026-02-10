@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from "react";
-import { View, StyleSheet, Alert, Pressable, Platform } from "react-native";
+import { View, StyleSheet, Alert, Pressable } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { Feather } from "@expo/vector-icons";
@@ -16,6 +16,54 @@ interface Props {
   navigation: any;
 }
 
+function extractWalletConnectUri(input: string): string | null {
+  if (!input) return null;
+  let uri = input.trim();
+
+  const lower = uri.toLowerCase();
+  if (lower.startsWith("wc:")) {
+    return `wc:${uri.slice(uri.indexOf(":") + 1)}`;
+  }
+
+  if (lower.startsWith("walletconnect:")) {
+    return `wc:${uri.slice(uri.indexOf(":") + 1)}`;
+  }
+
+  try {
+    if (lower.startsWith("http://") || lower.startsWith("https://")) {
+      const parsed = new URL(uri);
+      const embedded =
+        parsed.searchParams.get("uri") || parsed.searchParams.get("wc");
+      if (embedded) {
+        uri = embedded;
+      }
+    }
+  } catch {
+    // Ignore malformed URL data and continue with raw scanner output.
+  }
+
+  try {
+    uri = decodeURIComponent(uri);
+  } catch {
+    // Ignore decoding failures for already-decoded data.
+  }
+
+  const decodedLower = uri.toLowerCase();
+  if (decodedLower.startsWith("walletconnect:")) {
+    return `wc:${uri.slice(uri.indexOf(":") + 1)}`;
+  }
+  if (decodedLower.startsWith("wc:")) {
+    return `wc:${uri.slice(uri.indexOf(":") + 1)}`;
+  }
+
+  const wcIndex = decodedLower.indexOf("wc:");
+  if (wcIndex !== -1) {
+    return uri.slice(wcIndex);
+  }
+
+  return null;
+}
+
 export default function WCScannerScreen({ navigation }: Props) {
   const { theme } = useTheme();
   const insets = useSafeAreaInsets();
@@ -28,7 +76,8 @@ export default function WCScannerScreen({ navigation }: Props) {
     async ({ data }: { data: string }) => {
       if (!isScanning || isConnecting) return;
 
-      if (!data.startsWith("wc:")) {
+      const wcUri = extractWalletConnectUri(data);
+      if (!wcUri) {
         return;
       }
 
@@ -37,14 +86,15 @@ export default function WCScannerScreen({ navigation }: Props) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
       try {
-        await connect(data);
+        await connect(wcUri);
         if (navigation.canGoBack()) {
           navigation.goBack();
         } else {
           navigation.navigate("WalletConnect");
         }
       } catch (err) {
-        const message = err instanceof Error ? err.message : "Failed to connect";
+        const message =
+          err instanceof Error ? err.message : "Failed to connect";
         Alert.alert("Connection Failed", message, [
           {
             text: "Try Again",
@@ -67,7 +117,7 @@ export default function WCScannerScreen({ navigation }: Props) {
         ]);
       }
     },
-    [isScanning, isConnecting, connect, navigation]
+    [isScanning, isConnecting, connect, navigation],
   );
 
   const handleClose = useCallback(() => {
@@ -82,7 +132,9 @@ export default function WCScannerScreen({ navigation }: Props) {
   if (!permission) {
     return (
       <ThemedView style={styles.container}>
-        <View style={[styles.centered, { paddingTop: insets.top + Spacing.xl }]}>
+        <View
+          style={[styles.centered, { paddingTop: insets.top + Spacing.xl }]}
+        >
           <ThemedText type="body">Loading camera...</ThemedText>
         </View>
       </ThemedView>
@@ -92,22 +144,38 @@ export default function WCScannerScreen({ navigation }: Props) {
   if (!permission.granted) {
     return (
       <ThemedView style={styles.container}>
-        <View style={[styles.centered, { paddingTop: insets.top + Spacing.xl }]}>
+        <View
+          style={[styles.centered, { paddingTop: insets.top + Spacing.xl }]}
+        >
           <Feather name="camera-off" size={48} color={theme.textSecondary} />
-          <ThemedText type="h3" style={{ marginTop: Spacing.lg, textAlign: "center" }}>
+          <ThemedText
+            type="h3"
+            style={{ marginTop: Spacing.lg, textAlign: "center" }}
+          >
             Camera Permission Required
           </ThemedText>
           <ThemedText
             type="body"
-            style={{ color: theme.textSecondary, marginTop: Spacing.md, textAlign: "center", paddingHorizontal: Spacing.xl }}
+            style={{
+              color: theme.textSecondary,
+              marginTop: Spacing.md,
+              textAlign: "center",
+              paddingHorizontal: Spacing.xl,
+            }}
           >
             To scan WalletConnect QR codes, please grant camera access.
           </ThemedText>
           <Button onPress={requestPermission} style={{ marginTop: Spacing.xl }}>
             Grant Permission
           </Button>
-          <Pressable onPress={handleClose} style={{ marginTop: Spacing.md, padding: Spacing.md }}>
-            <ThemedText type="body" style={{ color: theme.textSecondary, textAlign: "center" }}>
+          <Pressable
+            onPress={handleClose}
+            style={{ marginTop: Spacing.md, padding: Spacing.md }}
+          >
+            <ThemedText
+              type="body"
+              style={{ color: theme.textSecondary, textAlign: "center" }}
+            >
               Cancel
             </ThemedText>
           </Pressable>
@@ -140,11 +208,26 @@ export default function WCScannerScreen({ navigation }: Props) {
           </View>
         </View>
 
-        <View style={[styles.instructions, { paddingBottom: insets.bottom + Spacing.xl }]}>
-          <ThemedText type="body" style={{ color: "#FFFFFF", textAlign: "center", fontWeight: "600" }}>
+        <View
+          style={[
+            styles.instructions,
+            { paddingBottom: insets.bottom + Spacing.xl },
+          ]}
+        >
+          <ThemedText
+            type="body"
+            style={{ color: "#FFFFFF", textAlign: "center", fontWeight: "600" }}
+          >
             {isConnecting ? "Connecting..." : "Scan WalletConnect QR Code"}
           </ThemedText>
-          <ThemedText type="small" style={{ color: "rgba(255,255,255,0.7)", textAlign: "center", marginTop: Spacing.xs }}>
+          <ThemedText
+            type="small"
+            style={{
+              color: "rgba(255,255,255,0.7)",
+              textAlign: "center",
+              marginTop: Spacing.xs,
+            }}
+          >
             Position the QR code within the frame
           </ThemedText>
         </View>
