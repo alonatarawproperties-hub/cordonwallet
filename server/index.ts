@@ -6,6 +6,8 @@ import { registerRoutes } from "./routes";
 import { registerCordonAuthRoutes } from "./cordon-auth";
 import { registerEvmRoutes } from "./evm-api";
 import { swapRouter } from "./swap";
+import { registerAdminRoutes } from "./admin";
+import { activityLoggerMiddleware } from "./middleware/activityLogger";
 import * as fs from "fs";
 import * as path from "path";
 
@@ -352,17 +354,23 @@ function setupErrorHandler(app: express.Application) {
   setupApiKeyAuth(app);
   setupRequestLogging(app);
 
+  // Activity logging — captures every /api/* request to the database
+  app.use(activityLoggerMiddleware());
+
   // Auth routes must be registered BEFORE static file serving
   // to prevent Expo SPA from intercepting /auth/* paths
   registerCordonAuthRoutes(app);
-  
+
   // EVM API routes (token discovery, security, approvals)
   registerEvmRoutes(app);
-  
+
   // Swap API routes
   app.use("/api/swap", swapRouter);
   log("[Swap] Router mounted at /api/swap");
-  
+
+  // Admin panel — must be registered BEFORE Expo/landing page config
+  registerAdminRoutes(app);
+
   configureExpoAndLanding(app);
 
   const server = await registerRoutes(app);
