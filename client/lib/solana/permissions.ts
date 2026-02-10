@@ -124,7 +124,7 @@ export async function revokeSolanaDelegate(
 ): Promise<{ success: boolean; signature?: string; error?: string }> {
   try {
     const { getApiUrl, getApiHeaders } = await import("@/lib/query-client");
-    const { signSolanaTransaction } = await import("@/lib/blockchain/transactions");
+    const { signSolanaTransaction } = await import("@/lib/solana/signing");
 
     const apiUrl = getApiUrl();
     const prepareUrl = new URL("/api/solana/prepare-revoke-delegate", apiUrl);
