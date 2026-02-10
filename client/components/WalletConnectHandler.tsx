@@ -3,7 +3,10 @@ import { Alert } from "react-native";
 
 import { useWalletConnect } from "@/lib/walletconnect/context";
 import { useWallet } from "@/lib/wallet-context";
-import { useCapAllowance, BlockedApprovalContext } from "@/lib/cap-allowance-context";
+import {
+  useCapAllowance,
+  BlockedApprovalContext,
+} from "@/lib/cap-allowance-context";
 import { SessionApprovalSheet } from "@/components/SessionApprovalSheet";
 import { SignRequestSheet } from "@/components/SignRequestSheet";
 import { PinInputModal } from "@/components/PinInputModal";
@@ -13,6 +16,7 @@ import {
   SignTypedDataRequest,
   SolanaSignMessageRequest,
   SolanaSignTransactionRequest,
+  SolanaSignAndSendTransactionRequest,
   SolanaSignAllTransactionsRequest,
 } from "@/lib/walletconnect/handlers";
 import {
@@ -25,9 +29,17 @@ import {
 } from "@/lib/blockchain/transactions";
 import { getERC20Decimals, getERC20Symbol } from "@/lib/blockchain/balances";
 import { checkTransactionFirewall } from "@/lib/approvals/firewall";
-import { decodeSolanaTransaction, decodeSolanaTransactions } from "@/lib/solana/decoder";
+import {
+  decodeSolanaTransaction,
+  decodeSolanaTransactions,
+} from "@/lib/solana/decoder";
+import { getApiUrl, getApiHeaders } from "@/lib/query-client";
 
-export function WalletConnectHandler({ children }: { children: React.ReactNode }) {
+export function WalletConnectHandler({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const {
     currentProposal,
     currentRequest,
@@ -64,15 +76,26 @@ export function WalletConnectHandler({ children }: { children: React.ReactNode }
     }
 
     const { parsed } = currentRequest;
-    
+
     const userPubkey = activeWallet?.addresses?.solana || "";
-    
-    if (parsed.method === "solana_signTransaction") {
-      const solanaReq = parsed as SolanaSignTransactionRequest;
+
+    if (
+      parsed.method === "solana_signTransaction" ||
+      parsed.method === "solana_signAndSendTransaction"
+    ) {
+      const solanaReq = parsed as
+        | SolanaSignTransactionRequest
+        | SolanaSignAndSendTransactionRequest;
       if (solanaReq.transaction) {
-        const decoded = decodeSolanaTransaction(solanaReq.transaction, { userPubkey, intent: "sign" });
+        const decoded = decodeSolanaTransaction(solanaReq.transaction, {
+          userPubkey,
+          intent: "sign",
+        });
         if (decoded.drainerDetection?.isBlocked) {
-          console.warn("[WC] DRAINER BLOCKED:", decoded.drainerDetection.attackType);
+          console.warn(
+            "[WC] DRAINER BLOCKED:",
+            decoded.drainerDetection.attackType,
+          );
           setIsDrainerBlocked(true);
           return;
         }
@@ -80,20 +103,26 @@ export function WalletConnectHandler({ children }: { children: React.ReactNode }
     } else if (parsed.method === "solana_signAllTransactions") {
       const solanaReq = parsed as SolanaSignAllTransactionsRequest;
       if (solanaReq.transactions?.length > 0) {
-        const decoded = decodeSolanaTransactions(solanaReq.transactions, { userPubkey, intent: "sign" });
+        const decoded = decodeSolanaTransactions(solanaReq.transactions, {
+          userPubkey,
+          intent: "sign",
+        });
         if (decoded.drainerDetection?.isBlocked) {
-          console.warn("[WC] DRAINER BLOCKED in batch:", decoded.drainerDetection.attackType);
+          console.warn(
+            "[WC] DRAINER BLOCKED in batch:",
+            decoded.drainerDetection.attackType,
+          );
           setIsDrainerBlocked(true);
           return;
         }
       }
     }
-    
+
     setIsDrainerBlocked(false);
-    
+
     if (parsed.method === "eth_sendTransaction") {
       const txRequest = parsed as SendTransactionRequest;
-      
+
       const firewallResult = checkTransactionFirewall({
         chainId: txRequest.chainId,
         to: txRequest.tx.to as `0x${string}`,
@@ -101,10 +130,14 @@ export function WalletConnectHandler({ children }: { children: React.ReactNode }
         policySettings,
       });
 
-      if (!firewallResult.allowed && firewallResult.isApproval && firewallResult.approval) {
+      if (
+        !firewallResult.allowed &&
+        firewallResult.isApproval &&
+        firewallResult.approval
+      ) {
         const tokenAddress = txRequest.tx.to as `0x${string}`;
         const chainId = txRequest.chainId;
-        
+
         setIsApprovalBlocked(true);
         setPendingApprovalData({
           tokenAddress,
@@ -120,7 +153,7 @@ export function WalletConnectHandler({ children }: { children: React.ReactNode }
               getERC20Decimals(tokenAddress, chainId),
               getERC20Symbol(tokenAddress, chainId),
             ]);
-            
+
             setPendingApprovalData((prev) => {
               if (!prev || prev.tokenAddress !== tokenAddress) return prev;
               return {
@@ -133,11 +166,11 @@ export function WalletConnectHandler({ children }: { children: React.ReactNode }
             console.error("[WC] Failed to fetch token metadata:", err);
           }
         })();
-        
+
         return;
       }
     }
-    
+
     setIsApprovalBlocked(false);
     setPendingApprovalData(null);
   }, [currentRequest, policySettings, isCapSheetVisible]);
@@ -158,7 +191,8 @@ export function WalletConnectHandler({ children }: { children: React.ReactNode }
         solana: activeWallet!.addresses?.solana,
       });
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to approve session";
+      const message =
+        err instanceof Error ? err.message : "Failed to approve session";
       Alert.alert("Error", message);
     } finally {
       setIsApproving(false);
@@ -186,7 +220,9 @@ export function WalletConnectHandler({ children }: { children: React.ReactNode }
     // If all automatic recovery fails, show a PIN modal as fallback.
     try {
       const walletEngine = await import("@/lib/wallet-engine");
-      const unlocked = await walletEngine.ensureUnlocked({ skipBiometric: true });
+      const unlocked = await walletEngine.ensureUnlocked({
+        skipBiometric: true,
+      });
       if (!unlocked) {
         setPinError(null);
         setShowPinModal(true);
@@ -198,7 +234,9 @@ export function WalletConnectHandler({ children }: { children: React.ReactNode }
     }
 
     if (isDrainerBlocked) {
-      console.error("[WC] Attempted to sign blocked drainer transaction - aborting");
+      console.error(
+        "[WC] Attempted to sign blocked drainer transaction - aborting",
+      );
       await respondError("Transaction blocked: Wallet drainer detected");
       return;
     }
@@ -226,7 +264,12 @@ export function WalletConnectHandler({ children }: { children: React.ReactNode }
           gas: txReq.tx.gas ? BigInt(txReq.tx.gas) : undefined,
         });
         await respondSuccess(result.hash);
-      } else if (parsed.method === "eth_signTypedData" || parsed.method === "eth_signTypedData_v4") {
+      } else if (
+        parsed.method === "eth_signTypedData" ||
+        parsed.method === "eth_signTypedData_v1" ||
+        parsed.method === "eth_signTypedData_v3" ||
+        parsed.method === "eth_signTypedData_v4"
+      ) {
         const typedReq = parsed as SignTypedDataRequest;
         const signature = await signTypedData({
           walletId: activeWallet.id,
@@ -242,18 +285,44 @@ export function WalletConnectHandler({ children }: { children: React.ReactNode }
         // WalletConnect Solana expects { signature: "base58..." }
         await respondSuccess({ signature });
       } else if (parsed.method === "solana_signTransaction") {
-        const solanaReq = parsed as SolanaSignTransactionRequest;
+        const solanaReq = parsed as
+          | SolanaSignTransactionRequest
+          | SolanaSignAndSendTransactionRequest;
         const signedTx = await signSolanaTransaction({
           walletId: activeWallet.id,
           transaction: solanaReq.transaction,
         });
         // WalletConnect Solana expects { transaction: "base64..." }
         await respondSuccess({ transaction: signedTx });
+      } else if (parsed.method === "solana_signAndSendTransaction") {
+        const solanaReq = parsed as SolanaSignAndSendTransactionRequest;
+        const signedTx = await signSolanaTransaction({
+          walletId: activeWallet.id,
+          transaction: solanaReq.transaction,
+        });
+
+        const sendUrl = new URL(
+          "/api/solana/send-raw-transaction",
+          getApiUrl(),
+        );
+        const response = await fetch(sendUrl.toString(), {
+          method: "POST",
+          headers: getApiHeaders({ "Content-Type": "application/json" }),
+          body: JSON.stringify({ transactionBase64: signedTx }),
+        });
+
+        if (!response.ok) {
+          const err = await response.json().catch(() => ({}));
+          throw new Error(err?.error || "Failed to broadcast transaction");
+        }
+
+        const data = await response.json();
+        await respondSuccess({ signature: data.signature });
       } else if (parsed.method === "solana_signAllTransactions") {
         const solanaReq = parsed as SolanaSignAllTransactionsRequest;
         const signedTxs = await signAllSolanaTransactions(
           activeWallet.id,
-          solanaReq.transactions
+          solanaReq.transactions,
         );
         // WalletConnect Solana expects { transactions: ["base64...", ...] }
         await respondSuccess({ transactions: signedTxs });
@@ -277,13 +346,24 @@ export function WalletConnectHandler({ children }: { children: React.ReactNode }
       } catch (respondErr) {
         // respondError already clears currentRequest in its finally block,
         // so just log the failure to send the error back to the dApp
-        console.error("[WC] Failed to send error response to dApp:", respondErr);
+        console.error(
+          "[WC] Failed to send error response to dApp:",
+          respondErr,
+        );
       }
       Alert.alert("Signing Failed", message);
     } finally {
       setIsSigning(false);
     }
-  }, [currentRequest, currentProposal, activeWallet, isUnlocked, isDrainerBlocked, respondSuccess, respondError]);
+  }, [
+    currentRequest,
+    currentProposal,
+    activeWallet,
+    isUnlocked,
+    isDrainerBlocked,
+    respondSuccess,
+    respondError,
+  ]);
 
   // Keep ref in sync so PIN modal can retry signing without circular deps
   handleSignRef.current = handleSign;
@@ -328,7 +408,12 @@ export function WalletConnectHandler({ children }: { children: React.ReactNode }
   }, [respondError]);
 
   const handleCapAllowance = useCallback(() => {
-    if (!pendingApprovalData || !currentRequest || !activeWallet?.addresses?.evm) return;
+    if (
+      !pendingApprovalData ||
+      !currentRequest ||
+      !activeWallet?.addresses?.evm
+    )
+      return;
 
     const capContext: BlockedApprovalContext = {
       chainId: pendingApprovalData.chainId,
@@ -356,20 +441,30 @@ export function WalletConnectHandler({ children }: { children: React.ReactNode }
     };
 
     showCapAllowanceSheet(capContext);
-  }, [pendingApprovalData, currentRequest, activeWallet, policySettings, showCapAllowanceSheet, respondSuccess, respondError]);
+  }, [
+    pendingApprovalData,
+    currentRequest,
+    activeWallet,
+    policySettings,
+    showCapAllowanceSheet,
+    respondSuccess,
+    respondError,
+  ]);
 
   const getDappInfo = useCallback(() => {
     if (currentProposal) {
       const meta = currentProposal.params.proposer.metadata;
-      return { 
-        name: meta.name || "Unknown dApp", 
+      return {
+        name: meta.name || "Unknown dApp",
         url: meta.url || "",
         icons: meta.icons || [],
       };
     }
     if (currentRequest) {
       // Look up the session by topic to get real dApp metadata
-      const session = sessions.find(s => s.topic === currentRequest.request.topic);
+      const session = sessions.find(
+        (s) => s.topic === currentRequest.request.topic,
+      );
       if (session?.peerMeta) {
         return {
           name: session.peerMeta.name || "Unknown dApp",

@@ -1,4 +1,11 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+} from "react";
 import {
   initWalletConnect,
   getWeb3Wallet,
@@ -24,7 +31,11 @@ interface WalletConnectContextType {
   error: string | null;
   sessions: WCSession[];
   currentProposal: SessionProposal | null;
-  currentRequest: { request: SessionRequest; parsed: ParsedRequest; isSolana: boolean } | null;
+  currentRequest: {
+    request: SessionRequest;
+    parsed: ParsedRequest;
+    isSolana: boolean;
+  } | null;
   evmRejectionReason: string | null;
   connect: (uri: string) => Promise<void>;
   approve: (addresses: MultiChainAddresses) => Promise<WCSession>;
@@ -37,20 +48,29 @@ interface WalletConnectContextType {
   clearEvmRejection: () => void;
 }
 
-const WalletConnectContext = createContext<WalletConnectContextType | null>(null);
+const WalletConnectContext = createContext<WalletConnectContextType | null>(
+  null,
+);
 
-export function WalletConnectProvider({ children }: { children: React.ReactNode }) {
+export function WalletConnectProvider({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const [isInitialized, setIsInitialized] = useState(false);
   const [isInitializing, setIsInitializing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sessions, setSessions] = useState<WCSession[]>([]);
-  const [currentProposal, setCurrentProposal] = useState<SessionProposal | null>(null);
+  const [currentProposal, setCurrentProposal] =
+    useState<SessionProposal | null>(null);
   const [currentRequest, setCurrentRequest] = useState<{
     request: SessionRequest;
     parsed: ParsedRequest;
     isSolana: boolean;
   } | null>(null);
-  const [evmRejectionReason, setEvmRejectionReason] = useState<string | null>(null);
+  const [evmRejectionReason, setEvmRejectionReason] = useState<string | null>(
+    null,
+  );
 
   const initializeWC = useCallback(async () => {
     if (isInitialized || isInitializing) return;
@@ -66,7 +86,7 @@ export function WalletConnectProvider({ children }: { children: React.ReactNode 
           id: proposal.id,
           params: proposal.params,
         };
-        
+
         // Do not auto-reject proposals based on rollout feature flags.
         // Let the user explicitly approve/reject from the WalletConnect sheet.
         setEvmRejectionReason(null);
@@ -80,9 +100,9 @@ export function WalletConnectProvider({ children }: { children: React.ReactNode 
 
         const parsed = parseSessionRequest(
           event.params.request.method,
-          event.params.request.params as unknown[],
+          event.params.request.params,
           chainId,
-          isSolana
+          isSolana,
         );
 
         if (parsed) {
@@ -90,13 +110,18 @@ export function WalletConnectProvider({ children }: { children: React.ReactNode 
           // otherwise the old dApp hangs indefinitely waiting for a response
           setCurrentRequest((prev) => {
             if (prev) {
-              console.warn("[WalletConnect] New request arrived while previous pending — rejecting old request");
+              console.warn(
+                "[WalletConnect] New request arrived while previous pending — rejecting old request",
+              );
               rejectRequest(
                 prev.request.topic,
                 prev.request.id,
-                "Request superseded by a newer request"
+                "Request superseded by a newer request",
               ).catch((err) => {
-                console.warn("[WalletConnect] Failed to reject superseded request:", err);
+                console.warn(
+                  "[WalletConnect] Failed to reject superseded request:",
+                  err,
+                );
               });
             }
             return {
@@ -113,7 +138,7 @@ export function WalletConnectProvider({ children }: { children: React.ReactNode 
           rejectRequest(
             event.topic,
             event.id,
-            `Unsupported method: ${event.params.request.method}`
+            `Unsupported method: ${event.params.request.method}`,
           );
         }
       });
@@ -124,7 +149,9 @@ export function WalletConnectProvider({ children }: { children: React.ReactNode 
         // to prevent the signing sheet from staying stuck
         setCurrentRequest((prev) => {
           if (prev && prev.request.topic === event.topic) {
-            console.log("[WalletConnect] Clearing pending request for deleted session");
+            console.log(
+              "[WalletConnect] Clearing pending request for deleted session",
+            );
             return null;
           }
           return prev;
@@ -134,7 +161,10 @@ export function WalletConnectProvider({ children }: { children: React.ReactNode 
       setSessions(getActiveSessions());
       setIsInitialized(true);
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to initialize WalletConnect";
+      const message =
+        err instanceof Error
+          ? err.message
+          : "Failed to initialize WalletConnect";
       setError(message);
       console.error("[WalletConnect] Init error:", err);
     } finally {
@@ -146,35 +176,49 @@ export function WalletConnectProvider({ children }: { children: React.ReactNode 
     initializeWC();
   }, []);
 
-  const connect = useCallback(async (uri: string) => {
-    if (!isInitialized) {
-      await initializeWC();
-    }
-    await pairWithUri(uri);
-  }, [isInitialized, initializeWC]);
-
-  const approve = useCallback(async (addresses: MultiChainAddresses): Promise<WCSession> => {
-    if (!currentProposal) {
-      throw new Error("No proposal to approve");
-    }
-
-    const proposalToApprove = currentProposal;
-    
-    try {
-      const session = await approveSession(proposalToApprove, addresses);
-      setSessions(getActiveSessions());
-      setCurrentProposal(null);
-      return session;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      if (message.includes("deleted") || message.includes("Missing or invalid")) {
-        console.warn("[WalletConnect] Proposal was deleted or expired:", message);
-        setCurrentProposal(null);
-        throw new Error("Connection request expired. Please try connecting again.");
+  const connect = useCallback(
+    async (uri: string) => {
+      if (!isInitialized) {
+        await initializeWC();
       }
-      throw err;
-    }
-  }, [currentProposal]);
+      await pairWithUri(uri);
+    },
+    [isInitialized, initializeWC],
+  );
+
+  const approve = useCallback(
+    async (addresses: MultiChainAddresses): Promise<WCSession> => {
+      if (!currentProposal) {
+        throw new Error("No proposal to approve");
+      }
+
+      const proposalToApprove = currentProposal;
+
+      try {
+        const session = await approveSession(proposalToApprove, addresses);
+        setSessions(getActiveSessions());
+        setCurrentProposal(null);
+        return session;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (
+          message.includes("deleted") ||
+          message.includes("Missing or invalid")
+        ) {
+          console.warn(
+            "[WalletConnect] Proposal was deleted or expired:",
+            message,
+          );
+          setCurrentProposal(null);
+          throw new Error(
+            "Connection request expired. Please try connecting again.",
+          );
+        }
+        throw err;
+      }
+    },
+    [currentProposal],
+  );
 
   const reject = useCallback(async () => {
     if (!currentProposal) {
@@ -185,7 +229,10 @@ export function WalletConnectProvider({ children }: { children: React.ReactNode 
     try {
       await rejectSession(currentProposal.id);
     } catch (err) {
-      console.warn("[WalletConnect] Error rejecting session (may be already deleted):", err);
+      console.warn(
+        "[WalletConnect] Error rejecting session (may be already deleted):",
+        err,
+      );
     }
     setCurrentProposal(null);
   }, [currentProposal]);
@@ -195,43 +242,53 @@ export function WalletConnectProvider({ children }: { children: React.ReactNode 
     setSessions(getActiveSessions());
   }, []);
 
-  const respondSuccess = useCallback(async (result: unknown) => {
-    if (!currentRequest) {
-      console.warn("[WalletConnect] respondSuccess called with no current request");
-      return;
-    }
+  const respondSuccess = useCallback(
+    async (result: unknown) => {
+      if (!currentRequest) {
+        console.warn(
+          "[WalletConnect] respondSuccess called with no current request",
+        );
+        return;
+      }
 
-    try {
-      await respondToRequest(
-        currentRequest.request.topic,
-        currentRequest.request.id,
-        result
-      );
-    } catch (err) {
-      console.error("[WalletConnect] Failed to send success response:", err);
-    } finally {
-      setCurrentRequest(null);
-    }
-  }, [currentRequest]);
+      try {
+        await respondToRequest(
+          currentRequest.request.topic,
+          currentRequest.request.id,
+          result,
+        );
+      } catch (err) {
+        console.error("[WalletConnect] Failed to send success response:", err);
+      } finally {
+        setCurrentRequest(null);
+      }
+    },
+    [currentRequest],
+  );
 
-  const respondError = useCallback(async (message?: string) => {
-    if (!currentRequest) {
-      console.warn("[WalletConnect] respondError called with no current request");
-      return;
-    }
+  const respondError = useCallback(
+    async (message?: string) => {
+      if (!currentRequest) {
+        console.warn(
+          "[WalletConnect] respondError called with no current request",
+        );
+        return;
+      }
 
-    try {
-      await rejectRequest(
-        currentRequest.request.topic,
-        currentRequest.request.id,
-        message
-      );
-    } catch (err) {
-      console.error("[WalletConnect] Failed to send error response:", err);
-    } finally {
-      setCurrentRequest(null);
-    }
-  }, [currentRequest]);
+      try {
+        await rejectRequest(
+          currentRequest.request.topic,
+          currentRequest.request.id,
+          message,
+        );
+      } catch (err) {
+        console.error("[WalletConnect] Failed to send error response:", err);
+      } finally {
+        setCurrentRequest(null);
+      }
+    },
+    [currentRequest],
+  );
 
   const refreshSessions = useCallback(() => {
     setSessions(getActiveSessions());
@@ -274,7 +331,9 @@ export function WalletConnectProvider({ children }: { children: React.ReactNode 
 export function useWalletConnect() {
   const context = useContext(WalletConnectContext);
   if (!context) {
-    throw new Error("useWalletConnect must be used within WalletConnectProvider");
+    throw new Error(
+      "useWalletConnect must be used within WalletConnectProvider",
+    );
   }
   return context;
 }
