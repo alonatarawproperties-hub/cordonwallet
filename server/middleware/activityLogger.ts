@@ -152,14 +152,23 @@ function getClientIp(req: Request): string {
  */
 export function activityLoggerMiddleware() {
   return (req: Request, res: Response, next: NextFunction) => {
-    if (!req.path.startsWith("/api")) return next();
+    // IMPORTANT: Capture the ORIGINAL url path now, before Express mount-point
+    // rewriting. When app.use("/api/swap", swapRouter) processes a request,
+    // Express strips the "/api/swap" prefix from req.url. If the route handler
+    // sends a response without calling next(), the prefix is never restored.
+    // By the time res "finish" fires, req.path would be "/solana/instant-build"
+    // instead of "/api/swap/solana/instant-build". req.originalUrl is never
+    // modified by Express, so it always contains the full path.
+    const originalPath = (req.originalUrl || req.url).split("?")[0];
+
+    if (!originalPath.startsWith("/api")) return next();
 
     // Skip noisy health checks and diagnostic routes
     if (
-      req.path === "/api/solana/health" ||
-      req.path === "/api/health" ||
-      req.path === "/api/swap/health" ||
-      req.path.startsWith("/api/swap/diag")
+      originalPath === "/api/solana/health" ||
+      originalPath === "/api/health" ||
+      originalPath === "/api/swap/health" ||
+      originalPath.startsWith("/api/swap/diag")
     ) {
       return next();
     }
@@ -168,7 +177,7 @@ export function activityLoggerMiddleware() {
 
     res.on("finish", () => {
       const { userId, email } = extractUser(req);
-      const action = classifyAction(req.method, req.path);
+      const action = classifyAction(req.method, originalPath);
       const ip = getClientIp(req);
       const userAgent = (req.headers["user-agent"] || "").slice(0, 512);
       const durationMs = Date.now() - start;
@@ -179,7 +188,7 @@ export function activityLoggerMiddleware() {
           userId: userId?.slice(0, 128) || null,
           email: email?.slice(0, 256) || null,
           method: req.method.slice(0, 10),
-          path: req.path.slice(0, 2048),
+          path: originalPath.slice(0, 2048),
           statusCode: res.statusCode,
           action,
           details: details || null,
