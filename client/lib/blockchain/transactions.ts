@@ -18,7 +18,7 @@ import { mnemonicToSeed } from "@scure/bip39";
 
 import { getChainById, getExplorerTxUrl, ChainConfig } from "./chains";
 import { getPublicClient, formatRpcError } from "./client";
-import { getMnemonic, requireUnlocked, isUnlocked, WalletLockedError } from "../wallet-engine";
+import { getMnemonic, getWalletPrivateKey, requireUnlocked, isUnlocked, WalletLockedError } from "../wallet-engine";
 
 import { 
   checkApprovalPolicy,
@@ -877,6 +877,26 @@ export async function sendRawTransaction(params: SendRawTransactionParams): Prom
   }
 }
 
+async function getSolanaSecretKey(walletId: string): Promise<Uint8Array> {
+  const { deriveSolanaKeypair } = await import("../solana/keys");
+  const bs58 = await import("bs58");
+
+  const mnemonic = await getMnemonic(walletId);
+  if (mnemonic) {
+    return deriveSolanaKeypair(mnemonic).secretKey;
+  }
+
+  const privateKey = await getWalletPrivateKey(walletId);
+  if (privateKey?.type === "solana") {
+    const decoded = bs58.default.decode(privateKey.key);
+    if (decoded.length === 64) {
+      return decoded;
+    }
+  }
+
+  throw new WalletLockedError();
+}
+
 export interface SignSolanaMessageParams {
   walletId: string;
   message: string | Uint8Array;
@@ -886,16 +906,10 @@ export async function signSolanaMessage(params: SignSolanaMessageParams): Promis
   const { walletId, message } = params;
   
   try {
-    const { deriveSolanaKeypair } = await import("../solana/keys");
     const nacl = await import("tweetnacl");
     const bs58 = await import("bs58");
-    
-    const mnemonic = await getMnemonic(walletId);
-    if (!mnemonic) {
-      throw new WalletLockedError();
-    }
-    
-    const { secretKey } = deriveSolanaKeypair(mnemonic);
+
+    const secretKey = await getSolanaSecretKey(walletId);
     
     const messageBytes =
       message instanceof Uint8Array
@@ -940,15 +954,9 @@ export async function signSolanaTransaction(params: SignSolanaTransactionParams)
   const { walletId, transaction } = params;
   
   try {
-    const { deriveSolanaKeypair } = await import("../solana/keys");
     const { Transaction, VersionedTransaction, Keypair } = await import("@solana/web3.js");
-    
-    const mnemonic = await getMnemonic(walletId);
-    if (!mnemonic) {
-      throw new WalletLockedError();
-    }
-    
-    const { secretKey } = deriveSolanaKeypair(mnemonic);
+
+    const secretKey = await getSolanaSecretKey(walletId);
     const keypair = Keypair.fromSecretKey(secretKey);
     
     const txBytes = base64ToUint8Array(transaction);
