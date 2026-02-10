@@ -16,10 +16,28 @@ function classifyAction(method: string, path: string): string {
     return "auth.other";
   }
 
+  // Jupiter proxy routes (routes.ts)
   if (path.includes("/jupiter/quote")) return "swap.quote";
   if (path.includes("/jupiter/swap")) return "swap.build";
   if (path.includes("/jupiter/tokens")) return "swap.tokens";
-  if (path.includes("/swap/")) return "swap.execute";
+
+  // Swap router routes (/api/swap/*)
+  if (path.includes("/swap/")) {
+    if (path.includes("/instant-build")) return "swap.instant_build";
+    if (path.includes("/instant-send")) return "swap.instant_send";
+    if (path.includes("/pump/build")) return "swap.pump_build";
+    if (path.includes("/pump-meta")) return "swap.pump_meta";
+    if (path.includes("/route-quote")) return "swap.route_quote";
+    if (path.includes("/is-pump")) return "swap.check_pump";
+    if (path.includes("/status")) return "swap.status";
+    if (path.includes("/solana/quote")) return "swap.quote";
+    if (path.includes("/solana/build")) return "swap.build";
+    if (path.includes("/solana/send")) return "swap.send";
+    if (path.includes("/solana/tokens")) return "swap.token_search";
+    if (path.includes("/solana/token/")) return "swap.token_lookup";
+    if (path.includes("/platform-fee")) return "swap.platform_fee";
+    return "swap.other";
+  }
 
   if (path.includes("/solana/portfolio")) return "portfolio.solana";
   if (path.includes("/solana/balance")) return "balance.solana";
@@ -102,6 +120,10 @@ function extractUser(req: Request): { userId?: string; email?: string } {
     return { userId: req.body.userPublicKey };
   }
 
+  if (req.query.userPublicKey) {
+    return { userId: req.query.userPublicKey as string };
+  }
+
   if (req.query.address) {
     return { userId: req.query.address as string };
   }
@@ -132,8 +154,13 @@ export function activityLoggerMiddleware() {
   return (req: Request, res: Response, next: NextFunction) => {
     if (!req.path.startsWith("/api")) return next();
 
-    // Skip noisy health checks
-    if (req.path === "/api/solana/health" || req.path === "/api/health") {
+    // Skip noisy health checks and diagnostic routes
+    if (
+      req.path === "/api/solana/health" ||
+      req.path === "/api/health" ||
+      req.path === "/api/swap/health" ||
+      req.path.startsWith("/api/swap/diag")
+    ) {
       return next();
     }
 
