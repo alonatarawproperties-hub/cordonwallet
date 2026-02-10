@@ -50,8 +50,18 @@ export interface SolanaSignAllTransactionsRequest {
   pubkey: string;
 }
 
+export interface SolanaSignAndSendTransactionRequest {
+  method: "solana_signAndSendTransaction";
+  transaction: string;
+  pubkey: string;
+}
+
 export interface SignTypedDataRequest {
-  method: "eth_signTypedData" | "eth_signTypedData_v4";
+  method:
+    | "eth_signTypedData"
+    | "eth_signTypedData_v1"
+    | "eth_signTypedData_v3"
+    | "eth_signTypedData_v4";
   address: `0x${string}`;
   typedData: {
     domain: Record<string, unknown>;
@@ -65,11 +75,23 @@ export interface SignTypedDataRequest {
 export type SolanaRequest =
   | SolanaSignMessageRequest
   | SolanaSignTransactionRequest
+  | SolanaSignAndSendTransactionRequest
   | SolanaSignAllTransactionsRequest;
 
-export type ParsedRequest = PersonalSignRequest | SendTransactionRequest | SignTypedDataRequest | SolanaRequest;
+export type ParsedRequest =
+  | PersonalSignRequest
+  | SendTransactionRequest
+  | SignTypedDataRequest
+  | SolanaRequest;
 
-export function parsePersonalSign(params: unknown[]): PersonalSignRequest {
+function normalizeParams(params: unknown): unknown[] {
+  if (Array.isArray(params)) return params;
+  if (params === null || typeof params === "undefined") return [];
+  return [params];
+}
+
+export function parsePersonalSign(paramsInput: unknown): PersonalSignRequest {
+  const params = normalizeParams(paramsInput);
   let message: string;
   let address: `0x${string}`;
 
@@ -95,16 +117,19 @@ export function parsePersonalSign(params: unknown[]): PersonalSignRequest {
   return {
     method: "personal_sign",
     message,
-    messageHex: isHex(message) ? message : `0x${Buffer.from(message).toString("hex")}`,
+    messageHex: isHex(message)
+      ? message
+      : `0x${Buffer.from(message).toString("hex")}`,
     address,
     displayMessage,
   };
 }
 
 export function parseSendTransaction(
-  params: unknown[],
-  chainId: number
+  paramsInput: unknown,
+  chainId: number,
 ): SendTransactionRequest {
+  const params = normalizeParams(paramsInput);
   const txParams = params[0] as Record<string, unknown>;
 
   const tx: SendTransactionRequest["tx"] = {
@@ -153,17 +178,19 @@ export function parseSendTransaction(
   };
 }
 
-export function parseSolanaSignMessage(params: unknown[]): SolanaSignMessageRequest {
+export function parseSolanaSignMessage(
+  params: unknown,
+): SolanaSignMessageRequest {
   let paramObj: Record<string, unknown>;
   if (Array.isArray(params)) {
-    paramObj = params[0] as Record<string, unknown> || {};
+    paramObj = (params[0] as Record<string, unknown>) || {};
   } else {
     paramObj = params as unknown as Record<string, unknown>;
   }
-  
+
   const message = (paramObj.message as string) || "";
   const pubkey = (paramObj.pubkey as string) || "";
-  
+
   let displayMessage: string;
   try {
     const bs58 = require("bs58");
@@ -181,14 +208,16 @@ export function parseSolanaSignMessage(params: unknown[]): SolanaSignMessageRequ
   };
 }
 
-export function parseSolanaSignTransaction(params: unknown[]): SolanaSignTransactionRequest {
+export function parseSolanaSignTransaction(
+  params: unknown,
+): SolanaSignTransactionRequest {
   let paramObj: Record<string, unknown>;
   if (Array.isArray(params)) {
-    paramObj = params[0] as Record<string, unknown> || {};
+    paramObj = (params[0] as Record<string, unknown>) || {};
   } else {
     paramObj = params as unknown as Record<string, unknown>;
   }
-  
+
   const transaction = (paramObj.transaction as string) || "";
   const pubkey = (paramObj.pubkey as string) || "";
 
@@ -199,17 +228,39 @@ export function parseSolanaSignTransaction(params: unknown[]): SolanaSignTransac
   };
 }
 
-export function parseSolanaSignAllTransactions(params: unknown[]): SolanaSignAllTransactionsRequest {
+export function parseSolanaSignAndSendTransaction(
+  params: unknown,
+): SolanaSignAndSendTransactionRequest {
+  let paramObj: Record<string, unknown>;
+  if (Array.isArray(params)) {
+    paramObj = (params[0] as Record<string, unknown>) || {};
+  } else {
+    paramObj = params as Record<string, unknown>;
+  }
+
+  const transaction = (paramObj.transaction as string) || "";
+  const pubkey = (paramObj.pubkey as string) || "";
+
+  return {
+    method: "solana_signAndSendTransaction",
+    transaction,
+    pubkey,
+  };
+}
+
+export function parseSolanaSignAllTransactions(
+  params: unknown,
+): SolanaSignAllTransactionsRequest {
   // WalletConnect Solana params can be either:
   // 1. An object directly: { transactions, pubkey }
   // 2. An array with object: [{ transactions, pubkey }]
   let paramObj: Record<string, unknown>;
   if (Array.isArray(params)) {
-    paramObj = params[0] as Record<string, unknown> || {};
+    paramObj = (params[0] as Record<string, unknown>) || {};
   } else {
     paramObj = params as unknown as Record<string, unknown>;
   }
-  
+
   const transactions = (paramObj.transactions as string[]) || [];
   const pubkey = (paramObj.pubkey as string) || "";
 
@@ -221,21 +272,41 @@ export function parseSolanaSignAllTransactions(params: unknown[]): SolanaSignAll
 }
 
 export function parseSignTypedData(
-  method: "eth_signTypedData" | "eth_signTypedData_v4",
-  params: unknown[]
+  method:
+    | "eth_signTypedData"
+    | "eth_signTypedData_v1"
+    | "eth_signTypedData_v3"
+    | "eth_signTypedData_v4",
+  paramsInput: unknown,
 ): SignTypedDataRequest {
-  // eth_signTypedData_v4 params are [address, jsonString]
-  const address = params[0] as `0x${string}`;
-  let typedData: SignTypedDataRequest["typedData"];
+  const params = normalizeParams(paramsInput);
+  // common forms: [address, typedData], [typedData, address], or object payload
+  let address = "0x0000000000000000000000000000000000000000" as `0x${string}`;
+  let raw: unknown;
 
-  const raw = params[1];
+  if (typeof params[0] === "string" && (params[0] as string).startsWith("0x")) {
+    address = params[0] as `0x${string}`;
+    raw = params[1];
+  } else if (
+    typeof params[1] === "string" &&
+    (params[1] as string).startsWith("0x")
+  ) {
+    address = params[1] as `0x${string}`;
+    raw = params[0];
+  } else {
+    raw = params[1] ?? params[0];
+  }
+
+  let typedData: SignTypedDataRequest["typedData"];
   if (typeof raw === "string") {
     typedData = JSON.parse(raw);
   } else {
-    typedData = raw as SignTypedDataRequest["typedData"];
+    typedData = (raw || {}) as SignTypedDataRequest["typedData"];
   }
 
-  const domainName = (typedData.domain as Record<string, unknown>)?.name as string | undefined;
+  const domainName = (typedData.domain as Record<string, unknown>)?.name as
+    | string
+    | undefined;
   const displaySummary = domainName
     ? `Sign typed data from ${domainName}`
     : "Sign structured data";
@@ -250,9 +321,9 @@ export function parseSignTypedData(
 
 export function parseSessionRequest(
   method: string,
-  params: unknown[],
+  params: unknown,
   chainId: number,
-  isSolana: boolean = false
+  isSolana: boolean = false,
 ): ParsedRequest | null {
   switch (method) {
     case "personal_sign":
@@ -267,6 +338,12 @@ export function parseSessionRequest(
     case "eth_signTypedData":
       return parseSignTypedData("eth_signTypedData", params);
 
+    case "eth_signTypedData_v1":
+      return parseSignTypedData("eth_signTypedData_v1", params);
+
+    case "eth_signTypedData_v3":
+      return parseSignTypedData("eth_signTypedData_v3", params);
+
     case "eth_signTypedData_v4":
       return parseSignTypedData("eth_signTypedData_v4", params);
 
@@ -275,6 +352,9 @@ export function parseSessionRequest(
 
     case "solana_signTransaction":
       return parseSolanaSignTransaction(params);
+
+    case "solana_signAndSendTransaction":
+      return parseSolanaSignAndSendTransaction(params);
 
     case "solana_signAllTransactions":
       return parseSolanaSignAllTransactions(params);
@@ -286,7 +366,7 @@ export function parseSessionRequest(
 
 export function modifyTransactionData(
   originalData: `0x${string}`,
-  newAmount: bigint
+  newAmount: bigint,
 ): `0x${string}` {
   const methodId = originalData.slice(0, 10);
   const spenderPadded = originalData.slice(10, 74);
