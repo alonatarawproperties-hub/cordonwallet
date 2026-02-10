@@ -1,0 +1,685 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cordon Admin - User Activity</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0f172a;
+      --card: #1e293b;
+      --border: #334155;
+      --text: #f8fafc;
+      --muted: #94a3b8;
+      --accent: #3b82f6;
+      --accent-hover: #2563eb;
+      --success: #10b981;
+      --warning: #f59e0b;
+      --error: #ef4444;
+      --radius: 10px;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      line-height: 1.5;
+    }
+
+    /* ── Login overlay ─────────────────────────────────────────────── */
+    #login-overlay {
+      position: fixed; inset: 0; z-index: 1000;
+      background: var(--bg);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .login-box {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 48px 40px;
+      width: 100%; max-width: 400px;
+      text-align: center;
+    }
+    .login-box h1 { font-size: 24px; margin-bottom: 6px; }
+    .login-box p { color: var(--muted); font-size: 14px; margin-bottom: 28px; }
+    .login-box input {
+      width: 100%; padding: 14px 16px;
+      background: var(--bg); color: var(--text);
+      border: 1px solid var(--border); border-radius: var(--radius);
+      font-size: 15px; outline: none; margin-bottom: 16px;
+    }
+    .login-box input:focus { border-color: var(--accent); }
+    .login-box .btn-primary {
+      width: 100%; padding: 14px;
+      background: var(--accent); color: #fff;
+      border: none; border-radius: var(--radius);
+      font-size: 15px; font-weight: 600; cursor: pointer;
+    }
+    .login-box .btn-primary:hover { background: var(--accent-hover); }
+    .login-box .btn-primary:disabled { opacity: .5; cursor: not-allowed; }
+    .login-error {
+      color: var(--error); font-size: 13px;
+      margin-bottom: 12px; min-height: 20px;
+    }
+
+    /* ── Dashboard shell ───────────────────────────────────────────── */
+    #dashboard { display: none; }
+    .topbar {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 16px 28px;
+      border-bottom: 1px solid var(--border);
+      background: var(--card);
+      position: sticky; top: 0; z-index: 100;
+    }
+    .topbar-left { display: flex; align-items: center; gap: 12px; }
+    .topbar-left h1 { font-size: 18px; font-weight: 700; }
+    .badge {
+      font-size: 11px; padding: 3px 8px;
+      border-radius: 20px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: .5px;
+    }
+    .badge-admin { background: rgba(59,130,246,.15); color: var(--accent); }
+    .btn-ghost {
+      padding: 8px 16px; background: transparent;
+      border: 1px solid var(--border); border-radius: var(--radius);
+      color: var(--muted); font-size: 13px; cursor: pointer;
+    }
+    .btn-ghost:hover { border-color: var(--muted); color: var(--text); }
+
+    .main { padding: 24px 28px; max-width: 1400px; margin: 0 auto; }
+
+    /* ── Stats cards ───────────────────────────────────────────────── */
+    .stats-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 16px; margin-bottom: 24px;
+    }
+    .stat-card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 20px;
+    }
+    .stat-card .label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 6px; }
+    .stat-card .value { font-size: 28px; font-weight: 700; }
+    .stat-card .value.error-val { color: var(--error); }
+
+    /* ── Filters ───────────────────────────────────────────────────── */
+    .filters {
+      display: flex; flex-wrap: wrap; gap: 10px;
+      margin-bottom: 20px; align-items: center;
+    }
+    .filters input, .filters select {
+      padding: 9px 14px;
+      background: var(--card); color: var(--text);
+      border: 1px solid var(--border); border-radius: var(--radius);
+      font-size: 13px; outline: none;
+    }
+    .filters input:focus, .filters select:focus { border-color: var(--accent); }
+    .filters input::placeholder { color: var(--muted); }
+    .search-input { flex: 1; min-width: 200px; }
+    .filters select { cursor: pointer; }
+    .filters .btn-sm {
+      padding: 9px 16px; background: var(--accent); color: #fff;
+      border: none; border-radius: var(--radius);
+      font-size: 13px; font-weight: 600; cursor: pointer;
+    }
+    .filters .btn-sm:hover { background: var(--accent-hover); }
+    .filters .btn-reset {
+      background: transparent; border: 1px solid var(--border); color: var(--muted);
+    }
+    .filters .btn-reset:hover { border-color: var(--muted); color: var(--text); }
+
+    /* ── Table ──────────────────────────────────────────────────────── */
+    .table-wrapper {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow-x: auto;
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    thead th {
+      text-align: left; padding: 12px 16px;
+      color: var(--muted); font-weight: 600; font-size: 11px;
+      text-transform: uppercase; letter-spacing: .5px;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    tbody tr { border-bottom: 1px solid var(--border); cursor: pointer; }
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:hover { background: rgba(59,130,246,.04); }
+    tbody td { padding: 10px 16px; white-space: nowrap; }
+    .cell-path { max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
+    .cell-user { max-width: 200px; overflow: hidden; text-overflow: ellipsis; color: var(--muted); font-size: 12px; }
+
+    /* Method & status badges */
+    .method-badge {
+      display: inline-block; padding: 2px 8px;
+      border-radius: 4px; font-size: 11px; font-weight: 700;
+      letter-spacing: .3px;
+    }
+    .method-GET    { background: rgba(59,130,246,.12); color: #60a5fa; }
+    .method-POST   { background: rgba(16,185,129,.12); color: #34d399; }
+    .method-PUT    { background: rgba(245,158,11,.12); color: #fbbf24; }
+    .method-DELETE { background: rgba(239,68,68,.12);  color: #f87171; }
+
+    .status-badge {
+      display: inline-block; padding: 2px 8px;
+      border-radius: 4px; font-size: 11px; font-weight: 700;
+    }
+    .status-2xx { background: rgba(16,185,129,.12); color: #34d399; }
+    .status-3xx { background: rgba(59,130,246,.12); color: #60a5fa; }
+    .status-4xx { background: rgba(245,158,11,.12); color: #fbbf24; }
+    .status-5xx { background: rgba(239,68,68,.12);  color: #f87171; }
+
+    .action-label { color: var(--accent); font-weight: 500; }
+    .duration { color: var(--muted); }
+
+    /* ── Pagination ────────────────────────────────────────────────── */
+    .pagination {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 14px 16px; font-size: 13px; color: var(--muted);
+    }
+    .pagination-buttons { display: flex; gap: 6px; }
+    .pagination-buttons button {
+      padding: 6px 14px; background: var(--bg);
+      border: 1px solid var(--border); border-radius: 6px;
+      color: var(--text); font-size: 13px; cursor: pointer;
+    }
+    .pagination-buttons button:disabled { opacity: .3; cursor: not-allowed; }
+    .pagination-buttons button:not(:disabled):hover { border-color: var(--accent); }
+
+    /* ── Detail modal ──────────────────────────────────────────────── */
+    .modal-backdrop {
+      position: fixed; inset: 0; z-index: 500;
+      background: rgba(0,0,0,.6); backdrop-filter: blur(4px);
+      display: none; align-items: center; justify-content: center;
+    }
+    .modal-backdrop.open { display: flex; }
+    .modal {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 16px; padding: 32px;
+      width: 90%; max-width: 640px; max-height: 80vh;
+      overflow-y: auto; position: relative;
+    }
+    .modal h2 { font-size: 18px; margin-bottom: 20px; }
+    .modal-close {
+      position: absolute; top: 16px; right: 16px;
+      background: none; border: none; color: var(--muted);
+      font-size: 22px; cursor: pointer; line-height: 1;
+    }
+    .modal-close:hover { color: var(--text); }
+    .detail-row {
+      display: flex; gap: 12px; padding: 10px 0;
+      border-bottom: 1px solid var(--border); font-size: 13px;
+    }
+    .detail-row:last-child { border-bottom: none; }
+    .detail-label { color: var(--muted); min-width: 120px; flex-shrink: 0; }
+    .detail-value { word-break: break-all; }
+    .detail-json {
+      background: var(--bg); border-radius: 8px;
+      padding: 12px; font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+      font-size: 12px; white-space: pre-wrap; word-break: break-all;
+      max-height: 200px; overflow-y: auto; margin-top: 4px;
+    }
+
+    /* ── Top lists (actions & users) ───────────────────────────────── */
+    .top-lists {
+      display: grid; grid-template-columns: 1fr 1fr;
+      gap: 16px; margin-bottom: 24px;
+    }
+    .top-card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 20px;
+    }
+    .top-card h3 { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 14px; }
+    .top-item {
+      display: flex; justify-content: space-between;
+      padding: 6px 0; font-size: 13px;
+    }
+    .top-item .name { color: var(--text); }
+    .top-item .count { color: var(--accent); font-weight: 600; }
+
+    /* ── Loading & empty states ─────────────────────────────────────── */
+    .loading-row td { text-align: center; padding: 40px; color: var(--muted); }
+    .empty-row td { text-align: center; padding: 40px; color: var(--muted); }
+    .spinner {
+      display: inline-block; width: 20px; height: 20px;
+      border: 2px solid var(--border); border-top-color: var(--accent);
+      border-radius: 50%; animation: spin .6s linear infinite;
+      margin-right: 8px; vertical-align: middle;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Responsive ────────────────────────────────────────────────── */
+    @media (max-width: 768px) {
+      .main { padding: 16px; }
+      .stats-row { grid-template-columns: repeat(2, 1fr); }
+      .top-lists { grid-template-columns: 1fr; }
+      .topbar { padding: 12px 16px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ═══════════════ LOGIN OVERLAY ═══════════════════════════════════════ -->
+<div id="login-overlay">
+  <div class="login-box">
+    <h1>Cordon Admin</h1>
+    <p>Enter the admin secret to access the dashboard.</p>
+    <div class="login-error" id="login-error"></div>
+    <form id="login-form" onsubmit="handleLogin(event)">
+      <input type="password" id="login-secret" placeholder="Admin secret" autocomplete="off" autofocus required>
+      <button class="btn-primary" type="submit" id="login-btn">Sign In</button>
+    </form>
+  </div>
+</div>
+
+<!-- ═══════════════ DASHBOARD ══════════════════════════════════════════ -->
+<div id="dashboard">
+  <div class="topbar">
+    <div class="topbar-left">
+      <h1>Cordon Admin</h1>
+      <span class="badge badge-admin">Admin</span>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center;">
+      <button class="btn-ghost" onclick="fetchAll()" title="Refresh">Refresh</button>
+      <button class="btn-ghost" onclick="handleLogout()">Logout</button>
+    </div>
+  </div>
+
+  <div class="main">
+    <!-- Stats -->
+    <div class="stats-row" id="stats-row">
+      <div class="stat-card"><div class="label">Total Requests</div><div class="value" id="stat-total">--</div></div>
+      <div class="stat-card"><div class="label">Today</div><div class="value" id="stat-today">--</div></div>
+      <div class="stat-card"><div class="label">Last Hour</div><div class="value" id="stat-hour">--</div></div>
+      <div class="stat-card"><div class="label">Active Users Today</div><div class="value" id="stat-users">--</div></div>
+      <div class="stat-card"><div class="label">Errors Today</div><div class="value error-val" id="stat-errors">--</div></div>
+    </div>
+
+    <!-- Top actions & users -->
+    <div class="top-lists">
+      <div class="top-card">
+        <h3>Top Actions (24h)</h3>
+        <div id="top-actions">--</div>
+      </div>
+      <div class="top-card">
+        <h3>Top Users (24h)</h3>
+        <div id="top-users">--</div>
+      </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="filters">
+      <input class="search-input" type="text" id="filter-search" placeholder="Search by path, user, IP, action..." onkeydown="if(event.key==='Enter')applyFilters()">
+      <select id="filter-action">
+        <option value="">All Actions</option>
+        <optgroup label="Auth">
+          <option value="auth">auth.*</option>
+        </optgroup>
+        <optgroup label="Swap">
+          <option value="swap">swap.*</option>
+        </optgroup>
+        <optgroup label="Send">
+          <option value="send">send.*</option>
+        </optgroup>
+        <optgroup label="Portfolio">
+          <option value="portfolio">portfolio.*</option>
+          <option value="balance">balance.*</option>
+        </optgroup>
+        <optgroup label="History">
+          <option value="history">history.*</option>
+        </optgroup>
+        <optgroup label="Prices">
+          <option value="price">price.*</option>
+        </optgroup>
+        <optgroup label="Security">
+          <option value="security">security.*</option>
+          <option value="safety">safety.*</option>
+        </optgroup>
+        <optgroup label="Token">
+          <option value="token">token.*</option>
+        </optgroup>
+        <optgroup label="EVM">
+          <option value="evm">evm.*</option>
+        </optgroup>
+      </select>
+      <select id="filter-method">
+        <option value="">All Methods</option>
+        <option value="GET">GET</option>
+        <option value="POST">POST</option>
+        <option value="PUT">PUT</option>
+        <option value="DELETE">DELETE</option>
+      </select>
+      <select id="filter-status">
+        <option value="">All Status</option>
+        <option value="200">200 OK</option>
+        <option value="400">400 Bad Request</option>
+        <option value="401">401 Unauthorized</option>
+        <option value="404">404 Not Found</option>
+        <option value="429">429 Rate Limited</option>
+        <option value="500">500 Server Error</option>
+      </select>
+      <select id="filter-time">
+        <option value="">All Time</option>
+        <option value="1h">Last 1 Hour</option>
+        <option value="6h">Last 6 Hours</option>
+        <option value="24h" selected>Last 24 Hours</option>
+        <option value="7d">Last 7 Days</option>
+        <option value="30d">Last 30 Days</option>
+      </select>
+      <button class="btn-sm" onclick="applyFilters()">Apply</button>
+      <button class="btn-sm btn-reset" onclick="resetFilters()">Reset</button>
+    </div>
+
+    <!-- Activity table -->
+    <div class="table-wrapper">
+      <table>
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Action</th>
+            <th>Method</th>
+            <th>Path</th>
+            <th>User</th>
+            <th>Status</th>
+            <th>Duration</th>
+            <th>IP</th>
+          </tr>
+        </thead>
+        <tbody id="logs-body">
+          <tr class="loading-row"><td colspan="8"><span class="spinner"></span>Loading...</td></tr>
+        </tbody>
+      </table>
+      <div class="pagination">
+        <span id="page-info">--</span>
+        <div class="pagination-buttons">
+          <button id="btn-prev" onclick="goPage(-1)" disabled>Previous</button>
+          <button id="btn-next" onclick="goPage(1)" disabled>Next</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════ DETAIL MODAL ═══════════════════════════════════════ -->
+<div class="modal-backdrop" id="detail-modal" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal()">&times;</button>
+    <h2>Request Details</h2>
+    <div id="modal-body"></div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════════
+// State
+// ═══════════════════════════════════════════════════════════════════════
+let currentPage = 1;
+const PAGE_SIZE = 50;
+let totalPages = 1;
+let logsCache = [];
+let refreshTimer = null;
+
+// ═══════════════════════════════════════════════════════════════════════
+// Auth
+// ═══════════════════════════════════════════════════════════════════════
+async function checkAuth() {
+  try {
+    const r = await fetch('/admin/api/auth-check', { credentials: 'include' });
+    const d = await r.json();
+    if (d.authenticated) {
+      document.getElementById('login-overlay').style.display = 'none';
+      document.getElementById('dashboard').style.display = 'block';
+      fetchAll();
+      startAutoRefresh();
+    }
+  } catch {}
+}
+
+async function handleLogin(e) {
+  e.preventDefault();
+  const secret = document.getElementById('login-secret').value;
+  const btn = document.getElementById('login-btn');
+  const err = document.getElementById('login-error');
+  btn.disabled = true;
+  err.textContent = '';
+  try {
+    const r = await fetch('/admin/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ secret }),
+      credentials: 'include',
+    });
+    const d = await r.json();
+    if (d.success) {
+      document.getElementById('login-overlay').style.display = 'none';
+      document.getElementById('dashboard').style.display = 'block';
+      fetchAll();
+      startAutoRefresh();
+    } else {
+      err.textContent = d.error || 'Login failed';
+    }
+  } catch (ex) {
+    err.textContent = 'Network error';
+  }
+  btn.disabled = false;
+}
+
+async function handleLogout() {
+  await fetch('/admin/api/logout', { method: 'POST', credentials: 'include' });
+  stopAutoRefresh();
+  document.getElementById('dashboard').style.display = 'none';
+  document.getElementById('login-overlay').style.display = 'flex';
+  document.getElementById('login-secret').value = '';
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Data fetching
+// ═══════════════════════════════════════════════════════════════════════
+function buildQueryParams() {
+  const p = new URLSearchParams();
+  p.set('page', currentPage);
+  p.set('limit', PAGE_SIZE);
+
+  const search = document.getElementById('filter-search').value.trim();
+  if (search) p.set('search', search);
+
+  const action = document.getElementById('filter-action').value;
+  if (action) p.set('action', action);
+
+  const method = document.getElementById('filter-method').value;
+  if (method) p.set('method', method);
+
+  const status = document.getElementById('filter-status').value;
+  if (status) p.set('statusCode', status);
+
+  const timeVal = document.getElementById('filter-time').value;
+  if (timeVal) {
+    const now = Date.now();
+    const ms = { '1h': 3600000, '6h': 21600000, '24h': 86400000, '7d': 604800000, '30d': 2592000000 };
+    if (ms[timeVal]) p.set('from', now - ms[timeVal]);
+  }
+
+  return p.toString();
+}
+
+async function fetchLogs() {
+  try {
+    const r = await fetch('/admin/api/logs?' + buildQueryParams(), { credentials: 'include' });
+    if (r.status === 401) { handleLogout(); return; }
+    const d = await r.json();
+    logsCache = d.logs || [];
+    totalPages = d.pagination?.totalPages || 1;
+    currentPage = d.pagination?.page || 1;
+    renderLogs();
+    renderPagination(d.pagination);
+  } catch (err) {
+    console.error('fetchLogs error:', err);
+  }
+}
+
+async function fetchStats() {
+  try {
+    const r = await fetch('/admin/api/stats', { credentials: 'include' });
+    if (r.status === 401) return;
+    const d = await r.json();
+    document.getElementById('stat-total').textContent = fmt(d.total);
+    document.getElementById('stat-today').textContent = fmt(d.today);
+    document.getElementById('stat-hour').textContent = fmt(d.lastHour);
+    document.getElementById('stat-users').textContent = fmt(d.uniqueUsersToday);
+    document.getElementById('stat-errors').textContent = fmt(d.errorsToday);
+    renderTopList('top-actions', d.topActions, 'action');
+    renderTopList('top-users', d.topUsers, 'user_id');
+  } catch {}
+}
+
+function fetchAll() { fetchStats(); fetchLogs(); }
+function startAutoRefresh() { refreshTimer = setInterval(fetchAll, 30000); }
+function stopAutoRefresh() { if (refreshTimer) clearInterval(refreshTimer); }
+
+// ═══════════════════════════════════════════════════════════════════════
+// Rendering
+// ═══════════════════════════════════════════════════════════════════════
+function renderLogs() {
+  const tbody = document.getElementById('logs-body');
+  if (!logsCache.length) {
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="8">No activity logs found</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = logsCache.map((log, i) => {
+    const time = formatTime(log.createdAt);
+    const methodCls = 'method-' + (log.method || 'GET');
+    const statusCls = statusClass(log.statusCode);
+    const user = log.email || (log.userId ? truncate(log.userId, 16) : '-');
+    const dur = log.durationMs != null ? log.durationMs + 'ms' : '-';
+
+    return '<tr onclick="showDetail(' + i + ')">' +
+      '<td>' + time + '</td>' +
+      '<td><span class="action-label">' + esc(log.action || '-') + '</span></td>' +
+      '<td><span class="method-badge ' + methodCls + '">' + esc(log.method) + '</span></td>' +
+      '<td class="cell-path" title="' + esc(log.path) + '">' + esc(log.path) + '</td>' +
+      '<td class="cell-user" title="' + esc(log.userId || '') + '">' + esc(user) + '</td>' +
+      '<td><span class="status-badge ' + statusCls + '">' + (log.statusCode || '-') + '</span></td>' +
+      '<td class="duration">' + dur + '</td>' +
+      '<td class="cell-user">' + esc(log.ip || '-') + '</td>' +
+      '</tr>';
+  }).join('');
+}
+
+function renderPagination(p) {
+  if (!p) return;
+  document.getElementById('page-info').textContent =
+    'Page ' + p.page + ' of ' + p.totalPages + ' (' + fmt(p.total) + ' total)';
+  document.getElementById('btn-prev').disabled = p.page <= 1;
+  document.getElementById('btn-next').disabled = p.page >= p.totalPages;
+}
+
+function renderTopList(id, items, key) {
+  const el = document.getElementById(id);
+  if (!items || !items.length) { el.innerHTML = '<div style="color:var(--muted);font-size:13px;">No data yet</div>'; return; }
+  el.innerHTML = items.map(function(item) {
+    return '<div class="top-item"><span class="name">' + esc(truncate(item[key] || 'unknown', 40)) + '</span><span class="count">' + fmt(item.count) + '</span></div>';
+  }).join('');
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Detail modal
+// ═══════════════════════════════════════════════════════════════════════
+function showDetail(idx) {
+  var log = logsCache[idx];
+  if (!log) return;
+  var rows = [
+    row('ID', log.id),
+    row('Time', new Date(log.createdAt).toLocaleString()),
+    row('Action', log.action),
+    row('Method', log.method),
+    row('Path', log.path),
+    row('Status', log.statusCode),
+    row('Duration', log.durationMs != null ? log.durationMs + 'ms' : '-'),
+    row('User ID', log.userId || '-'),
+    row('Email', log.email || '-'),
+    row('IP', log.ip || '-'),
+    row('User Agent', log.userAgent || '-'),
+  ];
+  if (log.details && Object.keys(log.details).length > 0) {
+    rows.push('<div class="detail-row"><div class="detail-label">Details</div><div class="detail-value"><div class="detail-json">' + esc(JSON.stringify(log.details, null, 2)) + '</div></div></div>');
+  }
+  document.getElementById('modal-body').innerHTML = rows.join('');
+  document.getElementById('detail-modal').classList.add('open');
+}
+
+function closeModal() {
+  document.getElementById('detail-modal').classList.remove('open');
+}
+
+function row(label, val) {
+  return '<div class="detail-row"><div class="detail-label">' + esc(label) + '</div><div class="detail-value">' + esc(String(val ?? '-')) + '</div></div>';
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Filters & pagination
+// ═══════════════════════════════════════════════════════════════════════
+function applyFilters() { currentPage = 1; fetchLogs(); }
+function resetFilters() {
+  document.getElementById('filter-search').value = '';
+  document.getElementById('filter-action').value = '';
+  document.getElementById('filter-method').value = '';
+  document.getElementById('filter-status').value = '';
+  document.getElementById('filter-time').value = '24h';
+  applyFilters();
+}
+function goPage(delta) { currentPage += delta; fetchLogs(); }
+
+// ═══════════════════════════════════════════════════════════════════════
+// Helpers
+// ═══════════════════════════════════════════════════════════════════════
+function formatTime(ts) {
+  if (!ts) return '-';
+  var d = new Date(ts);
+  var now = new Date();
+  var diff = now - d;
+  if (diff < 60000) return Math.floor(diff / 1000) + 's ago';
+  if (diff < 3600000) return Math.floor(diff / 60000) + 'm ago';
+  if (diff < 86400000) return Math.floor(diff / 3600000) + 'h ago';
+  return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function statusClass(code) {
+  if (!code) return '';
+  if (code < 300) return 'status-2xx';
+  if (code < 400) return 'status-3xx';
+  if (code < 500) return 'status-4xx';
+  return 'status-5xx';
+}
+
+function fmt(n) {
+  if (n == null) return '--';
+  return Number(n).toLocaleString();
+}
+
+function truncate(s, max) {
+  if (!s) return '';
+  return s.length > max ? s.slice(0, max) + '...' : s;
+}
+
+function esc(s) {
+  if (s == null) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// Keyboard: Escape closes modal
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') closeModal();
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// Init
+// ═══════════════════════════════════════════════════════════════════════
+checkAuth();
+</script>
+</body>
+</html>
