@@ -18,24 +18,26 @@ interface Props {
 
 function extractWalletConnectUri(input: string): string | null {
   if (!input) return null;
-  let uri = input.trim();
+  let uri = input.trim().replace(/["'<>]/g, "");
 
   const lower = uri.toLowerCase();
-  if (lower.startsWith("wc:")) {
-    return `wc:${uri.slice(uri.indexOf(":") + 1)}`;
-  }
-
-  if (lower.startsWith("walletconnect:")) {
-    return `wc:${uri.slice(uri.indexOf(":") + 1)}`;
-  }
 
   try {
-    if (lower.startsWith("http://") || lower.startsWith("https://")) {
+    if (
+      lower.startsWith("http://") ||
+      lower.startsWith("https://") ||
+      lower.startsWith("walletconnect://")
+    ) {
       const parsed = new URL(uri);
       const embedded =
         parsed.searchParams.get("uri") || parsed.searchParams.get("wc");
       if (embedded) {
         uri = embedded;
+      } else if (parsed.pathname?.includes("wc") && parsed.search) {
+        const match = parsed.search.match(/(?:\?|&)(?:uri|wc)=([^&]+)/i);
+        if (match?.[1]) {
+          uri = match[1];
+        }
       }
     }
   } catch {
@@ -49,16 +51,24 @@ function extractWalletConnectUri(input: string): string | null {
   }
 
   const decodedLower = uri.toLowerCase();
-  if (decodedLower.startsWith("walletconnect:")) {
-    return `wc:${uri.slice(uri.indexOf(":") + 1)}`;
-  }
+
   if (decodedLower.startsWith("wc:")) {
-    return `wc:${uri.slice(uri.indexOf(":") + 1)}`;
+    const normalized = `wc:${uri.slice(uri.indexOf(":") + 1)}`;
+    return normalized.split(/\s/)[0];
+  }
+
+  if (decodedLower.startsWith("walletconnect:")) {
+    const wcIndex = decodedLower.indexOf("wc:");
+    if (wcIndex !== -1) {
+      return uri.slice(wcIndex).split(/\s/)[0];
+    }
+    const normalized = `wc:${uri.slice(uri.indexOf(":") + 1)}`;
+    return normalized.split(/\s/)[0];
   }
 
   const wcIndex = decodedLower.indexOf("wc:");
   if (wcIndex !== -1) {
-    return uri.slice(wcIndex);
+    return uri.slice(wcIndex).split(/\s/)[0];
   }
 
   return null;
