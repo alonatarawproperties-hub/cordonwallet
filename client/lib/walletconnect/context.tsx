@@ -8,7 +8,6 @@ import React, {
 } from "react";
 import {
   initWalletConnect,
-  getWeb3Wallet,
   pairWithUri,
   approveSession,
   rejectSession,
@@ -71,110 +70,127 @@ export function WalletConnectProvider({
   const [evmRejectionReason, setEvmRejectionReason] = useState<string | null>(
     null,
   );
+  const initPromiseRef = useRef<Promise<void> | null>(null);
 
   const initializeWC = useCallback(async () => {
-    if (isInitialized || isInitializing) return;
+    if (isInitialized) return;
 
-    setIsInitializing(true);
-    setError(null);
-
-    try {
-      const wallet = await initWalletConnect();
-
-      wallet.on("session_proposal", async (proposal) => {
-        const sessionProposal: SessionProposal = {
-          id: proposal.id,
-          params: proposal.params,
-        };
-
-        // Do not auto-reject proposals based on rollout feature flags.
-        // Let the user explicitly approve/reject from the WalletConnect sheet.
-        setEvmRejectionReason(null);
-        setCurrentProposal(sessionProposal);
-      });
-
-      wallet.on("session_request", (event) => {
-        const chainIdStr = event.params.chainId;
-        const chainId = parseChainId(chainIdStr);
-        const isSolana = isSolanaChain(chainIdStr);
-
-        const parsed = parseSessionRequest(
-          event.params.request.method,
-          event.params.request.params,
-          chainId,
-          isSolana,
-        );
-
-        if (parsed) {
-          // Reject any existing pending request before accepting the new one,
-          // otherwise the old dApp hangs indefinitely waiting for a response
-          setCurrentRequest((prev) => {
-            if (prev) {
-              console.warn(
-                "[WalletConnect] New request arrived while previous pending — rejecting old request",
-              );
-              rejectRequest(
-                prev.request.topic,
-                prev.request.id,
-                "Request superseded by a newer request",
-              ).catch((err) => {
-                console.warn(
-                  "[WalletConnect] Failed to reject superseded request:",
-                  err,
-                );
-              });
-            }
-            return {
-              request: {
-                id: event.id,
-                topic: event.topic,
-                params: event.params,
-              },
-              parsed,
-              isSolana,
-            };
-          });
-        } else {
-          rejectRequest(
-            event.topic,
-            event.id,
-            `Unsupported method: ${event.params.request.method}`,
-          );
-        }
-      });
-
-      wallet.on("session_delete", (event) => {
-        setSessions(getActiveSessions());
-        // Clear any pending request that belongs to the deleted session
-        // to prevent the signing sheet from staying stuck
-        setCurrentRequest((prev) => {
-          if (prev && prev.request.topic === event.topic) {
-            console.log(
-              "[WalletConnect] Clearing pending request for deleted session",
-            );
-            return null;
-          }
-          return prev;
-        });
-      });
-
-      setSessions(getActiveSessions());
-      setIsInitialized(true);
-    } catch (err) {
-      const message =
-        err instanceof Error
-          ? err.message
-          : "Failed to initialize WalletConnect";
-      setError(message);
-      console.error("[WalletConnect] Init error:", err);
-    } finally {
-      setIsInitializing(false);
+    if (initPromiseRef.current) {
+      await initPromiseRef.current;
+      return;
     }
-  }, [isInitialized, isInitializing]);
+
+    const initPromise = (async () => {
+      setIsInitializing(true);
+      setError(null);
+
+      try {
+        const wallet = await initWalletConnect();
+
+        wallet.on("session_proposal", async (proposal) => {
+          const sessionProposal: SessionProposal = {
+            id: proposal.id,
+            params: proposal.params,
+          };
+
+          // Do not auto-reject proposals based on rollout feature flags.
+          // Let the user explicitly approve/reject from the WalletConnect sheet.
+          setEvmRejectionReason(null);
+          setCurrentProposal(sessionProposal);
+        });
+
+        wallet.on("session_request", (event) => {
+          const chainIdStr = event.params.chainId;
+          const chainId = parseChainId(chainIdStr);
+          const isSolana = isSolanaChain(chainIdStr);
+
+          const parsed = parseSessionRequest(
+            event.params.request.method,
+            event.params.request.params,
+            chainId,
+            isSolana,
+          );
+
+          if (parsed) {
+            // Reject any existing pending request before accepting the new one,
+            // otherwise the old dApp hangs indefinitely waiting for a response
+            setCurrentRequest((prev) => {
+              if (prev) {
+                console.warn(
+                  "[WalletConnect] New request arrived while previous pending — rejecting old request",
+                );
+                rejectRequest(
+                  prev.request.topic,
+                  prev.request.id,
+                  "Request superseded by a newer request",
+                ).catch((err) => {
+                  console.warn(
+                    "[WalletConnect] Failed to reject superseded request:",
+                    err,
+                  );
+                });
+              }
+              return {
+                request: {
+                  id: event.id,
+                  topic: event.topic,
+                  params: event.params,
+                },
+                parsed,
+                isSolana,
+              };
+            });
+          } else {
+            rejectRequest(
+              event.topic,
+              event.id,
+              `Unsupported method: ${event.params.request.method}`,
+            );
+          }
+        });
+
+        wallet.on("session_delete", (event) => {
+          setSessions(getActiveSessions());
+          // Clear any pending request that belongs to the deleted session
+          // to prevent the signing sheet from staying stuck
+          setCurrentRequest((prev) => {
+            if (prev && prev.request.topic === event.topic) {
+              console.log(
+                "[WalletConnect] Clearing pending request for deleted session",
+              );
+              return null;
+            }
+            return prev;
+          });
+        });
+
+        setSessions(getActiveSessions());
+        setIsInitialized(true);
+      } catch (err) {
+        const message =
+          err instanceof Error
+            ? err.message
+            : "Failed to initialize WalletConnect";
+        setError(message);
+        console.error("[WalletConnect] Init error:", err);
+      } finally {
+        setIsInitializing(false);
+      }
+    })();
+
+    initPromiseRef.current = initPromise;
+    try {
+      await initPromise;
+    } finally {
+      if (initPromiseRef.current === initPromise) {
+        initPromiseRef.current = null;
+      }
+    }
+  }, [isInitialized]);
 
   useEffect(() => {
     initializeWC();
-  }, []);
+  }, [initializeWC]);
 
   const connect = useCallback(
     async (uri: string) => {
