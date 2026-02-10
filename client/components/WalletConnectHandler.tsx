@@ -308,6 +308,7 @@ export function WalletConnectHandler({ children }: { children: React.ReactNode }
   const handlePinCancel = useCallback(async () => {
     setShowPinModal(false);
     setPinError(null);
+    setIsSigning(false);
     try {
       await respondError("User cancelled unlock");
     } catch (err) {
@@ -316,6 +317,7 @@ export function WalletConnectHandler({ children }: { children: React.ReactNode }
   }, [respondError]);
 
   const handleRejectRequest = useCallback(async () => {
+    setIsSigning(false);
     try {
       await respondError("User rejected");
     } catch (err) {
