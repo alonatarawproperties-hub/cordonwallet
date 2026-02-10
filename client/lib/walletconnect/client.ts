@@ -102,6 +102,10 @@ export function getWeb3Wallet(): IWeb3Wallet | null {
   return web3wallet;
 }
 
+export function getCore(): InstanceType<typeof Core> | null {
+  return core;
+}
+
 export async function pairWithUri(uri: string): Promise<void> {
   const wallet = await initWalletConnect();
   await wallet.pair({ uri });
