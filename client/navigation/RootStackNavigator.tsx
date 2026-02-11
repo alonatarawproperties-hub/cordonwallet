@@ -37,6 +37,7 @@ import SwapScreen from "@/screens/SwapScreen";
 import SwapHistoryScreen from "@/screens/SwapHistoryScreen";
 import SwapDebugScreen from "@/screens/SwapDebugScreen";
 import TokenSelectScreen from "@/screens/TokenSelectScreen";
+import BrowserWebViewScreen from "@/screens/BrowserWebViewScreen";
 import type { BootResult, InitialRoute } from "@/lib/bootstrap";
 
 export type TransactionDetailParams = {
@@ -149,6 +150,10 @@ export type RootStackParamList = {
   TokenSelect: {
     mode: "input" | "output";
     excludeMint?: string;
+  };
+  BrowserWebView: {
+    url: string;
+    title?: string;
   };
 };
 
@@ -342,6 +347,11 @@ export default function RootStackNavigator() {
         name="TokenSelect"
         component={TokenSelectScreen}
         options={{ headerShown: false, presentation: "fullScreenModal" }}
+      />
+      <Stack.Screen
+        name="BrowserWebView"
+        component={BrowserWebViewScreen}
+        options={{ headerShown: false }}
       />
     </Stack.Navigator>
   );
