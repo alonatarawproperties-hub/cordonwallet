@@ -87,8 +87,9 @@ export default function ReceiveScreen({ navigation, route }: Props) {
   const [selectedAsset, setSelectedAsset] = useState<UnifiedAsset | null>(null);
   const [copiedAddress, setCopiedAddress] = useState(false);
 
-  const solanaAddress = route.params.solanaAddress || activeWallet?.addresses?.solana || "";
-  const preselectedToken = route.params.preselectedToken;
+  const solanaAddress = route.params?.solanaAddress || activeWallet?.addresses?.solana || "";
+  const preselectedToken = route.params?.preselectedToken;
+  const hasSolanaAddress = solanaAddress.trim().length > 0;
 
   // Auto-select preselected token on mount
   useEffect(() => {
@@ -96,7 +97,7 @@ export default function ReceiveScreen({ navigation, route }: Props) {
       setSelectedAsset({
         symbol: preselectedToken.symbol,
         name: preselectedToken.name,
-        chainId: preselectedToken.chainId,
+        chainId: String(preselectedToken.chainId),
         chainName: preselectedToken.chainName,
         chainType: preselectedToken.chainType,
         mint: preselectedToken.mint,
@@ -170,11 +171,15 @@ export default function ReceiveScreen({ navigation, route }: Props) {
   }, [unifiedAssets]);
 
   const getAddressForAsset = (_asset: UnifiedAsset): string => {
-    return solanaAddress;
+    return hasSolanaAddress ? solanaAddress : "";
   };
 
   const handleCopyAddress = async (asset: UnifiedAsset) => {
     const address = getAddressForAsset(asset);
+    if (!address) {
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      return;
+    }
     await Clipboard.setStringAsync(address);
     await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     setCopiedAddress(true);
@@ -182,6 +187,11 @@ export default function ReceiveScreen({ navigation, route }: Props) {
   };
 
   const handleShowQR = (asset: UnifiedAsset) => {
+    const address = getAddressForAsset(asset);
+    if (!address) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      return;
+    }
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setSelectedAsset(asset);
   };
@@ -310,18 +320,29 @@ export default function ReceiveScreen({ navigation, route }: Props) {
               </View>
             </View>
 
-            <View style={styles.qrContainer}>
-              <QRCode
-                value={address}
-                size={200}
-                backgroundColor={qrBackground}
-                color={qrColor}
-              />
-            </View>
+            {address ? (
+              <>
+                <View style={styles.qrContainer}>
+                  <QRCode
+                    value={address}
+                    size={200}
+                    backgroundColor={qrBackground}
+                    color={qrColor}
+                  />
+                </View>
 
-            <ThemedText type="caption" style={{ color: theme.textSecondary, textAlign: "center" }}>
-              Scan to receive {selectedAsset.symbol}
-            </ThemedText>
+                <ThemedText type="caption" style={{ color: theme.textSecondary, textAlign: "center" }}>
+                  Scan to receive {selectedAsset.symbol}
+                </ThemedText>
+              </>
+            ) : (
+              <View style={[styles.warningBox, { backgroundColor: theme.warning + "15" }]}>
+                <Feather name="alert-triangle" size={16} color={theme.warning} />
+                <ThemedText type="caption" style={{ color: theme.warning, flex: 1 }}>
+                  This wallet has no Solana receive address available yet
+                </ThemedText>
+              </View>
+            )}
 
             <View style={[styles.addressBox, { backgroundColor: theme.backgroundRoot }]}>
               <ThemedText type="small" style={{ fontFamily: "monospace", textAlign: "center" }}>
@@ -337,8 +358,15 @@ export default function ReceiveScreen({ navigation, route }: Props) {
             </View>
 
             <Pressable
-              style={[styles.copyButton, { backgroundColor: theme.accent }]}
+              style={[
+                styles.copyButton,
+                {
+                  backgroundColor: hasSolanaAddress ? theme.accent : theme.backgroundSecondary,
+                  opacity: hasSolanaAddress ? 1 : 0.7,
+                },
+              ]}
               onPress={() => handleCopyAddress(selectedAsset)}
+              disabled={!hasSolanaAddress}
             >
               <Feather name={copiedAddress ? "check" : "copy"} size={18} color="#FFFFFF" />
               <ThemedText type="body" style={{ color: "#FFFFFF", fontWeight: "600" }}>
@@ -401,7 +429,13 @@ export default function ReceiveScreen({ navigation, route }: Props) {
           </View>
         ) : null}
 
-        {isLoading ? (
+        {!hasSolanaAddress ? (
+          <View style={styles.emptyContainer}>
+            <ThemedText type="body" style={{ color: theme.textSecondary, textAlign: "center" }}>
+              No Solana address found for this wallet.
+            </ThemedText>
+          </View>
+        ) : isLoading ? (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color={theme.accent} />
           </View>

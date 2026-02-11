@@ -505,10 +505,15 @@ export default function PortfolioScreen() {
             icon="arrow-down-left"
             label="Receive"
             iconColor={theme.success}
-            onPress={() => navigation.navigate("Receive", { 
-              walletAddress: evmAddress || activeWallet.address,
-              solanaAddress: activeWallet.addresses?.solana,
-            })}
+            onPress={() =>
+              navigation.navigate("Receive", {
+                walletAddress:
+                  activeWallet.addresses?.evm ||
+                  activeWallet.addresses?.solana ||
+                  activeWallet.address,
+                solanaAddress: activeWallet.addresses?.solana,
+              })
+            }
             theme={theme}
           />
           <ActionButton
