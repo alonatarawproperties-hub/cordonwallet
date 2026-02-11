@@ -376,6 +376,7 @@ export default function PortfolioScreen() {
   };
 
   const [refreshing, setRefreshing] = useState(false);
+  const [activeTab, setActiveTab] = useState<"assets" | "security">("assets");
   const REFRESH_TIMEOUT = 15000;
 
   const handleRefreshWithHaptic = useCallback(async () => {
@@ -528,19 +529,43 @@ export default function PortfolioScreen() {
 
       <View style={styles.assetsSection}>
         <View style={[styles.tabsContainer, { backgroundColor: theme.backgroundSecondary }]}>
-          <View
+          <Pressable
             style={[
               styles.tab,
-              { backgroundColor: theme.backgroundDefault },
+              activeTab === "assets" && { backgroundColor: theme.backgroundDefault },
             ]}
+            onPress={() => setActiveTab("assets")}
           >
             <ThemedText
               type="small"
-              style={[styles.tabText, { fontWeight: "600" }]}
+              style={[styles.tabText, activeTab === "assets" && { fontWeight: "600" }]}
             >
               Assets
             </ThemedText>
-          </View>
+          </Pressable>
+          <Pressable
+            style={[
+              styles.tab,
+              activeTab === "security" && { backgroundColor: theme.backgroundDefault },
+            ]}
+            onPress={() => {
+              setActiveTab("security");
+              navigation.navigate("Approvals");
+            }}
+          >
+            <Feather
+              name="shield"
+              size={12}
+              color={activeTab === "security" ? theme.text : theme.textSecondary}
+              style={{ marginRight: 4 }}
+            />
+            <ThemedText
+              type="small"
+              style={[styles.tabText, activeTab === "security" && { fontWeight: "600" }]}
+            >
+              Security
+            </ThemedText>
+          </Pressable>
         </View>
 
         {error ? (
