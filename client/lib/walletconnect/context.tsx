@@ -17,6 +17,7 @@ import {
   SessionProposal,
   SessionRequest,
   MultiChainAddresses,
+  shouldRejectProposalForDisabledChains,
 } from "./client";
 import { parseSessionRequest, ParsedRequest } from "./handlers";
 
