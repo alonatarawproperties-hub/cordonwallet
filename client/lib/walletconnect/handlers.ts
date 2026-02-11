@@ -1,3 +1,4 @@
+import bs58 from "bs58";
 import { getChainById } from "../blockchain/chains";
 
 // Inline DetectedApproval type (approvals module removed for Phase I)
@@ -35,7 +36,10 @@ function formatEther(value: bigint): string {
 }
 
 // Inline approval detection (approvals module removed for Phase I)
-function detectApproveIntent(data: string, to: string): DetectedApproval | null {
+function detectApproveIntent(
+  data: string,
+  to: string,
+): DetectedApproval | null {
   if (!data || data.length < 10) return null;
   const selector = data.slice(0, 10).toLowerCase();
   // ERC20 approve(address,uint256) = 0x095ea7b3
@@ -44,7 +48,9 @@ function detectApproveIntent(data: string, to: string): DetectedApproval | null 
   const spender = "0x" + data.slice(34, 74);
   const amountHex = data.slice(74, 138);
   const amountRaw = BigInt("0x" + amountHex).toString();
-  const MAX_UINT256 = BigInt("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+  const MAX_UINT256 = BigInt(
+    "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+  );
   const isUnlimited = BigInt("0x" + amountHex) >= MAX_UINT256 / 2n;
   return { tokenAddress: to, spender, amountRaw, isUnlimited };
 }
@@ -80,6 +86,8 @@ export interface SendTransactionRequest {
 export interface SolanaSignMessageRequest {
   method: "solana_signMessage";
   message: string;
+  messageEncoding?: string;
+  messageBytes: Uint8Array;
   pubkey: string;
   displayMessage: string;
 }
@@ -235,13 +243,69 @@ export function parseSolanaSignMessage(
   }
 
   const message = (paramObj.message as string) || "";
+  const messageEncoding =
+    typeof paramObj.encoding === "string"
+      ? paramObj.encoding
+      : typeof paramObj.messageEncoding === "string"
+        ? paramObj.messageEncoding
+        : undefined;
   const pubkey = (paramObj.pubkey as string) || "";
+
+  const decodeWithEncoding = (value: string, encoding?: string): Uint8Array => {
+    if (!value) return new Uint8Array();
+
+    const normalizedEncoding = encoding?.toLowerCase();
+
+    if (normalizedEncoding === "utf8" || normalizedEncoding === "utf-8") {
+      return new TextEncoder().encode(value);
+    }
+
+    if (
+      normalizedEncoding === "hex" ||
+      (!normalizedEncoding && /^0x[0-9a-fA-F]+$/.test(value))
+    ) {
+      const clean = value.startsWith("0x") ? value.slice(2) : value;
+      if (clean.length % 2 !== 0) {
+        throw new Error("Invalid hex message length");
+      }
+      return Uint8Array.from(
+        clean.match(/.{1,2}/g)?.map((b) => parseInt(b, 16)) || [],
+      );
+    }
+
+    if (normalizedEncoding === "base58") {
+      return bs58.decode(value);
+    }
+
+    const isLikelyBase64 =
+      /^[A-Za-z0-9+/]+={0,2}$/.test(value) && value.length % 4 === 0;
+    if (normalizedEncoding === "base64") {
+      return Uint8Array.from(Buffer.from(value, "base64"));
+    }
+
+    // Heuristic fallback when dApp does not provide encoding:
+    // base64 usually contains "+", "/" or padding "="; otherwise prefer base58.
+    if (!normalizedEncoding && isLikelyBase64 && /[+/=]/.test(value)) {
+      return Uint8Array.from(Buffer.from(value, "base64"));
+    }
+
+    if (!normalizedEncoding && /^[1-9A-HJ-NP-Za-km-z]+$/.test(value)) {
+      return bs58.decode(value);
+    }
+
+    return new TextEncoder().encode(value);
+  };
+
+  let messageBytes: Uint8Array;
+  try {
+    messageBytes = decodeWithEncoding(message, messageEncoding?.toLowerCase());
+  } catch {
+    messageBytes = new TextEncoder().encode(message);
+  }
 
   let displayMessage: string;
   try {
-    const bs58 = require("bs58");
-    const bytes = bs58.decode(message);
-    displayMessage = new TextDecoder().decode(bytes);
+    displayMessage = new TextDecoder().decode(messageBytes);
   } catch {
     displayMessage = message;
   }
@@ -249,6 +313,8 @@ export function parseSolanaSignMessage(
   return {
     method: "solana_signMessage",
     message,
+    messageEncoding,
+    messageBytes,
     pubkey,
     displayMessage,
   };

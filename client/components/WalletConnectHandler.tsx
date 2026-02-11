@@ -17,7 +17,10 @@ import {
   signSolanaTransaction,
   signAllSolanaTransactions,
 } from "@/lib/solana/signing";
-import { decodeSolanaTransaction, decodeSolanaTransactions } from "@/lib/solana/decoder";
+import {
+  decodeSolanaTransaction,
+  decodeSolanaTransactions,
+} from "@/lib/solana/decoder";
 
 export function WalletConnectHandler({
   children,
@@ -159,7 +162,7 @@ export function WalletConnectHandler({
         const solanaReq = parsed as SolanaSignMessageRequest;
         const signature = await signSolanaMessage({
           walletId: activeWallet.id,
-          message: solanaReq.message,
+          message: solanaReq.messageBytes,
         });
         await respondSuccess({ signature });
       } else if (parsed.method === "solana_signTransaction") {
@@ -217,7 +220,10 @@ export function WalletConnectHandler({
       try {
         await respondError(message);
       } catch (respondErr) {
-        console.error("[WC] Failed to send error response to dApp:", respondErr);
+        console.error(
+          "[WC] Failed to send error response to dApp:",
+          respondErr,
+        );
       }
       Alert.alert("Signing Failed", message);
     } finally {
@@ -281,7 +287,9 @@ export function WalletConnectHandler({
       };
     }
     if (currentRequest) {
-      const session = sessions.find(s => s.topic === currentRequest.request.topic);
+      const session = sessions.find(
+        (s) => s.topic === currentRequest.request.topic,
+      );
       if (session?.peerMeta) {
         return {
           name: session.peerMeta.name || "Unknown dApp",
