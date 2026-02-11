@@ -550,7 +550,7 @@ export default function PortfolioScreen() {
             ]}
             onPress={() => {
               setActiveTab("security");
-              (navigation as any).navigate("Approvals");
+              navigation.navigate("PolicySettings");
             }}
           >
             <Feather
