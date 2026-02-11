@@ -87,8 +87,8 @@ export default function ReceiveScreen({ navigation, route }: Props) {
   const [selectedAsset, setSelectedAsset] = useState<UnifiedAsset | null>(null);
   const [copiedAddress, setCopiedAddress] = useState(false);
 
-  const solanaAddress = route.params.solanaAddress || activeWallet?.addresses?.solana || "";
-  const preselectedToken = route.params.preselectedToken;
+  const solanaAddress = route.params?.solanaAddress || activeWallet?.addresses?.solana || "";
+  const preselectedToken = route.params?.preselectedToken;
 
   // Auto-select preselected token on mount
   useEffect(() => {
