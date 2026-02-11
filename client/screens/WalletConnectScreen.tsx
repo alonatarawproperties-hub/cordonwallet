@@ -20,7 +20,7 @@ import { Card } from "@/components/Card";
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing } from "@/constants/theme";
 import { useWalletConnect } from "@/lib/walletconnect/context";
-import { WCSession } from "@/lib/walletconnect/client";
+import { WCSession, normalizeWalletConnectUri } from "@/lib/walletconnect/client";
 
 interface Props {
   navigation: any;
@@ -63,8 +63,9 @@ export default function WalletConnectScreen({ navigation }: Props) {
       return;
     }
 
-    if (!uriInput.startsWith("wc:")) {
-      Alert.alert("Error", "Invalid WalletConnect URI. It should start with 'wc:'");
+    const normalizedUri = normalizeWalletConnectUri(uriInput);
+    if (!normalizedUri) {
+      Alert.alert("Error", "Invalid WalletConnect URI. Please scan or paste a valid WalletConnect link.");
       return;
     }
 
@@ -72,7 +73,7 @@ export default function WalletConnectScreen({ navigation }: Props) {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     try {
-      await connect(uriInput.trim());
+      await connect(normalizedUri);
       setUriInput("");
       setShowUriInput(false);
     } catch (err) {

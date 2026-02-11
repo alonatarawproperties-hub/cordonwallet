@@ -51,6 +51,7 @@ export const SUPPORTED_EVENTS = ["chainChanged", "accountsChanged"];
 
 let web3wallet: IWeb3Wallet | null = null;
 let core: InstanceType<typeof Core> | null = null;
+let initPromise: Promise<IWeb3Wallet> | null = null;
 
 export interface WCSession {
   topic: string;
@@ -81,10 +82,61 @@ export interface SessionRequest {
   };
 }
 
-export async function initWalletConnect(): Promise<IWeb3Wallet> {
-  if (web3wallet) {
-    return web3wallet;
+function decodeUriSafely(value: string): string {
+  let decoded = value;
+
+  for (let i = 0; i < 2; i += 1) {
+    try {
+      const nextDecoded = decodeURIComponent(decoded);
+      if (nextDecoded === decoded) break;
+      decoded = nextDecoded;
+    } catch {
+      break;
+    }
   }
+
+  return decoded;
+}
+
+export function normalizeWalletConnectUri(input: string): string | null {
+  if (!input) return null;
+
+  let uri = decodeUriSafely(input.trim().replace(/["'<>]/g, ""));
+  const lower = uri.toLowerCase();
+
+  try {
+    if (
+      lower.startsWith("http://") ||
+      lower.startsWith("https://") ||
+      lower.startsWith("walletconnect://") ||
+      lower.startsWith("wc://")
+    ) {
+      const parsed = new URL(uri);
+      const embedded =
+        parsed.searchParams.get("uri") || parsed.searchParams.get("wc");
+
+      if (embedded) {
+        uri = decodeUriSafely(embedded);
+      } else if (parsed.protocol === "wc:") {
+        uri = uri.replace(/^wc:\/\//i, "wc:");
+      }
+    }
+  } catch {
+    // Ignore malformed URL payloads and continue parsing raw input.
+  }
+
+  const match = uri.match(/wc:[^\s]+/i);
+  if (!match?.[0]) return null;
+
+  const normalized = decodeUriSafely(match[0]);
+  return normalized.startsWith("wc:")
+    ? normalized
+    : `wc:${normalized.slice(normalized.indexOf(":") + 1)}`;
+}
+
+export async function initWalletConnect(): Promise<IWeb3Wallet> {
+  if (web3wallet) return web3wallet;
+  if (initPromise) return initPromise;
 
   if (!WC_PROJECT_ID) {
     throw new Error(
@@ -92,22 +144,32 @@ export async function initWalletConnect(): Promise<IWeb3Wallet> {
     );
   }
 
-  core = new Core({
-    projectId: WC_PROJECT_ID,
-    relayUrl: "wss://relay.walletconnect.com",
-  });
+  initPromise = (async () => {
+    core = new Core({
+      projectId: WC_PROJECT_ID,
+      relayUrl: "wss://relay.walletconnect.com",
+    });
 
-  web3wallet = await Web3Wallet.init({
-    core: core as any,
-    metadata: {
-      name: "Cordon",
-      description: "Non-custodial EVM + Solana wallet with Wallet Firewall",
-      url: "https://cordon.wallet",
-      icons: ["https://cordon.wallet/icon.png"],
-    },
-  });
+    const wallet = await Web3Wallet.init({
+      core: core as any,
+      metadata: {
+        name: "Cordon",
+        description: "Non-custodial EVM + Solana wallet with Wallet Firewall",
+        url: "https://cordon.wallet",
+        icons: ["https://cordon.wallet/icon.png"],
+      },
+    });
 
-  return web3wallet;
+    web3wallet = wallet;
+    return wallet;
+  })();
+
+  try {
+    return await initPromise;
+  } catch (error) {
+    initPromise = null;
+    throw error;
+  }
 }
 
 export function getWeb3Wallet(): IWeb3Wallet | null {
@@ -118,9 +180,21 @@ export function getCore(): InstanceType<typeof Core> | null {
   return core;
 }
 
-export async function pairWithUri(uri: string): Promise<void> {
+export async function pairWithUri(uriInput: string): Promise<void> {
+  const uri = normalizeWalletConnectUri(uriInput);
+
+  if (!uri) {
+    throw new Error("Invalid WalletConnect URI");
+  }
+
   const wallet = await initWalletConnect();
-  await wallet.pair({ uri });
+
+  await Promise.race([
+    wallet.pair({ uri }),
+    new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error("WalletConnect pairing timed out. Please try again.")), 20000);
+    }),
+  ]);
 }
 
 export interface MultiChainAddresses {

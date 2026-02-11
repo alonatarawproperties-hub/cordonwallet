@@ -11,67 +11,10 @@ import { Button } from "@/components/Button";
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing } from "@/constants/theme";
 import { useWalletConnect } from "@/lib/walletconnect/context";
+import { normalizeWalletConnectUri } from "@/lib/walletconnect/client";
 
 interface Props {
   navigation: any;
-}
-
-function extractWalletConnectUri(input: string): string | null {
-  if (!input) return null;
-  let uri = input.trim().replace(/["'<>]/g, "");
-
-  const lower = uri.toLowerCase();
-
-  try {
-    if (
-      lower.startsWith("http://") ||
-      lower.startsWith("https://") ||
-      lower.startsWith("walletconnect://")
-    ) {
-      const parsed = new URL(uri);
-      const embedded =
-        parsed.searchParams.get("uri") || parsed.searchParams.get("wc");
-      if (embedded) {
-        uri = embedded;
-      } else if (parsed.pathname?.includes("wc") && parsed.search) {
-        const match = parsed.search.match(/(?:\?|&)(?:uri|wc)=([^&]+)/i);
-        if (match?.[1]) {
-          uri = match[1];
-        }
-      }
-    }
-  } catch {
-    // Ignore malformed URL data and continue with raw scanner output.
-  }
-
-  try {
-    uri = decodeURIComponent(uri);
-  } catch {
-    // Ignore decoding failures for already-decoded data.
-  }
-
-  const decodedLower = uri.toLowerCase();
-
-  if (decodedLower.startsWith("wc:")) {
-    const normalized = `wc:${uri.slice(uri.indexOf(":") + 1)}`;
-    return normalized.split(/\s/)[0];
-  }
-
-  if (decodedLower.startsWith("walletconnect:")) {
-    const wcIndex = decodedLower.indexOf("wc:");
-    if (wcIndex !== -1) {
-      return uri.slice(wcIndex).split(/\s/)[0];
-    }
-    const normalized = `wc:${uri.slice(uri.indexOf(":") + 1)}`;
-    return normalized.split(/\s/)[0];
-  }
-
-  const wcIndex = decodedLower.indexOf("wc:");
-  if (wcIndex !== -1) {
-    return uri.slice(wcIndex).split(/\s/)[0];
-  }
-
-  return null;
 }
 
 export default function WCScannerScreen({ navigation }: Props) {
@@ -86,7 +29,7 @@ export default function WCScannerScreen({ navigation }: Props) {
     async ({ data }: { data: string }) => {
       if (!isScanning || isConnecting) return;
 
-      const wcUri = extractWalletConnectUri(data);
+      const wcUri = normalizeWalletConnectUri(data);
       if (!wcUri) {
         return;
       }
@@ -201,7 +144,7 @@ export default function WCScannerScreen({ navigation }: Props) {
         barcodeScannerSettings={{
           barcodeTypes: ["qr"],
         }}
-        onBarcodeScanned={handleBarCodeScanned}
+        onBarcodeScanned={isScanning && !isConnecting ? handleBarCodeScanned : undefined}
       />
 
       <View style={[styles.overlay, { paddingTop: insets.top }]}>

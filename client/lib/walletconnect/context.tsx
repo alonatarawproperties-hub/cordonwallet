@@ -17,6 +17,7 @@ import {
   SessionProposal,
   SessionRequest,
   MultiChainAddresses,
+  shouldRejectProposalForDisabledChains,
 } from "./client";
 import { parseSessionRequest, ParsedRequest } from "./handlers";
 
@@ -195,32 +196,48 @@ export function WalletConnectProvider({
   }, []);
 
   const initializeWC = useCallback(async () => {
-    if (isInitialized || isInitializing) return;
+    if (isInitialized) return;
 
-    setIsInitializing(true);
-    setError(null);
-
-    try {
-      const wallet = await initWalletConnect();
-
-      // Register listeners immediately after wallet init
-      registerListeners(wallet);
-
-      setSessions(getActiveSessions());
-      setIsInitialized(true);
-
-      // Check for any pending requests that arrived before listeners were ready
-      checkPendingRequests();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to initialize WalletConnect";
-      setError(message);
-      console.error("[WalletConnect] Init error:", err);
-    } finally {
-      if (initPromiseRef.current === initPromise) {
-        initPromiseRef.current = null;
-      }
+    if (initPromiseRef.current) {
+      await initPromiseRef.current;
+      return;
     }
-  }, [isInitialized, isInitializing, registerListeners, checkPendingRequests]);
+
+    let activeInitPromise: Promise<void> | null = null;
+    const initPromise = (async () => {
+      setIsInitializing(true);
+      setError(null);
+
+      try {
+        const wallet = await initWalletConnect();
+
+        // Register listeners immediately after wallet init
+        registerListeners(wallet);
+
+        setSessions(getActiveSessions());
+        setIsInitialized(true);
+
+        // Check for any pending requests that arrived before listeners were ready
+        checkPendingRequests();
+      } catch (err) {
+        const message =
+          err instanceof Error
+            ? err.message
+            : "Failed to initialize WalletConnect";
+        setError(message);
+        console.error("[WalletConnect] Init error:", err);
+      } finally {
+        setIsInitializing(false);
+        if (initPromiseRef.current === activeInitPromise) {
+          initPromiseRef.current = null;
+        }
+      }
+    })();
+
+    activeInitPromise = initPromise;
+    initPromiseRef.current = initPromise;
+    await initPromise;
+  }, [isInitialized, registerListeners, checkPendingRequests]);
 
   // Handle app state changes - restart relay transport when app comes to foreground
   useEffect(() => {
