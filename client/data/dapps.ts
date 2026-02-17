@@ -15,7 +15,7 @@ export const POPULAR_DAPPS: DApp[] = [
     id: "cordon",
     name: "Cordon",
     category: "Crypto Wallet",
-    url: "https://app.cordonwallet.com",
+    url: "https://cordonwallet.com",
     iconUrl: "https://icons.duckduckgo.com/ip3/cordonwallet.com.ico",
     chains: ["evm", "solana"],
     description: "Non-custodial wallet",
