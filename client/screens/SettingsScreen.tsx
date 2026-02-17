@@ -5,7 +5,7 @@ import { useHeaderHeight } from "@react-navigation/elements";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { Feather } from "@expo/vector-icons";
+import { Feather, Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 
 import { useTheme } from "@/hooks/useTheme";
@@ -24,7 +24,7 @@ type Navigation = NativeStackNavigationProp<RootStackParamList>;
 type SettingsRowProps = {
   title: string;
   subtitle?: string;
-  icon: keyof typeof Feather.glyphMap;
+  icon: keyof typeof Ionicons.glyphMap;
   iconColor: string;
   onPress?: () => void;
   disabled?: boolean;
@@ -47,7 +47,7 @@ function SettingsRow({ title, subtitle, icon, iconColor, onPress, disabled, righ
         disabled={disabled}
       >
         <View style={[styles.rowIcon, { backgroundColor: iconColor + "15" }]}>
-          <Feather name={icon} size={18} color={iconColor} />
+          <Ionicons name={icon} size={20} color={iconColor} />
         </View>
         <View style={styles.rowContent}>
           <ThemedText type="body" style={styles.rowTitle}>{title}</ThemedText>
@@ -322,7 +322,7 @@ export default function SettingsScreen() {
         </ThemedText>
         <View style={[styles.card, { backgroundColor: theme.backgroundDefault, borderColor: theme.border }]}>
           <SettingsRow
-            icon="shield"
+            icon="shield-checkmark"
             iconColor={theme.accent}
             title="Wallet Firewall"
             subtitle="Protect your transactions"
@@ -330,7 +330,7 @@ export default function SettingsScreen() {
             isFirst
           />
           <SettingsRow
-            icon="smartphone"
+            icon="finger-print"
             iconColor={theme.accent}
             title="Biometric Unlock"
             subtitle={getBiometricSubtitle()}
@@ -349,7 +349,7 @@ export default function SettingsScreen() {
             }
           />
           <SettingsRow
-            icon="lock"
+            icon="key"
             iconColor={theme.accent}
             title="Change PIN"
             subtitle="Update your security PIN"
@@ -366,7 +366,7 @@ export default function SettingsScreen() {
         </ThemedText>
         <View style={[styles.card, { backgroundColor: theme.backgroundDefault, borderColor: theme.border }]}>
           <SettingsRow
-            icon="credit-card"
+            icon="wallet"
             iconColor={theme.success}
             title="Manage Wallets"
             subtitle={activeWallet?.name || "No wallet"}
@@ -374,14 +374,14 @@ export default function SettingsScreen() {
             isFirst
           />
           <SettingsRow
-            icon="check-circle"
+            icon="checkmark-circle"
             iconColor={theme.success}
             title="Token Approvals"
             subtitle="Manage contract approvals"
             onPress={() => navigation.navigate("Approvals")}
           />
           <SettingsRow
-            icon="link"
+            icon="scan"
             iconColor={theme.success}
             title="WalletConnect"
             subtitle="Connect to dApps"
@@ -440,7 +440,7 @@ export default function SettingsScreen() {
         </ThemedText>
         <View style={[styles.card, { backgroundColor: theme.backgroundDefault, borderColor: theme.border }]}>
           <SettingsRow
-            icon="help-circle"
+            icon="chatbubble-ellipses"
             iconColor={theme.textSecondary}
             title="Help & Support"
             subtitle="Get help with Cordon"
@@ -448,14 +448,14 @@ export default function SettingsScreen() {
             isFirst
           />
           <SettingsRow
-            icon="file-text"
+            icon="document-text"
             iconColor={theme.textSecondary}
             title="Terms of Service"
             subtitle="Legal information"
             onPress={() => {}}
           />
           <SettingsRow
-            icon="info"
+            icon="information-circle"
             iconColor={theme.textSecondary}
             title="Version"
             subtitle="1.0.0"
@@ -475,7 +475,7 @@ export default function SettingsScreen() {
           <View style={[styles.card, { backgroundColor: theme.backgroundDefault, borderColor: theme.border }]}>
             <View style={styles.row}>
               <View style={[styles.rowIcon, { backgroundColor: theme.accent + "15" }]}>
-                <Feather name="play" size={18} color={theme.accent} />
+                <Ionicons name="play-circle" size={20} color={theme.accent} />
               </View>
               <View style={styles.rowContent}>
                 <ThemedText type="body" style={styles.rowTitle}>Demo Mode</ThemedText>
@@ -498,7 +498,7 @@ export default function SettingsScreen() {
                   style={({ pressed }) => [styles.row, { opacity: pressed ? 0.7 : 1 }]}
                 >
                   <View style={[styles.rowIcon, { backgroundColor: theme.accent + "15" }]}>
-                    <Feather name="camera" size={18} color={theme.accent} />
+                    <Ionicons name="images" size={20} color={theme.accent} />
                   </View>
                   <View style={styles.rowContent}>
                     <ThemedText type="body" style={styles.rowTitle}>Export Demo Assets</ThemedText>
@@ -520,7 +520,7 @@ export default function SettingsScreen() {
           <View style={[styles.card, { backgroundColor: theme.backgroundDefault, borderColor: theme.border }]}>
             <View style={styles.row}>
               <View style={[styles.rowIcon, { backgroundColor: theme.warning + "15" }]}>
-                <Feather name="code" size={18} color={theme.warning} />
+                <Ionicons name="code-slash" size={20} color={theme.warning} />
               </View>
               <View style={styles.rowContent}>
                 <ThemedText type="body" style={styles.rowTitle}>Simulate Cordon Browser</ThemedText>
@@ -541,7 +541,7 @@ export default function SettingsScreen() {
               onPress={() => navigation.navigate("SwapDebug")}
             >
               <View style={[styles.rowIcon, { backgroundColor: theme.warning + "15" }]}>
-                <Feather name="terminal" size={18} color={theme.warning} />
+                <Ionicons name="terminal" size={20} color={theme.warning} />
               </View>
               <View style={styles.rowContent}>
                 <ThemedText type="body" style={styles.rowTitle}>Swap Debug Logs</ThemedText>
@@ -590,7 +590,7 @@ export default function SettingsScreen() {
         ]}
         onPress={handleLogout}
       >
-        <Feather name="log-out" size={18} color={theme.danger} />
+        <Ionicons name="trash-outline" size={20} color={theme.danger} />
         <ThemedText type="body" style={{ color: theme.danger, fontWeight: "600" }}>
           Remove Wallet
         </ThemedText>
