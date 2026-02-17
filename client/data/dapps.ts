@@ -12,6 +12,15 @@ export interface DApp {
 
 export const POPULAR_DAPPS: DApp[] = [
   {
+    id: "cordon",
+    name: "Cordon",
+    category: "Other",
+    url: "https://app.cordonwallet.com",
+    iconUrl: "https://icons.duckduckgo.com/ip3/cordonwallet.com.ico",
+    chains: ["evm", "solana"],
+    description: "Cordon wallet hub",
+  },
+  {
     id: "roachy-games",
     name: "Roachy Games",
     category: "Gaming",
