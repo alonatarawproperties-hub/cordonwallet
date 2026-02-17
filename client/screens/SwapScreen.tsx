@@ -732,12 +732,15 @@ export default function SwapScreen({ route }: Props) {
 
         if (shouldTryPump) {
           const isBuying = inputToken.mint === SOL_MINT;
+          const sellAmountUi = !isBuying
+            ? Number(amountBaseUnits) / Math.pow(10, inputToken.decimals || 0)
+            : undefined;
           buildResult = await buildPump({
             userPublicKey: solanaAddr,
             mint: isBuying ? outputToken.mint : inputToken.mint,
             side: isBuying ? "buy" : "sell",
             amountSol: isBuying ? parseInt(amountBaseUnits) / 1_000_000_000 : undefined,
-            amountTokens: !isBuying ? parseInt(amountBaseUnits) : undefined,
+            amountTokens: sellAmountUi,
             slippageBps,
             speedMode: speed,
             maxPriorityFeeLamports: priorityCapLamports,
