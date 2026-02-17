@@ -24,7 +24,7 @@ type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const CARD_WIDTH = (SCREEN_WIDTH - Spacing.lg * 2 - Spacing.md * 2) / 3;
 
-const FEATURED_DAPPS = ["roachy-games", "jupiter", "uniswap"];
+const FEATURED_DAPPS = ["cordon", "roachy-games", "jupiter"];
 
 export default function BrowserScreen() {
   const headerHeight = useHeaderHeight();
