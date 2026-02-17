@@ -11,17 +11,58 @@ import * as Haptics from "expo-haptics";
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
-import { ListRow } from "@/components/ListRow";
 import { PinInputModal } from "@/components/PinInputModal";
 import { useWallet } from "@/lib/wallet-context";
 import { useDemo } from "@/lib/demo/context";
 import { useDevSettings } from "@/context/DevSettingsContext";
 import { getDefaultChain } from "@/lib/blockchain/chains";
 import { hasBiometricPinEnabled, isBiometricAvailable, savePinForBiometrics, disableBiometrics, verifyPin, verifyPinFast, changePin, getPinWithBiometrics } from "@/lib/wallet-engine";
-import * as WebBrowser from "expo-web-browser";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
+
+type SettingsRowProps = {
+  title: string;
+  subtitle?: string;
+  icon: keyof typeof Feather.glyphMap;
+  iconColor: string;
+  onPress?: () => void;
+  disabled?: boolean;
+  rightElement?: React.ReactNode;
+  isFirst?: boolean;
+  isLast?: boolean;
+};
+
+function SettingsRow({ title, subtitle, icon, iconColor, onPress, disabled, rightElement, isFirst, isLast }: SettingsRowProps) {
+  const { theme } = useTheme();
+
+  return (
+    <>
+      <Pressable
+        style={({ pressed }) => [
+          styles.row,
+          { opacity: pressed ? 0.7 : disabled ? 0.5 : 1 },
+        ]}
+        onPress={onPress}
+        disabled={disabled}
+      >
+        <View style={[styles.rowIcon, { backgroundColor: iconColor + "15" }]}>
+          <Feather name={icon} size={18} color={iconColor} />
+        </View>
+        <View style={styles.rowContent}>
+          <ThemedText type="body" style={styles.rowTitle}>{title}</ThemedText>
+          {subtitle ? (
+            <ThemedText type="caption" style={{ color: theme.textSecondary }}>{subtitle}</ThemedText>
+          ) : null}
+        </View>
+        {rightElement || (
+          <Feather name="chevron-right" size={16} color={theme.textSecondary} style={{ opacity: 0.5 }} />
+        )}
+      </Pressable>
+      {!isLast ? <View style={[styles.separator, { backgroundColor: theme.separator }]} /> : null}
+    </>
+  );
+}
 
 export default function SettingsScreen() {
   const headerHeight = useHeaderHeight();
@@ -114,7 +155,7 @@ export default function SettingsScreen() {
               Alert.alert("Enabled", "Biometric unlock is now enabled. You can use Face ID or Fingerprint to unlock Cordon.");
             } else {
               Alert.alert(
-                "Expo Go Limitation", 
+                "Expo Go Limitation",
                 "Biometric unlock requires a TestFlight or production build. This feature will work once the app is published."
               );
             }
@@ -138,13 +179,11 @@ export default function SettingsScreen() {
     setCurrentPinValue("");
     setNewPinValue("");
 
-    // If biometrics enabled, use it to verify identity and skip current PIN step
     const hasBiometric = await hasBiometricPinEnabled();
     if (hasBiometric) {
       try {
         const storedPin = await getPinWithBiometrics();
         if (storedPin) {
-          // Biometric verified - skip to new PIN entry
           setCurrentPinValue(storedPin);
           setPinModalStep("new");
           setPinModalVisible(true);
@@ -155,7 +194,6 @@ export default function SettingsScreen() {
       }
     }
 
-    // No biometrics or biometric failed - require current PIN
     setPinModalStep("current");
     setPinModalVisible(true);
   };
@@ -184,7 +222,6 @@ export default function SettingsScreen() {
 
       setPinModalLoading(true);
       try {
-        // Skip verification since we already verified the current PIN
         const success = await changePin(currentPinValue, newPinValue, true);
         setPinModalLoading(false);
         if (success) {
@@ -246,8 +283,8 @@ export default function SettingsScreen() {
       "This will remove all wallet data from this device. Make sure you have backed up your seed phrase.",
       [
         { text: "Cancel", style: "cancel" },
-        { 
-          text: "Remove", 
+        {
+          text: "Remove",
           style: "destructive",
           onPress: async () => {
             await logout();
@@ -267,61 +304,40 @@ export default function SettingsScreen() {
     return biometricEnabled ? "Enabled" : "Disabled";
   };
 
-  const securityItems = [
-    { title: "Wallet Firewall", subtitle: "Protect your transactions", icon: "shield", onPress: () => navigation.navigate("PolicySettings") },
-    { title: "Biometric Unlock", subtitle: getBiometricSubtitle(), icon: "smartphone", onPress: handleBiometricToggle, isBiometric: true },
-    { title: "Change PIN", subtitle: "Update your security PIN", icon: "lock", onPress: handleChangePin },
-  ];
-
-  const walletItems = [
-    { title: "Manage Wallets", subtitle: `${activeWallet?.name || "No wallet"}`, icon: "credit-card", onPress: () => navigation.navigate("WalletManager") },
-    { title: "Token Approvals", subtitle: "Manage contract approvals", icon: "check-circle", onPress: () => navigation.navigate("Approvals") },
-    { title: "WalletConnect", subtitle: "Connect to dApps", icon: "link", onPress: () => navigation.navigate("WalletConnect") },
-    { title: "Networks", subtitle: allNetworks.map(n => n.name).join(", "), icon: "globe", onPress: () => setShowNetworks(!showNetworks), expandable: true },
-  ];
-
-  const aboutItems = [
-    { title: "Help & Support", subtitle: "Get help with Cordon", icon: "help-circle", onPress: () => {} },
-    { title: "Terms of Service", subtitle: "Legal information", icon: "file-text", onPress: () => {} },
-    { title: "Version", subtitle: "1.0.0", icon: "info", onPress: handleVersionTap },
-  ];
-
   return (
     <ScrollView
       style={{ flex: 1, backgroundColor: theme.backgroundRoot }}
       contentContainerStyle={{
         paddingTop: headerHeight + Spacing.xl,
-        paddingBottom: insets.bottom + Spacing.xl,
-        paddingHorizontal: Spacing.lg,
+        paddingBottom: insets.bottom + Spacing["3xl"],
+        paddingHorizontal: Spacing.xl,
       }}
       scrollIndicatorInsets={{ bottom: insets.bottom }}
+      showsVerticalScrollIndicator={false}
     >
+      {/* Security */}
       <View style={styles.section}>
-        <ThemedText type="small" style={[styles.sectionTitle, { color: theme.textSecondary }]}>
-          Security
+        <ThemedText type="caption" style={[styles.sectionLabel, { color: theme.textSecondary }]}>
+          SECURITY
         </ThemedText>
-        <View style={styles.sectionContent}>
-          {securityItems.map((item, index) => (
-            <Pressable
-              key={item.title}
-              style={[
-                styles.networkRowItem,
-                { backgroundColor: theme.backgroundDefault },
-                index === 0 ? styles.firstItem : {},
-                index === securityItems.length - 1 ? styles.lastItem : {},
-                index > 0 ? { marginTop: 1 } : {},
-              ]}
-              onPress={item.onPress}
-              disabled={item.isBiometric && isTogglingBiometric}
-            >
-              <View style={[styles.iconContainer, { backgroundColor: theme.accent + "20" }]}>
-                <Feather name={item.icon as any} size={18} color={theme.accent} />
-              </View>
-              <View style={{ flex: 1, marginLeft: Spacing.md }}>
-                <ThemedText type="body" style={{ fontWeight: "500" }}>{item.title}</ThemedText>
-                <ThemedText type="caption" style={{ color: theme.textSecondary }}>{item.subtitle}</ThemedText>
-              </View>
-              {item.isBiometric && biometricAvailable ? (
+        <View style={[styles.card, { backgroundColor: theme.backgroundDefault, borderColor: theme.border }]}>
+          <SettingsRow
+            icon="shield"
+            iconColor={theme.accent}
+            title="Wallet Firewall"
+            subtitle="Protect your transactions"
+            onPress={() => navigation.navigate("PolicySettings")}
+            isFirst
+          />
+          <SettingsRow
+            icon="smartphone"
+            iconColor={theme.accent}
+            title="Biometric Unlock"
+            subtitle={getBiometricSubtitle()}
+            onPress={handleBiometricToggle}
+            disabled={isTogglingBiometric}
+            rightElement={
+              biometricAvailable ? (
                 <Switch
                   value={biometricEnabled}
                   onValueChange={handleBiometricToggle}
@@ -329,118 +345,140 @@ export default function SettingsScreen() {
                   thumbColor="#fff"
                   disabled={isTogglingBiometric}
                 />
-              ) : (
-                <Feather name="chevron-right" size={18} color={theme.textSecondary} />
-              )}
-            </Pressable>
-          ))}
+              ) : undefined
+            }
+          />
+          <SettingsRow
+            icon="lock"
+            iconColor={theme.accent}
+            title="Change PIN"
+            subtitle="Update your security PIN"
+            onPress={handleChangePin}
+            isLast
+          />
         </View>
       </View>
 
+      {/* Wallet */}
       <View style={styles.section}>
-        <ThemedText type="small" style={[styles.sectionTitle, { color: theme.textSecondary }]}>
-          Wallet
+        <ThemedText type="caption" style={[styles.sectionLabel, { color: theme.textSecondary }]}>
+          WALLET
         </ThemedText>
-        <View style={styles.sectionContent}>
-          {walletItems.map((item, index) => (
-            <View key={item.title}>
-              <Pressable
-                style={[
-                  styles.networkRowItem,
-                  { backgroundColor: theme.backgroundDefault },
-                  index === 0 ? styles.firstItem : {},
-                  index === walletItems.length - 1 && !(item.title === "Networks" && showNetworks) ? styles.lastItem : {},
-                  index > 0 ? { marginTop: 1 } : {},
-                ]}
-                onPress={item.onPress}
-              >
-                <View style={[styles.iconContainer, { backgroundColor: theme.success + "20" }]}>
-                  <Feather name={item.icon as any} size={18} color={theme.success} />
+        <View style={[styles.card, { backgroundColor: theme.backgroundDefault, borderColor: theme.border }]}>
+          <SettingsRow
+            icon="credit-card"
+            iconColor={theme.success}
+            title="Manage Wallets"
+            subtitle={activeWallet?.name || "No wallet"}
+            onPress={() => navigation.navigate("WalletManager")}
+            isFirst
+          />
+          <SettingsRow
+            icon="check-circle"
+            iconColor={theme.success}
+            title="Token Approvals"
+            subtitle="Manage contract approvals"
+            onPress={() => navigation.navigate("Approvals")}
+          />
+          <SettingsRow
+            icon="link"
+            iconColor={theme.success}
+            title="WalletConnect"
+            subtitle="Connect to dApps"
+            onPress={() => navigation.navigate("WalletConnect")}
+          />
+          <SettingsRow
+            icon="globe"
+            iconColor={theme.success}
+            title="Networks"
+            subtitle={allNetworks.map(n => n.name).join(", ")}
+            onPress={() => setShowNetworks(!showNetworks)}
+            isLast={!showNetworks}
+            rightElement={
+              <Feather
+                name={showNetworks ? "chevron-up" : "chevron-down"}
+                size={16}
+                color={theme.textSecondary}
+                style={{ opacity: 0.5 }}
+              />
+            }
+          />
+          {showNetworks ? (
+            <View style={[styles.networksInline, { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.separator }]}>
+              {allNetworks.map((network) => (
+                <View key={network.symbol} style={styles.networkRow}>
+                  <Image
+                    source={{ uri: network.logoUrl }}
+                    style={[styles.networkLogo, { backgroundColor: network.color + "15" }]}
+                    contentFit="contain"
+                  />
+                  <View style={{ flex: 1 }}>
+                    <ThemedText type="body" style={{ fontWeight: "500" }}>
+                      {network.name}
+                    </ThemedText>
+                    <ThemedText type="caption" style={{ color: theme.textSecondary }}>
+                      {network.symbol}
+                    </ThemedText>
+                  </View>
+                  <View style={[styles.activeBadge, { backgroundColor: theme.success + "15" }]}>
+                    <View style={[styles.activeDot, { backgroundColor: theme.success }]} />
+                    <ThemedText type="caption" style={{ color: theme.success, fontSize: 11 }}>
+                      Active
+                    </ThemedText>
+                  </View>
                 </View>
-                <View style={{ flex: 1, marginLeft: Spacing.md }}>
-                  <ThemedText type="body" style={{ fontWeight: "500" }}>{item.title}</ThemedText>
-                  <ThemedText type="caption" style={{ color: theme.textSecondary }}>{item.subtitle}</ThemedText>
-                </View>
-                <Feather 
-                  name={item.title === "Networks" ? (showNetworks ? "chevron-up" : "chevron-down") : "chevron-right"} 
-                  size={18} 
-                  color={theme.textSecondary} 
-                />
-              </Pressable>
-              {item.title === "Networks" && showNetworks ? (
-                <View style={[styles.networksPanel, { backgroundColor: theme.backgroundDefault }]}>
-                  {allNetworks.map((network, nIndex) => (
-                    <View 
-                      key={network.symbol} 
-                      style={[
-                        styles.networkRow,
-                        nIndex > 0 ? { borderTopWidth: 1, borderTopColor: theme.border } : {},
-                      ]}
-                    >
-                      <Image
-                        source={{ uri: network.logoUrl }}
-                        style={[styles.networkLogo, { backgroundColor: network.color + "20" }]}
-                        contentFit="contain"
-                      />
-                      <View style={{ flex: 1, marginLeft: Spacing.md }}>
-                        <ThemedText type="body" style={{ fontWeight: "500" }}>
-                          {network.name}
-                        </ThemedText>
-                        <ThemedText type="caption" style={{ color: theme.textSecondary }}>
-                          {network.symbol}
-                        </ThemedText>
-                      </View>
-                      <View style={[styles.networkBadge, { backgroundColor: theme.success + "20" }]}>
-                        <ThemedText type="caption" style={{ color: theme.success, fontSize: 10 }}>
-                          Active
-                        </ThemedText>
-                      </View>
-                    </View>
-                  ))}
-                </View>
-              ) : null}
+              ))}
             </View>
-          ))}
+          ) : null}
         </View>
       </View>
 
+      {/* About */}
       <View style={styles.section}>
-        <ThemedText type="small" style={[styles.sectionTitle, { color: theme.textSecondary }]}>
-          About
+        <ThemedText type="caption" style={[styles.sectionLabel, { color: theme.textSecondary }]}>
+          ABOUT
         </ThemedText>
-        <View style={styles.sectionContent}>
-          {aboutItems.map((item, index) => (
-            <ListRow
-              key={item.title}
-              title={item.title}
-              subtitle={item.subtitle}
-              leftIcon={
-                <View style={[styles.iconContainer, { backgroundColor: theme.textSecondary + "20" }]}>
-                  <Feather name={item.icon as any} size={18} color={theme.textSecondary} />
-                </View>
-              }
-              showChevron={item.title !== "Version"}
-              onPress={item.onPress}
-              style={{
-                ...(index === 0 ? styles.firstItem : {}),
-                ...(index === aboutItems.length - 1 ? styles.lastItem : {}),
-                ...(index > 0 ? { marginTop: 1 } : {}),
-              }}
-            />
-          ))}
+        <View style={[styles.card, { backgroundColor: theme.backgroundDefault, borderColor: theme.border }]}>
+          <SettingsRow
+            icon="help-circle"
+            iconColor={theme.textSecondary}
+            title="Help & Support"
+            subtitle="Get help with Cordon"
+            onPress={() => {}}
+            isFirst
+          />
+          <SettingsRow
+            icon="file-text"
+            iconColor={theme.textSecondary}
+            title="Terms of Service"
+            subtitle="Legal information"
+            onPress={() => {}}
+          />
+          <SettingsRow
+            icon="info"
+            iconColor={theme.textSecondary}
+            title="Version"
+            subtitle="1.0.0"
+            onPress={handleVersionTap}
+            isLast
+            rightElement={<ThemedText type="caption" style={{ color: theme.textSecondary }}>1.0.0</ThemedText>}
+          />
         </View>
       </View>
 
-
+      {/* Dev: Demo Mode */}
       {__DEV__ && showDebug ? (
         <View style={styles.section}>
-          <ThemedText type="small" style={[styles.sectionTitle, { color: theme.accent }]}>
-            Demo Mode
+          <ThemedText type="caption" style={[styles.sectionLabel, { color: theme.accent }]}>
+            DEMO MODE
           </ThemedText>
-          <View style={[styles.demoPanel, { backgroundColor: theme.backgroundDefault }]}>
-            <View style={styles.demoRow}>
-              <View style={{ flex: 1 }}>
-                <ThemedText type="body" style={{ fontWeight: "500" }}>Demo Mode</ThemedText>
+          <View style={[styles.card, { backgroundColor: theme.backgroundDefault, borderColor: theme.border }]}>
+            <View style={styles.row}>
+              <View style={[styles.rowIcon, { backgroundColor: theme.accent + "15" }]}>
+                <Feather name="play" size={18} color={theme.accent} />
+              </View>
+              <View style={styles.rowContent}>
+                <ThemedText type="body" style={styles.rowTitle}>Demo Mode</ThemedText>
                 <ThemedText type="caption" style={{ color: theme.textSecondary }}>
                   For website demo assets
                 </ThemedText>
@@ -453,29 +491,39 @@ export default function SettingsScreen() {
               />
             </View>
             {isDemoMode ? (
-              <Pressable
-                onPress={() => navigation.navigate("DemoFlow")}
-                style={[styles.demoButton, { backgroundColor: theme.accent + "15" }]}
-              >
-                <Feather name="camera" size={18} color={theme.accent} />
-                <ThemedText type="body" style={{ marginLeft: Spacing.sm, color: theme.accent, fontWeight: "500" }}>
-                  Export Demo Assets
-                </ThemedText>
-              </Pressable>
+              <>
+                <View style={[styles.separator, { backgroundColor: theme.separator }]} />
+                <Pressable
+                  onPress={() => navigation.navigate("DemoFlow")}
+                  style={({ pressed }) => [styles.row, { opacity: pressed ? 0.7 : 1 }]}
+                >
+                  <View style={[styles.rowIcon, { backgroundColor: theme.accent + "15" }]}>
+                    <Feather name="camera" size={18} color={theme.accent} />
+                  </View>
+                  <View style={styles.rowContent}>
+                    <ThemedText type="body" style={styles.rowTitle}>Export Demo Assets</ThemedText>
+                  </View>
+                  <Feather name="chevron-right" size={16} color={theme.textSecondary} style={{ opacity: 0.5 }} />
+                </Pressable>
+              </>
             ) : null}
           </View>
         </View>
       ) : null}
 
+      {/* Dev: Debug */}
       {__DEV__ && showDebug ? (
         <View style={styles.section}>
-          <ThemedText type="small" style={[styles.sectionTitle, { color: theme.warning }]}>
-            Developer Debug
+          <ThemedText type="caption" style={[styles.sectionLabel, { color: theme.warning }]}>
+            DEVELOPER
           </ThemedText>
-          <View style={[styles.debugPanel, { backgroundColor: theme.backgroundDefault }]}>
-            <View style={styles.debugRow}>
-              <View style={{ flex: 1 }}>
-                <ThemedText type="body" style={{ fontWeight: "500" }}>Simulate Cordon Browser</ThemedText>
+          <View style={[styles.card, { backgroundColor: theme.backgroundDefault, borderColor: theme.border }]}>
+            <View style={styles.row}>
+              <View style={[styles.rowIcon, { backgroundColor: theme.warning + "15" }]}>
+                <Feather name="code" size={18} color={theme.warning} />
+              </View>
+              <View style={styles.rowContent}>
+                <ThemedText type="body" style={styles.rowTitle}>Simulate Cordon Browser</ThemedText>
                 <ThemedText type="caption" style={{ color: theme.textSecondary }}>
                   Force isCordonBrowser=true
                 </ThemedText>
@@ -487,51 +535,62 @@ export default function SettingsScreen() {
                 thumbColor="#fff"
               />
             </View>
+            <View style={[styles.separator, { backgroundColor: theme.separator }]} />
             <Pressable
-              style={[styles.debugRow, { borderTopWidth: 1, borderTopColor: theme.border }]}
+              style={({ pressed }) => [styles.row, { opacity: pressed ? 0.7 : 1 }]}
               onPress={() => navigation.navigate("SwapDebug")}
             >
-              <View style={{ flex: 1 }}>
-                <ThemedText type="body" style={{ fontWeight: "500" }}>Swap Debug Logs</ThemedText>
+              <View style={[styles.rowIcon, { backgroundColor: theme.warning + "15" }]}>
+                <Feather name="terminal" size={18} color={theme.warning} />
+              </View>
+              <View style={styles.rowContent}>
+                <ThemedText type="body" style={styles.rowTitle}>Swap Debug Logs</ThemedText>
                 <ThemedText type="caption" style={{ color: theme.textSecondary }}>
                   View recent swap build/send logs
                 </ThemedText>
               </View>
-              <Feather name="chevron-right" size={18} color={theme.textSecondary} />
+              <Feather name="chevron-right" size={16} color={theme.textSecondary} style={{ opacity: 0.5 }} />
             </Pressable>
-            <View style={[styles.debugRow, { borderTopWidth: 1, borderTopColor: theme.border, marginTop: Spacing.sm, paddingTop: Spacing.sm }]}>
-              <ThemedText type="caption" style={{ color: theme.textSecondary }}>Chain ID</ThemedText>
-              <ThemedText type="small" style={{ fontFamily: "monospace" }}>{chainId}</ThemedText>
-            </View>
-            <View style={[styles.debugRow, { borderTopWidth: 1, borderTopColor: theme.border }]}>
-              <ThemedText type="caption" style={{ color: theme.textSecondary }}>Network</ThemedText>
-              <ThemedText type="small">{chainConfig?.name || "Unknown"}</ThemedText>
-            </View>
-            <View style={[styles.debugRow, { borderTopWidth: 1, borderTopColor: theme.border }]}>
-              <ThemedText type="caption" style={{ color: theme.textSecondary }}>RPC Host</ThemedText>
-              <ThemedText type="small" style={{ fontFamily: "monospace", fontSize: 10 }} numberOfLines={1}>
-                {chainConfig ? new URL(chainConfig.rpcUrl).host : "N/A"}
-              </ThemedText>
-            </View>
-            <View style={[styles.debugRow, { borderTopWidth: 1, borderTopColor: theme.border }]}>
-              <ThemedText type="caption" style={{ color: theme.textSecondary }}>Testnet</ThemedText>
-              <ThemedText type="small">{chainConfig?.isTestnet ? "Yes" : "No"}</ThemedText>
-            </View>
-            <View style={[styles.debugRow, { borderTopWidth: 1, borderTopColor: theme.border }]}>
-              <ThemedText type="caption" style={{ color: theme.textSecondary }}>Explorer</ThemedText>
-              <ThemedText type="small" style={{ fontFamily: "monospace", fontSize: 10 }} numberOfLines={1}>
-                {chainConfig?.explorerBaseUrl || "N/A"}
-              </ThemedText>
+            <View style={[styles.separator, { backgroundColor: theme.separator }]} />
+            <View style={styles.debugInfo}>
+              <View style={styles.debugInfoRow}>
+                <ThemedText type="caption" style={{ color: theme.textSecondary }}>Chain ID</ThemedText>
+                <ThemedText type="caption" style={{ fontFamily: "monospace" }}>{chainId}</ThemedText>
+              </View>
+              <View style={styles.debugInfoRow}>
+                <ThemedText type="caption" style={{ color: theme.textSecondary }}>Network</ThemedText>
+                <ThemedText type="caption">{chainConfig?.name || "Unknown"}</ThemedText>
+              </View>
+              <View style={styles.debugInfoRow}>
+                <ThemedText type="caption" style={{ color: theme.textSecondary }}>RPC Host</ThemedText>
+                <ThemedText type="caption" style={{ fontFamily: "monospace", fontSize: 10 }} numberOfLines={1}>
+                  {chainConfig ? new URL(chainConfig.rpcUrl).host : "N/A"}
+                </ThemedText>
+              </View>
+              <View style={styles.debugInfoRow}>
+                <ThemedText type="caption" style={{ color: theme.textSecondary }}>Testnet</ThemedText>
+                <ThemedText type="caption">{chainConfig?.isTestnet ? "Yes" : "No"}</ThemedText>
+              </View>
+              <View style={styles.debugInfoRow}>
+                <ThemedText type="caption" style={{ color: theme.textSecondary }}>Explorer</ThemedText>
+                <ThemedText type="caption" style={{ fontFamily: "monospace", fontSize: 10 }} numberOfLines={1}>
+                  {chainConfig?.explorerBaseUrl || "N/A"}
+                </ThemedText>
+              </View>
             </View>
           </View>
         </View>
       ) : null}
 
+      {/* Remove Wallet */}
       <Pressable
-        style={[styles.logoutButton, { backgroundColor: theme.danger + "15" }]}
+        style={({ pressed }) => [
+          styles.removeButton,
+          { borderColor: theme.danger + "30", opacity: pressed ? 0.7 : 1 },
+        ]}
         onPress={handleLogout}
       >
-        <Feather name="log-out" size={20} color={theme.danger} />
+        <Feather name="log-out" size={18} color={theme.danger} />
         <ThemedText type="body" style={{ color: theme.danger, fontWeight: "600" }}>
           Remove Wallet
         </ThemedText>
@@ -556,91 +615,90 @@ const styles = StyleSheet.create({
   section: {
     marginBottom: Spacing["2xl"],
   },
-  sectionTitle: {
+  sectionLabel: {
+    fontSize: 12,
+    fontWeight: "500",
+    letterSpacing: 0.8,
     marginBottom: Spacing.sm,
-    marginLeft: Spacing.sm,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
+    marginLeft: Spacing.xs,
   },
-  sectionContent: {
-    borderRadius: BorderRadius.md,
+  card: {
+    borderRadius: BorderRadius.lg,
     overflow: "hidden",
+    borderWidth: 1,
   },
-  iconContainer: {
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 14,
+    paddingHorizontal: Spacing.lg,
+    gap: Spacing.md,
+  },
+  rowIcon: {
     width: 36,
     height: 36,
-    borderRadius: BorderRadius.sm,
+    borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
   },
-  firstItem: {
-    borderTopLeftRadius: BorderRadius.md,
-    borderTopRightRadius: BorderRadius.md,
+  rowContent: {
+    flex: 1,
+    gap: 2,
   },
-  lastItem: {
-    borderBottomLeftRadius: BorderRadius.md,
-    borderBottomRightRadius: BorderRadius.md,
+  rowTitle: {
+    fontWeight: "500",
+    fontSize: 16,
   },
-  logoutButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: Spacing.lg,
-    borderRadius: BorderRadius.md,
-    gap: Spacing.md,
-    marginTop: Spacing.xl,
+  separator: {
+    height: StyleSheet.hairlineWidth,
+    marginLeft: 68,
   },
-  debugPanel: {
-    borderRadius: BorderRadius.md,
-    padding: Spacing.md,
-  },
-  debugRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingVertical: Spacing.sm,
-  },
-  demoPanel: {
-    borderRadius: BorderRadius.md,
-    padding: Spacing.md,
-  },
-  demoRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  demoButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: Spacing.md,
-    borderRadius: BorderRadius.sm,
-    marginTop: Spacing.md,
-  },
-  networkRowItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    padding: Spacing.md,
-  },
-  networksPanel: {
-    paddingHorizontal: Spacing.md,
-    paddingBottom: Spacing.sm,
-    borderBottomLeftRadius: BorderRadius.md,
-    borderBottomRightRadius: BorderRadius.md,
+  networksInline: {
+    paddingHorizontal: Spacing.lg,
+    paddingBottom: Spacing.md,
   },
   networkRow: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: Spacing.sm,
+    paddingVertical: Spacing.md,
+    gap: Spacing.md,
   },
   networkLogo: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
   },
-  networkBadge: {
-    paddingHorizontal: Spacing.sm,
+  activeBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 10,
     paddingVertical: 4,
-    borderRadius: BorderRadius.xs,
+    borderRadius: BorderRadius.full,
+    gap: 5,
+  },
+  activeDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  debugInfo: {
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.md,
+    gap: Spacing.sm,
+  },
+  debugInfoRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  removeButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: Spacing.lg,
+    borderRadius: BorderRadius.lg,
+    borderWidth: 1,
+    gap: Spacing.sm,
+    marginTop: Spacing.md,
   },
 });
