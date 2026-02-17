@@ -107,6 +107,9 @@ export const InstantBuildBodySchema = z.object({
   inputMint: z.string().min(32).max(44),
   outputMint: z.string().min(32).max(44),
   amount: z.string().regex(/^\d+$/),
+  // Needed for Pump sells: amount must be converted from base units to UI units.
+  // If omitted, server falls back to token list metadata.
+  inputTokenDecimals: z.number().int().min(0).max(18).optional(),
   slippageBps: z.coerce.number().int().min(0).max(5000).optional().default(200),
   speedMode: SpeedModeSchema.optional().default("fast"),
   maxPriorityFeeLamports: z.number().int().positive().optional(),

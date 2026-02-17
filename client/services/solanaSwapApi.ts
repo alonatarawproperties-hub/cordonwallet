@@ -252,6 +252,7 @@ export interface InstantBuildParams {
   inputMint: string;
   outputMint: string;
   amount: string;
+  inputTokenDecimals?: number;
   slippageBps?: number;
   speedMode?: SpeedMode;
   maxPriorityFeeLamports?: number;

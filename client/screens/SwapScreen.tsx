@@ -678,6 +678,7 @@ export default function SwapScreen({ route }: Props) {
           inputMint: inputToken.mint,
           outputMint: outputToken.mint,
           amount: amountBaseUnits,
+          inputTokenDecimals: inputToken.decimals,
           slippageBps,
           speedMode: speed,
           maxPriorityFeeLamports: priorityCapLamports,
@@ -895,7 +896,7 @@ export default function SwapScreen({ route }: Props) {
           }
 
           // Check confirmation from either source
-          if (directStatus?.confirmed || directStatus?.processed) {
+          if (directStatus?.confirmed) {
             confirmed = true;
             console.log(`[Swap] TX confirmed after ${Date.now() - pollStart}ms via direct-rpc`);
             await addDebugLog("info", "Swap confirmed", {
@@ -905,7 +906,7 @@ export default function SwapScreen({ route }: Props) {
             });
             break;
           }
-          if (serverStatus?.confirmed || serverStatus?.processed) {
+          if (serverStatus?.confirmed) {
             confirmed = true;
             console.log(`[Swap] TX confirmed after ${Date.now() - pollStart}ms via server`);
             await addDebugLog("info", "Swap confirmed", {
@@ -946,7 +947,7 @@ export default function SwapScreen({ route }: Props) {
           // Wait a moment then ask the server with searchTransactionHistory
           await new Promise(r => setTimeout(r, 1500));
           const finalCheck = await getSwapStatus(signature).catch(() => null);
-          if (finalCheck?.confirmed || finalCheck?.processed) {
+          if (finalCheck?.confirmed) {
             confirmed = true;
             console.log(`[Swap] TX confirmed on last-ditch check after ${Date.now() - pollStart}ms`);
             await addDebugLog("info", "Swap confirmed (last-ditch)", {
