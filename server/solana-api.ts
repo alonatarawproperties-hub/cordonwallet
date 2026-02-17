@@ -707,110 +707,189 @@ export async function getSolanaTransactionHistory(
         const preBalances = tx.meta.preBalances;
         const postBalances = tx.meta.postBalances;
         const userIndex = involvedPrograms.findIndex((k: string) => k === address);
-        
+
+        // Calculate SOL delta (only when user is found in account keys)
+        let solDelta = 0;
         if (userIndex >= 0 && preBalances && postBalances) {
-          const solDelta = (postBalances[userIndex] - preBalances[userIndex]) / LAMPORTS_PER_SOL;
-          
-          // Look for token balance changes
-          const preTokenBalances = tx.meta.preTokenBalances || [];
-          const postTokenBalances = tx.meta.postTokenBalances || [];
-          
-          // Find token balance changes for the user
-          let tokenReceived: { amount: string; symbol: string; mint: string } | null = null;
-          let tokenSent: { amount: string; symbol: string; mint: string } | null = null;
-          
-          for (const post of postTokenBalances) {
-            if (post.owner === address) {
-              const pre = preTokenBalances.find(
-                (p: any) => p.owner === address && p.mint === post.mint
+          solDelta = (postBalances[userIndex] - preBalances[userIndex]) / LAMPORTS_PER_SOL;
+        }
+
+        // Look for token balance changes (always, regardless of userIndex)
+        const preTokenBalances = tx.meta.preTokenBalances || [];
+        const postTokenBalances = tx.meta.postTokenBalances || [];
+
+        // Find token balance changes for the user
+        let tokenReceived: { amount: string; symbol: string; mint: string } | null = null;
+        let tokenSent: { amount: string; symbol: string; mint: string } | null = null;
+
+        for (const post of postTokenBalances) {
+          if (post.owner === address) {
+            const pre = preTokenBalances.find(
+              (p: any) => p.owner === address && p.mint === post.mint
+            );
+            // Use uiAmountString as fallback since uiAmount can be null (deprecated field)
+            const preAmount = pre?.uiTokenAmount?.uiAmount ?? parseFloat(pre?.uiTokenAmount?.uiAmountString || "0");
+            const postAmount = post.uiTokenAmount?.uiAmount ?? parseFloat(post.uiTokenAmount?.uiAmountString || "0");
+            const delta = postAmount - preAmount;
+
+            if (delta > 0) {
+              // Try to get token symbol
+              let symbol = post.mint.slice(0, 4).toUpperCase();
+              try {
+                const metadata = await getSplTokenMetadata(post.mint);
+                if (metadata?.symbol) symbol = metadata.symbol;
+              } catch {}
+
+              tokenReceived = {
+                amount: Math.abs(delta).toString(),
+                symbol,
+                mint: post.mint,
+              };
+            } else if (delta < 0) {
+              let symbol = post.mint.slice(0, 4).toUpperCase();
+              try {
+                const metadata = await getSplTokenMetadata(post.mint);
+                if (metadata?.symbol) symbol = metadata.symbol;
+              } catch {}
+
+              tokenSent = {
+                amount: Math.abs(delta).toString(),
+                symbol,
+                mint: post.mint,
+              };
+            }
+          }
+        }
+
+        // Check pre balances for tokens completely removed (account closed after selling all)
+        if (!tokenSent) {
+          for (const pre of preTokenBalances) {
+            if (pre.owner === address) {
+              const postEntry = postTokenBalances.find(
+                (p: any) => p.owner === address && p.mint === pre.mint
               );
-              const preAmount = pre?.uiTokenAmount?.uiAmount || 0;
-              const postAmount = post.uiTokenAmount?.uiAmount || 0;
-              const delta = postAmount - preAmount;
-              
-              if (delta > 0) {
-                // Try to get token symbol
-                let symbol = post.mint.slice(0, 4).toUpperCase();
-                try {
-                  const metadata = await getSplTokenMetadata(post.mint);
-                  if (metadata?.symbol) symbol = metadata.symbol;
-                } catch {}
-                
-                tokenReceived = {
-                  amount: Math.abs(delta).toString(),
-                  symbol,
-                  mint: post.mint,
-                };
-              } else if (delta < 0) {
-                let symbol = post.mint.slice(0, 4).toUpperCase();
-                try {
-                  const metadata = await getSplTokenMetadata(post.mint);
-                  if (metadata?.symbol) symbol = metadata.symbol;
-                } catch {}
-                
-                tokenSent = {
-                  amount: Math.abs(delta).toString(),
-                  symbol,
-                  mint: post.mint,
-                };
+              if (!postEntry) {
+                const preAmount = pre.uiTokenAmount?.uiAmount ?? parseFloat(pre.uiTokenAmount?.uiAmountString || "0");
+                if (preAmount > 0) {
+                  let symbol = pre.mint.slice(0, 4).toUpperCase();
+                  try {
+                    const metadata = await getSplTokenMetadata(pre.mint);
+                    if (metadata?.symbol) symbol = metadata.symbol;
+                  } catch {}
+
+                  tokenSent = {
+                    amount: preAmount.toString(),
+                    symbol,
+                    mint: pre.mint,
+                  };
+                  break;
+                }
               }
             }
           }
-          
-          // Determine swap direction
-          if (solDelta < -0.001 && tokenReceived) {
-            // Sold SOL for tokens
-            type = "swap";
-            swapInfo = {
-              fromAmount: Math.abs(solDelta).toFixed(6),
-              fromSymbol: "SOL",
-              toAmount: tokenReceived.amount,
-              toSymbol: tokenReceived.symbol,
-            };
-            amount = Math.abs(solDelta).toFixed(6);
-            tokenSymbol = "SOL";
-            tokenMint = tokenReceived.mint;
-          } else if (solDelta > 0.001 && tokenSent) {
-            // Sold tokens for SOL
-            type = "swap";
-            swapInfo = {
-              fromAmount: tokenSent.amount,
-              fromSymbol: tokenSent.symbol,
-              toAmount: solDelta.toFixed(6),
-              toSymbol: "SOL",
-            };
-            amount = tokenSent.amount;
-            tokenSymbol = tokenSent.symbol;
-            tokenMint = undefined;
-          } else if (tokenSent && tokenReceived) {
-            // Token to token swap
-            type = "swap";
-            swapInfo = {
-              fromAmount: tokenSent.amount,
-              fromSymbol: tokenSent.symbol,
-              toAmount: tokenReceived.amount,
-              toSymbol: tokenReceived.symbol,
-            };
-            amount = tokenSent.amount;
-            tokenSymbol = tokenSent.symbol;
-          }
-          
-          if (type === "swap") {
-            transactions.push({
-              signature: sig.signature,
-              blockTime: sig.blockTime ?? null,
-              slot: sig.slot,
-              err: sig.err,
-              type,
-              amount,
-              tokenSymbol,
-              tokenMint,
-              from: address,
-              to: undefined,
-              swapInfo,
-            });
-            continue;
-          }
+        }
+
+        // Determine swap direction
+        if (solDelta < -0.001 && tokenReceived) {
+          // Sold SOL for tokens
+          type = "swap";
+          swapInfo = {
+            fromAmount: Math.abs(solDelta).toFixed(6),
+            fromSymbol: "SOL",
+            toAmount: tokenReceived.amount,
+            toSymbol: tokenReceived.symbol,
+          };
+          amount = Math.abs(solDelta).toFixed(6);
+          tokenSymbol = "SOL";
+          tokenMint = tokenReceived.mint;
+        } else if (solDelta > 0.001 && tokenSent) {
+          // Sold tokens for SOL
+          type = "swap";
+          swapInfo = {
+            fromAmount: tokenSent.amount,
+            fromSymbol: tokenSent.symbol,
+            toAmount: solDelta.toFixed(6),
+            toSymbol: "SOL",
+          };
+          amount = tokenSent.amount;
+          tokenSymbol = tokenSent.symbol;
+          tokenMint = undefined;
+        } else if (tokenSent && tokenReceived) {
+          // Token to token swap
+          type = "swap";
+          swapInfo = {
+            fromAmount: tokenSent.amount,
+            fromSymbol: tokenSent.symbol,
+            toAmount: tokenReceived.amount,
+            toSymbol: tokenReceived.symbol,
+          };
+          amount = tokenSent.amount;
+          tokenSymbol = tokenSent.symbol;
+        } else if (tokenReceived && solDelta < 0) {
+          // Bought tokens - SOL decrease below threshold but token was received
+          type = "swap";
+          swapInfo = {
+            fromAmount: Math.abs(solDelta).toFixed(6),
+            fromSymbol: "SOL",
+            toAmount: tokenReceived.amount,
+            toSymbol: tokenReceived.symbol,
+          };
+          amount = Math.abs(solDelta).toFixed(6);
+          tokenSymbol = "SOL";
+          tokenMint = tokenReceived.mint;
+        } else if (tokenSent && solDelta > 0) {
+          // Sold tokens - SOL increase below threshold but token was sent
+          type = "swap";
+          swapInfo = {
+            fromAmount: tokenSent.amount,
+            fromSymbol: tokenSent.symbol,
+            toAmount: solDelta.toFixed(6),
+            toSymbol: "SOL",
+          };
+          amount = tokenSent.amount;
+          tokenSymbol = tokenSent.symbol;
+          tokenMint = undefined;
+        } else if (tokenReceived) {
+          // DEX interaction - received tokens (SOL change may be hidden in wrapped SOL)
+          type = "swap";
+          swapInfo = {
+            fromAmount: Math.abs(solDelta).toFixed(6),
+            fromSymbol: "SOL",
+            toAmount: tokenReceived.amount,
+            toSymbol: tokenReceived.symbol,
+          };
+          amount = tokenReceived.amount;
+          tokenSymbol = tokenReceived.symbol;
+          tokenMint = tokenReceived.mint;
+        } else if (tokenSent) {
+          // DEX interaction - sent tokens (SOL change may be hidden in wrapped SOL)
+          type = "swap";
+          swapInfo = {
+            fromAmount: tokenSent.amount,
+            fromSymbol: tokenSent.symbol,
+            toAmount: Math.abs(solDelta).toFixed(6),
+            toSymbol: "SOL",
+          };
+          amount = tokenSent.amount;
+          tokenSymbol = tokenSent.symbol;
+          tokenMint = undefined;
+        }
+
+        if (type === "swap") {
+          transactions.push({
+            signature: sig.signature,
+            blockTime: sig.blockTime ?? null,
+            slot: sig.slot,
+            err: sig.err,
+            type,
+            amount,
+            tokenSymbol,
+            tokenMint,
+            from: address,
+            to: undefined,
+            swapInfo,
+          });
+          continue;
         }
       }
       
