@@ -1,6 +1,6 @@
 import React from "react";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
-import { Feather } from "@expo/vector-icons";
+import { Ionicons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
 import { Platform, StyleSheet, View } from "react-native";
 import { useTheme } from "@/hooks/useTheme";
@@ -44,6 +44,14 @@ export default function MainTabNavigator() {
           ),
         tabBarActiveTintColor: theme.accent,
         tabBarInactiveTintColor: theme.tabIconDefault,
+        tabBarLabelStyle: {
+          fontSize: 10,
+          fontWeight: "500",
+          letterSpacing: 0.2,
+        },
+        tabBarItemStyle: {
+          paddingTop: 4,
+        },
         tabBarStyle: {
           position: "absolute",
           backgroundColor: Platform.select({
@@ -51,8 +59,9 @@ export default function MainTabNavigator() {
             android: theme.backgroundRoot,
           }),
           borderTopWidth: StyleSheet.hairlineWidth,
-          borderTopColor: "rgba(255, 255, 255, 0.06)",
+          borderTopColor: isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.08)",
           elevation: 0,
+          paddingBottom: Platform.select({ ios: 0, android: 8 }),
         },
         tabBarBackground: () =>
           Platform.OS === "ios" ? (
@@ -71,8 +80,8 @@ export default function MainTabNavigator() {
           headerTitle: () => <PortfolioHeaderTitle />,
           headerLeft: () => <PortfolioHeaderLeft />,
           headerRight: () => <PortfolioHeaderRight />,
-          tabBarIcon: ({ color, size }) => (
-            <Feather name="pie-chart" size={size} color={color} />
+          tabBarIcon: ({ color, size, focused }) => (
+            <Ionicons name={focused ? "pie-chart" : "pie-chart-outline"} size={size} color={color} />
           ),
         }}
       />
@@ -81,8 +90,8 @@ export default function MainTabNavigator() {
         component={ActivityScreen}
         options={{
           headerTitle: "Activity",
-          tabBarIcon: ({ color, size }) => (
-            <Feather name="activity" size={size} color={color} />
+          tabBarIcon: ({ color, size, focused }) => (
+            <Ionicons name={focused ? "pulse" : "pulse-outline"} size={size} color={color} />
           ),
         }}
       />
@@ -91,8 +100,8 @@ export default function MainTabNavigator() {
         component={BrowserScreen}
         options={{
           headerTitle: "Browser",
-          tabBarIcon: ({ color, size }) => (
-            <Feather name="globe" size={size} color={color} />
+          tabBarIcon: ({ color, size, focused }) => (
+            <Ionicons name={focused ? "compass" : "compass-outline"} size={size} color={color} />
           ),
         }}
       />
@@ -103,9 +112,9 @@ export default function MainTabNavigator() {
           headerTitle: "Multisig",
           tabBarIcon: ({ size }) => (
             <View style={{ opacity: 0.35 }}>
-              <Feather name="users" size={size} color={theme.tabIconDefault} />
-              <View style={{ position: "absolute", right: -6, top: -4 }}>
-                <Feather name="lock" size={10} color={theme.tabIconDefault} />
+              <Ionicons name="people-outline" size={size} color={theme.tabIconDefault} />
+              <View style={{ position: "absolute", right: -4, top: -3 }}>
+                <Ionicons name="lock-closed" size={10} color={theme.tabIconDefault} />
               </View>
             </View>
           ),
@@ -120,9 +129,9 @@ export default function MainTabNavigator() {
           headerTitle: "Bundles",
           tabBarIcon: ({ size }) => (
             <View style={{ opacity: 0.35 }}>
-              <Feather name="layers" size={size} color={theme.tabIconDefault} />
-              <View style={{ position: "absolute", right: -6, top: -4 }}>
-                <Feather name="lock" size={10} color={theme.tabIconDefault} />
+              <Ionicons name="layers-outline" size={size} color={theme.tabIconDefault} />
+              <View style={{ position: "absolute", right: -4, top: -3 }}>
+                <Ionicons name="lock-closed" size={10} color={theme.tabIconDefault} />
               </View>
             </View>
           ),

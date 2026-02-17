@@ -5,7 +5,7 @@ import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { Feather } from "@expo/vector-icons";
+import { Feather, Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import Animated, { useSharedValue, useAnimatedStyle, withSpring, interpolate } from "react-native-reanimated";
 
@@ -72,7 +72,7 @@ function ActionButton({
   disabled,
   theme,
 }: {
-  icon: keyof typeof Feather.glyphMap;
+  icon: keyof typeof Ionicons.glyphMap;
   label: string;
   iconColor: string;
   onPress: () => void;
@@ -102,8 +102,8 @@ function ActionButton({
       onPressOut={handlePressOut}
       disabled={disabled}
     >
-      <View style={[styles.actionCircle, { backgroundColor: theme.backgroundDefault, borderColor: theme.border }]}>
-        <Feather name={icon} size={20} color={iconColor} />
+      <View style={[styles.actionCircle, { backgroundColor: iconColor + "12" }]}>
+        <Ionicons name={icon} size={22} color={iconColor} />
       </View>
       <ThemedText type="caption" style={[styles.actionLabel, { color: theme.textSecondary }]}>{label}</ThemedText>
     </AnimatedPressable>
@@ -456,14 +456,14 @@ export default function PortfolioScreen() {
       {/* Action Buttons */}
       <View style={styles.actionRow}>
         <ActionButton
-          icon="arrow-up-right"
+          icon="paper-plane"
           label="Send"
           iconColor={theme.accent}
           onPress={() => navigation.navigate("Send", {})}
           theme={theme}
         />
         <ActionButton
-          icon="arrow-down-left"
+          icon="arrow-down-circle"
           label="Receive"
           iconColor={theme.success}
           onPress={() =>
@@ -478,14 +478,14 @@ export default function PortfolioScreen() {
           theme={theme}
         />
         <ActionButton
-          icon="repeat"
+          icon="swap-horizontal"
           label="Swap"
           iconColor={theme.warning}
           onPress={() => (navigation as any).navigate("Swap")}
           theme={theme}
         />
         <ActionButton
-          icon="credit-card"
+          icon="card"
           label="Buy"
           iconColor="#A78BFA"
           onPress={() => navigation.navigate("ManageCrypto")}
@@ -638,21 +638,21 @@ const styles = StyleSheet.create({
   // Action Buttons
   actionRow: {
     flexDirection: "row",
-    justifyContent: "center",
-    gap: Spacing["2xl"],
+    justifyContent: "space-evenly",
     paddingBottom: Spacing["4xl"],
+    paddingHorizontal: Spacing.lg,
   },
   actionButton: {
     alignItems: "center",
     gap: Spacing.sm,
+    minWidth: 56,
   },
   actionCircle: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 1,
   },
   actionLabel: {
     fontSize: 12,
