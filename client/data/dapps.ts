@@ -3,7 +3,7 @@ import { FEATURES } from "@/config/features";
 export interface DApp {
   id: string;
   name: string;
-  category: "DEX" | "Lending" | "NFT" | "Bridge" | "Aggregator" | "Gaming" | "Social" | "Other";
+  category: "DEX" | "Lending" | "NFT" | "Bridge" | "Aggregator" | "Gaming" | "Social" | "Crypto Wallet" | "Other";
   url: string;
   iconUrl?: string;
   chains: ("evm" | "solana")[];
@@ -14,11 +14,11 @@ export const POPULAR_DAPPS: DApp[] = [
   {
     id: "cordon",
     name: "Cordon",
-    category: "Other",
+    category: "Crypto Wallet",
     url: "https://app.cordonwallet.com",
     iconUrl: "https://icons.duckduckgo.com/ip3/cordonwallet.com.ico",
     chains: ["evm", "solana"],
-    description: "Cordon wallet hub",
+    description: "Non-custodial wallet",
   },
   {
     id: "roachy-games",
