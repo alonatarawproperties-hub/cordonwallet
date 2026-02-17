@@ -163,9 +163,11 @@ export async function validateSwapTxServer(args: {
     if (unknownPrograms.length > 0) {
       const unknownLabel = unknownPrograms.map((p) => p.slice(0, 8) + "...").join(", ");
 
-      // Pump txs may include evolving program ids (new pool/router variants).
-      // Keep strict signer/fee-payer checks, but do not hard-block solely for this.
-      if (routeType === "pump" && hasPumpProgram) {
+      // Pump txs are built by PumpPortal and can contain rapidly changing
+      // router/pool programs for ungraduated bonding-curve tokens.
+      // We still enforce hard signer + fee-payer checks, but avoid false
+      // positives from a strict allowlist on the program ids themselves.
+      if (routeType === "pump") {
         warnings.push(`Pump tx includes additional program(s): ${unknownLabel}`);
       } else {
         errors.push(`Blocked for safety: unexpected program detected: ${unknownLabel}`);
