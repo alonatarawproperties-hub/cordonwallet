@@ -147,9 +147,22 @@ export async function getRouteQuote(params: {
         console.log("[Route] Token is graduated from Pump.fun, trying Jupiter (may have Token-2022 issues)");
         // Fall through to Jupiter routing below
       } else {
-        // Detection was inconclusive — try Jupiter first (works for graduated tokens),
-        // only fall back to Pump if Jupiter has no route
-        console.log("[Route] Pump token (detection inconclusive), trying Jupiter first with pump fallback");
+        // Detection inconclusive. For SELLs of pump-format mints, prefer Pump first
+        // to avoid routing bonding-curve tokens through Jupiter and failing on-chain.
+        if (!isBuying) {
+          console.log("[Route] Pump token sell (detection inconclusive), using Pump route first");
+          const routeResult: RouteQuoteResult = {
+            ok: true,
+            route: "pump",
+            pumpMeta: { ...pumpMeta, isPump: true, isBondingCurve: true },
+            message: "Pump.fun sell fallback for inconclusive detection",
+          };
+          quoteCache.set(cacheKey, routeResult);
+          return routeResult;
+        }
+
+        // For BUYs keep Jupiter-first fallback behavior (works for graduated tokens).
+        console.log("[Route] Pump token buy (detection inconclusive), trying Jupiter first with pump fallback");
 
         // Resolve fee account so the quote includes platformFeeBps
         const pumpFeeAccount = await resolveFeeAccount(outputMint);

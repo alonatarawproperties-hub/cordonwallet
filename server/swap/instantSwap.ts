@@ -15,6 +15,7 @@ import { getQuote, buildSwapTransaction } from "./jupiter";
 import { buildPumpTransaction } from "./pump";
 import { getRouteQuote } from "./route";
 import { swapConfig, type SpeedMode } from "./config";
+import { getToken } from "./tokenlist";
 import type { InstantBuildResult } from "./types";
 
 const SOL_MINT = "So11111111111111111111111111111111111111112";
@@ -69,8 +70,13 @@ export async function instantBuild(params: {
 
     // For pump: amount is in lamports for buys. Convert to SOL.
     const amountSol = isBuying ? parseInt(amount) / 1_000_000_000 : undefined;
-    // For sells: amount is in token base units — parse to number
-    const amountTokens = !isBuying ? parseInt(amount) / 1 : undefined; // raw base units
+    // For sells: Pump expects UI token amount (not base units).
+    let amountTokens: number | undefined;
+    if (!isBuying) {
+      const token = await getToken(inputMint);
+      const decimals = token?.decimals ?? 9;
+      amountTokens = Number(amount) / Math.pow(10, decimals);
+    }
 
     const buildResult = await buildPumpTransaction({
       userPublicKey,
