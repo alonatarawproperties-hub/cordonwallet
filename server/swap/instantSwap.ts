@@ -35,6 +35,7 @@ export async function instantBuild(params: {
   inputMint: string;
   outputMint: string;
   amount: string;
+  inputTokenDecimals?: number;
   slippageBps: number;
   speedMode: SpeedMode;
   maxPriorityFeeLamports?: number;
@@ -44,6 +45,7 @@ export async function instantBuild(params: {
     inputMint,
     outputMint,
     amount,
+    inputTokenDecimals,
     slippageBps,
     speedMode,
     maxPriorityFeeLamports,
@@ -74,7 +76,9 @@ export async function instantBuild(params: {
     let amountTokens: number | undefined;
     if (!isBuying) {
       const token = await getToken(inputMint);
-      const decimals = token?.decimals ?? 9;
+      // Prefer client-provided decimals from the selected token row.
+      // This avoids tiny sells when server token metadata is stale/missing.
+      const decimals = inputTokenDecimals ?? token?.decimals ?? 9;
       amountTokens = Number(amount) / Math.pow(10, decimals);
     }
 
