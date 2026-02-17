@@ -50,7 +50,8 @@ export default function MainTabNavigator() {
             ios: "transparent",
             android: theme.backgroundRoot,
           }),
-          borderTopWidth: 0,
+          borderTopWidth: StyleSheet.hairlineWidth,
+          borderTopColor: "rgba(255, 255, 255, 0.06)",
           elevation: 0,
         },
         tabBarBackground: () =>

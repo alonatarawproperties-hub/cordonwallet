@@ -26,17 +26,6 @@ import type { RiskLevel } from "@/lib/token-security-ui";
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
-function formatTimeSince(timestamp: number): string {
-  const seconds = Math.floor((Date.now() - timestamp) / 1000);
-  if (seconds < 60) return "just now";
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
-}
-
 function getTokenIcon(symbol: string): keyof typeof Feather.glyphMap {
   const iconMap: Record<string, keyof typeof Feather.glyphMap> = {
     SOL: "sun",
@@ -94,11 +83,11 @@ function ActionButton({
 
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
-    opacity: interpolate(scale.value, [0.96, 1], [0.9, disabled ? 0.5 : 1]),
+    opacity: interpolate(scale.value, [0.93, 1], [0.8, disabled ? 0.4 : 1]),
   }));
 
   const handlePressIn = () => {
-    scale.value = withSpring(0.96, { damping: 15, stiffness: 400 });
+    scale.value = withSpring(0.93, { damping: 15, stiffness: 400 });
   };
 
   const handlePressOut = () => {
@@ -107,16 +96,16 @@ function ActionButton({
 
   return (
     <AnimatedPressable
-      style={[styles.actionButton, { backgroundColor: theme.backgroundSecondary }, animatedStyle]}
+      style={[styles.actionButton, animatedStyle]}
       onPress={onPress}
       onPressIn={handlePressIn}
       onPressOut={handlePressOut}
       disabled={disabled}
     >
-      <View style={[styles.actionIcon, { backgroundColor: iconColor + "20" }]}>
-        <Feather name={icon} size={18} color={iconColor} />
+      <View style={[styles.actionCircle, { backgroundColor: theme.backgroundDefault, borderColor: theme.border }]}>
+        <Feather name={icon} size={20} color={iconColor} />
       </View>
-      <ThemedText type="small" style={styles.actionLabel}>{label}</ThemedText>
+      <ThemedText type="caption" style={[styles.actionLabel, { color: theme.textSecondary }]}>{label}</ThemedText>
     </AnimatedPressable>
   );
 }
@@ -127,16 +116,17 @@ function AssetRow({
   onPress,
   securityRisk,
   onSecurityPress,
+  isLast,
 }: {
   asset: UnifiedAsset;
   theme: ReturnType<typeof useTheme>["theme"];
   onPress: () => void;
   securityRisk?: RiskLevel;
   onSecurityPress?: () => void;
+  isLast?: boolean;
 }) {
   const scale = useSharedValue(1);
   const [tokenLogoError, setTokenLogoError] = useState(false);
-  const [chainLogoError, setChainLogoError] = useState(false);
 
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
@@ -150,58 +140,34 @@ function AssetRow({
     scale.value = withSpring(1, { damping: 15, stiffness: 400 });
   };
 
-  const getChainLogoUrl = (chainName: string): string | null => {
-    const chainLogos: Record<string, string> = {
-      "Solana": "https://assets.coingecko.com/coins/images/4128/small/solana.png",
-    };
-    return chainLogos[chainName] || null;
-  };
-
-  const chainLogoUrl = getChainLogoUrl(asset.chainName);
   const tokenLogoUrl = ("logoUrl" in asset && asset.logoUrl) ? asset.logoUrl : getTokenLogoUrl(asset.symbol);
 
   return (
     <AnimatedPressable
-      style={[styles.tokenRow, { backgroundColor: theme.backgroundDefault }, animatedStyle]}
+      style={[styles.tokenRow, animatedStyle]}
       onPress={onPress}
       onPressIn={handlePressIn}
       onPressOut={handlePressOut}
     >
-      <View style={styles.tokenIconContainer}>
-        <View style={[styles.tokenIcon, { backgroundColor: getChainColor(asset.chainName) + "12" }]}>
-          {tokenLogoUrl && !tokenLogoError ? (
-            <Image
-              source={{ uri: tokenLogoUrl }}
-              style={styles.tokenLogoImage}
-              onError={() => setTokenLogoError(true)}
-            />
-          ) : (
-            <Feather name={getTokenIcon(asset.symbol)} size={18} color={getChainColor(asset.chainName)} />
-          )}
-        </View>
-        {chainLogoUrl && !chainLogoError ? (
-          <View style={[styles.chainLogoOverlay, { borderColor: theme.backgroundDefault }]}>
-            <Image
-              source={{ uri: chainLogoUrl }}
-              style={styles.chainLogoImage}
-              onError={() => setChainLogoError(true)}
-            />
-          </View>
-        ) : null}
+      <View style={[styles.tokenIcon, { backgroundColor: getChainColor(asset.chainName) + "10" }]}>
+        {tokenLogoUrl && !tokenLogoError ? (
+          <Image
+            source={{ uri: tokenLogoUrl }}
+            style={styles.tokenLogoImage}
+            onError={() => setTokenLogoError(true)}
+          />
+        ) : (
+          <Feather name={getTokenIcon(asset.symbol)} size={20} color={getChainColor(asset.chainName)} />
+        )}
       </View>
       <View style={styles.tokenInfo}>
-        <View style={styles.tokenHeader}>
+        <View style={styles.tokenNameRow}>
           <ThemedText type="body" style={styles.tokenSymbol}>
             {asset.symbol}
           </ThemedText>
-          <View style={[styles.chainBadge, { backgroundColor: getChainColor(asset.chainName) + "15" }]}>
-            <ThemedText type="caption" style={[styles.chainBadgeText, { color: getChainColor(asset.chainName) }]}>
-              {asset.chainName}
-            </ThemedText>
-          </View>
           {securityRisk && securityRisk !== "safe" && onSecurityPress ? (
-            <TokenSecurityBadge 
-              riskLevel={securityRisk} 
+            <TokenSecurityBadge
+              riskLevel={securityRisk}
               onPress={onSecurityPress}
               size="small"
             />
@@ -214,7 +180,7 @@ function AssetRow({
           {asset.priceChange24h !== undefined ? (
             <ThemedText
               type="caption"
-              style={[styles.priceChange, { color: asset.priceChange24h >= 0 ? "#22C55E" : "#EF4444" }]}
+              style={{ color: asset.priceChange24h >= 0 ? theme.success : theme.danger, marginLeft: 6, fontSize: 12 }}
             >
               {asset.priceChange24h >= 0 ? "+" : ""}{asset.priceChange24h.toFixed(2)}%
             </ThemedText>
@@ -231,7 +197,6 @@ function AssetRow({
           </ThemedText>
         ) : null}
       </View>
-      <Feather name="chevron-right" size={18} color={theme.textSecondary} style={{ opacity: 0.6 }} />
     </AnimatedPressable>
   );
 }
@@ -247,7 +212,7 @@ export default function PortfolioScreen() {
   const [hiddenTokens, setHiddenTokens] = useState<string[]>([]);
   const [assetsExpanded, setAssetsExpanded] = useState(false);
   const stableAssetsRef = useRef<UnifiedAsset[]>([]);
-  
+
   const DEFAULT_VISIBLE_ASSETS = 6;
   const [securityAssessments, setSecurityAssessments] = useState<Map<string, TokenSecurityAssessment>>(new Map());
   const [selectedSecurityAsset, setSelectedSecurityAsset] = useState<{ assessment: TokenSecurityAssessment; name: string; symbol: string } | null>(null);
@@ -256,7 +221,7 @@ export default function PortfolioScreen() {
   const solanaAddress = activeWallet?.addresses?.solana;
 
   const solanaPortfolio = useSolanaPortfolio(solanaAddress);
-  
+
   useFocusEffect(
     useCallback(() => {
       if (solanaAddress) {
@@ -265,7 +230,7 @@ export default function PortfolioScreen() {
       getHiddenTokens().then(setHiddenTokens);
     }, [solanaAddress])
   );
-  
+
   const customTokenMap = buildCustomTokenMap(customTokens);
 
   const { assets, isLoading, isRefreshing, error, lastUpdated, totalValue } = useMemo(() => {
@@ -312,13 +277,9 @@ export default function PortfolioScreen() {
       }
     }
 
-    // Filter out hidden tokens and zero-balance assets
     const visibleAssets = allAssets.filter(asset => {
-      // Check if token is hidden
       const tokenKey = `${asset.chainId}:${asset.symbol}`;
       if (hiddenTokens.includes(tokenKey)) return false;
-
-      // Hide zero-balance assets by default on homepage
       const balance = parseFloat(asset.balance || "0");
       return balance > 0;
     });
@@ -376,7 +337,6 @@ export default function PortfolioScreen() {
   };
 
   const [refreshing, setRefreshing] = useState(false);
-  const [activeTab, setActiveTab] = useState<"assets" | "security">("assets");
   const REFRESH_TIMEOUT = 15000;
 
   const handleRefreshWithHaptic = useCallback(async () => {
@@ -405,7 +365,7 @@ export default function PortfolioScreen() {
 
   useEffect(() => {
     if (Platform.OS === "web") return;
-    
+
     const analyzeSolanaTokens = async () => {
       const solanaAssets = assets.filter(a => a.chainType === "solana" && "mint" in a && a.mint);
       if (solanaAssets.length === 0) return;
@@ -414,14 +374,14 @@ export default function PortfolioScreen() {
         const { Connection } = await import("@solana/web3.js");
         const { RPC_PRIMARY } = await import("@/constants/solanaSwap");
         const { analyzeTokenSecurity } = await import("@/lib/token-security");
-        
+
         const connection = new Connection(RPC_PRIMARY, { commitment: "confirmed" });
         const newAssessments = new Map(securityAssessments);
-        
+
         for (const asset of solanaAssets) {
           const mint = (asset as any).mint as string;
           if (!mint || newAssessments.has(mint)) continue;
-          
+
           try {
             const assessment = await analyzeTokenSecurity(connection, mint);
             newAssessments.set(mint, assessment);
@@ -429,7 +389,7 @@ export default function PortfolioScreen() {
             console.warn(`Failed to analyze ${asset.symbol}:`, e);
           }
         }
-        
+
         if (newAssessments.size > securityAssessments.size) {
           setSecurityAssessments(newAssessments);
         }
@@ -457,15 +417,18 @@ export default function PortfolioScreen() {
     }
   }, [securityAssessments]);
 
+  const visibleAssets = assetsExpanded ? assets : assets.slice(0, DEFAULT_VISIBLE_ASSETS);
+
   return (
     <ScrollView
       style={{ flex: 1, backgroundColor: theme.backgroundRoot }}
       contentContainerStyle={{
-        paddingTop: headerHeight + Spacing.md,
-        paddingBottom: tabBarHeight + Spacing.xl,
-        paddingHorizontal: Spacing.lg,
+        paddingTop: headerHeight + Spacing.xl,
+        paddingBottom: tabBarHeight + Spacing["3xl"],
+        paddingHorizontal: Spacing.xl,
       }}
       scrollIndicatorInsets={{ bottom: insets.bottom }}
+      showsVerticalScrollIndicator={false}
       refreshControl={
         <RefreshControl
           refreshing={refreshing}
@@ -482,94 +445,65 @@ export default function PortfolioScreen() {
         color={theme.accent}
         size={24}
       />
-      <View style={[styles.balanceCard, { backgroundColor: theme.backgroundDefault }]}>
-        <View style={styles.totalValueContainer}>
-          <ThemedText type="h1" style={styles.totalValue}>
-            ${totalValue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-          </ThemedText>
-          {lastUpdated ? (
-            <ThemedText type="caption" style={[styles.lastUpdated, { color: theme.textSecondary }]}>
-              Updated {formatTimeSince(lastUpdated)}
-            </ThemedText>
+
+      {/* Hero Balance */}
+      <View style={styles.balanceHero}>
+        <ThemedText type="h1" style={styles.balanceValue}>
+          ${totalValue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+        </ThemedText>
+      </View>
+
+      {/* Action Buttons */}
+      <View style={styles.actionRow}>
+        <ActionButton
+          icon="arrow-up-right"
+          label="Send"
+          iconColor={theme.accent}
+          onPress={() => navigation.navigate("Send", {})}
+          theme={theme}
+        />
+        <ActionButton
+          icon="arrow-down-left"
+          label="Receive"
+          iconColor={theme.success}
+          onPress={() =>
+            navigation.navigate("Receive", {
+              walletAddress:
+                activeWallet.addresses?.evm ||
+                activeWallet.addresses?.solana ||
+                activeWallet.address,
+              solanaAddress: activeWallet.addresses?.solana,
+            })
+          }
+          theme={theme}
+        />
+        <ActionButton
+          icon="repeat"
+          label="Swap"
+          iconColor={theme.warning}
+          onPress={() => (navigation as any).navigate("Swap")}
+          theme={theme}
+        />
+        <ActionButton
+          icon="credit-card"
+          label="Buy"
+          iconColor="#A78BFA"
+          onPress={() => navigation.navigate("ManageCrypto")}
+          theme={theme}
+        />
+      </View>
+
+      {/* Assets Section */}
+      <View style={styles.assetsSection}>
+        <View style={styles.sectionHeader}>
+          <ThemedText type="body" style={styles.sectionTitle}>Assets</ThemedText>
+          {assets.length > 0 ? (
+            <ThemedText type="caption" style={{ color: theme.textSecondary }}>{assets.length}</ThemedText>
           ) : null}
         </View>
 
-        <View style={styles.actionButtons}>
-          <ActionButton
-            icon="arrow-up-right"
-            label="Send"
-            iconColor={theme.accent}
-            onPress={() => navigation.navigate("Send", {})}
-            theme={theme}
-          />
-          <ActionButton
-            icon="arrow-down-left"
-            label="Receive"
-            iconColor={theme.success}
-            onPress={() =>
-              navigation.navigate("Receive", {
-                walletAddress:
-                  activeWallet.addresses?.evm ||
-                  activeWallet.addresses?.solana ||
-                  activeWallet.address,
-                solanaAddress: activeWallet.addresses?.solana,
-              })
-            }
-            theme={theme}
-          />
-          <ActionButton
-            icon="repeat"
-            label="Swap"
-            iconColor={theme.warning}
-            onPress={() => (navigation as any).navigate("Swap")}
-            theme={theme}
-          />
-        </View>
-      </View>
-
-      <View style={styles.assetsSection}>
-        <View style={[styles.tabsContainer, { backgroundColor: theme.backgroundSecondary }]}>
-          <Pressable
-            style={[
-              styles.tab,
-              activeTab === "assets" && { backgroundColor: theme.backgroundDefault },
-            ]}
-            onPress={() => setActiveTab("assets")}
-          >
-            <ThemedText
-              type="small"
-              style={[styles.tabText, activeTab === "assets" && { fontWeight: "600" }]}
-            >
-              Assets
-            </ThemedText>
-          </Pressable>
-          <Pressable
-            style={[
-              styles.tab,
-              activeTab === "security" && { backgroundColor: theme.backgroundDefault },
-            ]}
-            onPress={() => {
-              setActiveTab("security");
-              navigation.navigate("Approvals");
-            }}
-          >
-            <Feather
-              name="shield"
-              size={12}
-              color={activeTab === "security" ? theme.text : theme.textSecondary}
-              style={{ marginRight: 4 }}
-            />
-            <ThemedText
-              type="small"
-              style={[styles.tabText, activeTab === "security" && { fontWeight: "600" }]}
-            >
-              Security
-            </ThemedText>
-          </Pressable>
-        </View>
-
         {error ? (
-          <View style={[styles.errorBanner, { backgroundColor: theme.danger + "15" }]}>
+          <View style={[styles.errorBanner, { backgroundColor: theme.danger + "10", borderColor: theme.danger + "20" }]}>
             <Feather name="alert-circle" size={14} color={theme.danger} />
             <ThemedText type="caption" style={{ color: theme.danger, flex: 1 }}>
               {error}
@@ -582,81 +516,92 @@ export default function PortfolioScreen() {
           </View>
         ) : null}
 
-        {isLoading ? (
-          <View style={styles.loadingContainer}>
-            {[1, 2, 3, 4, 5].map((i) => (
-              <View key={i} style={[styles.skeletonRow, { backgroundColor: theme.backgroundDefault }]}>
-                <View style={[styles.skeletonIcon, { backgroundColor: theme.backgroundSecondary }]} />
-                <View style={styles.skeletonInfo}>
-                  <View style={[styles.skeletonText, { backgroundColor: theme.backgroundSecondary, width: 70 }]} />
-                  <View style={[styles.skeletonText, { backgroundColor: theme.backgroundSecondary, width: 100 }]} />
+        <View style={[styles.assetsList, { backgroundColor: theme.backgroundDefault, borderColor: theme.border }]}>
+          {isLoading ? (
+            <>
+              {[1, 2, 3, 4, 5].map((i) => (
+                <View key={i}>
+                  <View style={styles.skeletonRow}>
+                    <View style={[styles.skeletonIcon, { backgroundColor: theme.backgroundSecondary }]} />
+                    <View style={styles.skeletonInfo}>
+                      <View style={[styles.skeletonText, { backgroundColor: theme.backgroundSecondary, width: 60 }]} />
+                      <View style={[styles.skeletonText, { backgroundColor: theme.backgroundSecondary, width: 90 }]} />
+                    </View>
+                    <View style={styles.skeletonBalance}>
+                      <View style={[styles.skeletonText, { backgroundColor: theme.backgroundSecondary, width: 50 }]} />
+                      <View style={[styles.skeletonText, { backgroundColor: theme.backgroundSecondary, width: 40 }]} />
+                    </View>
+                  </View>
+                  {i < 5 ? <View style={[styles.separator, { backgroundColor: theme.separator }]} /> : null}
                 </View>
-                <View style={styles.skeletonBalance}>
-                  <View style={[styles.skeletonText, { backgroundColor: theme.backgroundSecondary, width: 50 }]} />
-                  <View style={[styles.skeletonText, { backgroundColor: theme.backgroundSecondary, width: 40 }]} />
-                </View>
-              </View>
-            ))}
-          </View>
-        ) : assets.length === 0 && !error ? (
-          <View style={[styles.emptyAssets, { backgroundColor: theme.backgroundDefault }]}>
-            <Feather name="inbox" size={28} color={theme.textSecondary} />
-            <ThemedText type="body" style={{ color: theme.textSecondary }}>
-              No assets found
-            </ThemedText>
-            <ThemedText type="caption" style={{ color: theme.textSecondary, textAlign: "center" }}>
-              This wallet has no tokens on any supported network
-            </ThemedText>
-          </View>
-        ) : assets.length > 0 ? (
-          <>
-            {(assetsExpanded ? assets : assets.slice(0, DEFAULT_VISIBLE_ASSETS)).map((asset, index) => {
-              const mint = asset.chainType === "solana" && "mint" in asset ? (asset as any).mint as string : undefined;
-              const assessment = mint ? securityAssessments.get(mint) : undefined;
-              return (
-                <AssetRow
-                  key={`${asset.chainType}-${asset.chainId}-${asset.isNative ? "native" : ("address" in asset ? asset.address : ("mint" in asset ? asset.mint : ""))}-${index}`}
-                  asset={asset}
-                  theme={theme}
-                  onPress={() => handleAssetPress(asset)}
-                  securityRisk={assessment?.overallRisk}
-                  onSecurityPress={() => handleSecurityPress(asset)}
-                />
-              );
-            })}
-          </>
-        ) : null}
-
-        <Pressable
-          style={styles.manageCryptoButton}
-          onPress={() => navigation.navigate("ManageCrypto")}
-        >
-          <ThemedText type="small" style={{ color: theme.accent }}>
-            Manage crypto
-          </ThemedText>
-        </Pressable>
+              ))}
+            </>
+          ) : assets.length === 0 && !error ? (
+            <View style={styles.emptyAssets}>
+              <Feather name="inbox" size={32} color={theme.textSecondary} style={{ opacity: 0.5 }} />
+              <ThemedText type="body" style={{ color: theme.textSecondary, marginTop: Spacing.md }}>
+                No assets yet
+              </ThemedText>
+              <ThemedText type="caption" style={{ color: theme.textSecondary, opacity: 0.7, textAlign: "center" }}>
+                Buy or receive crypto to get started
+              </ThemedText>
+            </View>
+          ) : (
+            <>
+              {visibleAssets.map((asset, index) => {
+                const mint = asset.chainType === "solana" && "mint" in asset ? (asset as any).mint as string : undefined;
+                const assessment = mint ? securityAssessments.get(mint) : undefined;
+                const isLastRow = index === visibleAssets.length - 1;
+                return (
+                  <View key={`${asset.chainType}-${asset.chainId}-${asset.isNative ? "native" : ("address" in asset ? asset.address : ("mint" in asset ? asset.mint : ""))}-${index}`}>
+                    <AssetRow
+                      asset={asset}
+                      theme={theme}
+                      onPress={() => handleAssetPress(asset)}
+                      securityRisk={assessment?.overallRisk}
+                      onSecurityPress={() => handleSecurityPress(asset)}
+                      isLast={isLastRow}
+                    />
+                    {!isLastRow ? <View style={[styles.separator, { backgroundColor: theme.separator }]} /> : null}
+                  </View>
+                );
+              })}
+            </>
+          )}
+        </View>
 
         {assets.length > DEFAULT_VISIBLE_ASSETS ? (
           <Pressable
             style={({ pressed }) => [
               styles.viewToggleButton,
-              { backgroundColor: theme.backgroundSecondary, opacity: pressed ? 0.8 : 1 }
+              { opacity: pressed ? 0.7 : 1 }
             ]}
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
               setAssetsExpanded(!assetsExpanded);
             }}
           >
-            <ThemedText type="small" style={{ color: theme.text, fontWeight: "500" }}>
-              {assetsExpanded ? "View less" : "View all"}
+            <ThemedText type="caption" style={{ color: theme.accent, fontWeight: "500" }}>
+              {assetsExpanded ? "Show less" : `View all ${assets.length} assets`}
             </ThemedText>
             <Feather
               name={assetsExpanded ? "chevron-up" : "chevron-down"}
-              size={16}
-              color={theme.text}
+              size={14}
+              color={theme.accent}
             />
           </Pressable>
         ) : null}
+
+        <Pressable
+          style={styles.manageCryptoButton}
+          onPress={() => navigation.navigate("ManageCrypto")}
+          hitSlop={8}
+        >
+          <Feather name="sliders" size={14} color={theme.textSecondary} style={{ marginRight: 6 }} />
+          <ThemedText type="caption" style={{ color: theme.textSecondary }}>
+            Manage tokens
+          </ThemedText>
+        </Pressable>
       </View>
 
       <TokenSecurityModal
@@ -673,181 +618,143 @@ export default function PortfolioScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-  },
-  balanceCard: {
-    padding: Spacing.lg,
-    borderRadius: BorderRadius.lg,
-    marginBottom: Spacing.lg,
-  },
-  totalValueContainer: {
-    alignItems: "center",
-    marginBottom: Spacing.lg,
-  },
-  totalValue: {
-    fontSize: 34,
-    fontWeight: "700",
-    letterSpacing: -0.5,
-  },
-  lastUpdated: {
-    marginTop: Spacing.xs,
-    fontSize: 11,
-    opacity: 0.6,
-  },
-  actionButtons: {
-    flexDirection: "row",
-    gap: Spacing.sm,
-  },
-  actionButton: {
-    flex: 1,
-    alignItems: "center",
-    paddingVertical: Spacing.md,
-    paddingHorizontal: Spacing.sm,
-    borderRadius: BorderRadius.md,
-    gap: Spacing.xs,
-    minHeight: 48,
-  },
-  actionIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: BorderRadius.sm,
     alignItems: "center",
     justifyContent: "center",
   },
+
+  // Hero Balance
+  balanceHero: {
+    alignItems: "center",
+    paddingTop: Spacing.md,
+    paddingBottom: Spacing["3xl"],
+  },
+  balanceValue: {
+    fontSize: 42,
+    fontWeight: "700",
+    letterSpacing: -1,
+    fontVariant: ["tabular-nums"],
+  },
+
+  // Action Buttons
+  actionRow: {
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: Spacing["2xl"],
+    paddingBottom: Spacing["4xl"],
+  },
+  actionButton: {
+    alignItems: "center",
+    gap: Spacing.sm,
+  },
+  actionCircle: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+  },
   actionLabel: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: "500",
   },
+
+  // Assets Section
   assetsSection: {
     gap: Spacing.sm,
   },
-  tabsContainer: {
+  sectionHeader: {
     flexDirection: "row",
-    padding: 3,
-    borderRadius: BorderRadius.md,
-    marginBottom: Spacing.sm,
-  },
-  tab: {
-    flex: 1,
-    paddingVertical: Spacing.sm,
-    paddingHorizontal: Spacing.md,
-    borderRadius: BorderRadius.sm,
+    justifyContent: "space-between",
     alignItems: "center",
-    justifyContent: "center",
+    paddingHorizontal: Spacing.xs,
+    marginBottom: Spacing.xs,
   },
-  tabText: {
-    fontSize: 13,
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: "600",
   },
+  assetsList: {
+    borderRadius: BorderRadius.lg,
+    overflow: "hidden",
+    borderWidth: 1,
+  },
+
+  // Asset Row
   tokenRow: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: Spacing.md,
-    paddingHorizontal: Spacing.md,
-    borderRadius: BorderRadius.md,
+    paddingVertical: 14,
+    paddingHorizontal: Spacing.lg,
     gap: Spacing.md,
-    marginBottom: 2,
-  },
-  tokenIconContainer: {
-    position: "relative",
-    width: 44,
-    height: 44,
   },
   tokenIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: BorderRadius.sm,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: "center",
     justifyContent: "center",
     overflow: "hidden",
   },
-  chainLogoOverlay: {
-    position: "absolute",
-    bottom: 0,
-    right: 0,
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    borderWidth: 2,
-    overflow: "hidden",
-    backgroundColor: "#1A1A1A",
-  },
-  chainLogoImage: {
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-  },
   tokenLogoImage: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
   },
   tokenInfo: {
     flex: 1,
-    gap: 2,
+    gap: 3,
   },
-  tokenHeader: {
+  tokenNameRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: Spacing.xs,
   },
   tokenSymbol: {
     fontWeight: "600",
-    fontSize: 15,
-  },
-  chainBadge: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
-  chainBadgeText: {
-    fontSize: 9,
-    fontWeight: "500",
+    fontSize: 16,
   },
   priceRow: {
     flexDirection: "row",
     alignItems: "center",
   },
-  priceChange: {
-    marginLeft: Spacing.xs,
-    fontSize: 11,
-  },
   tokenBalance: {
     alignItems: "flex-end",
-    gap: 2,
-  },
-  securityBadgeSlot: {
-    width: 28,
-    alignItems: "center",
-    justifyContent: "center",
-    marginLeft: 8,
+    gap: 3,
   },
   balanceAmount: {
     fontWeight: "600",
-    fontSize: 15,
+    fontSize: 16,
+    fontVariant: ["tabular-nums"],
   },
+  separator: {
+    height: StyleSheet.hairlineWidth,
+    marginLeft: 72,
+  },
+
+  // Error
   errorBanner: {
     flexDirection: "row",
     alignItems: "center",
     gap: Spacing.sm,
-    paddingVertical: Spacing.sm,
-    paddingHorizontal: Spacing.md,
-    borderRadius: BorderRadius.sm,
-    marginBottom: Spacing.sm,
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.lg,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
   },
-  loadingContainer: {
-    gap: Spacing.xs,
-  },
+
+  // Loading
   skeletonRow: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: Spacing.md,
-    paddingHorizontal: Spacing.md,
-    borderRadius: BorderRadius.md,
+    paddingVertical: 14,
+    paddingHorizontal: Spacing.lg,
     gap: Spacing.md,
   },
   skeletonIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: BorderRadius.sm,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
   },
   skeletonInfo: {
     flex: 1,
@@ -859,30 +766,31 @@ const styles = StyleSheet.create({
   },
   skeletonText: {
     height: 12,
-    borderRadius: 4,
+    borderRadius: 6,
   },
+
+  // Empty
   emptyAssets: {
     alignItems: "center",
     justifyContent: "center",
-    padding: Spacing.xl,
-    borderRadius: BorderRadius.md,
-    gap: Spacing.sm,
+    paddingVertical: Spacing["5xl"],
+    paddingHorizontal: Spacing.xl,
+    gap: Spacing.xs,
   },
+
+  // Bottom actions
   manageCryptoButton: {
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: Spacing.md,
+    paddingVertical: Spacing.lg,
     marginTop: Spacing.xs,
   },
   viewToggleButton: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: Spacing.md,
-    paddingHorizontal: Spacing.lg,
-    borderRadius: BorderRadius.full,
     gap: Spacing.xs,
-    alignSelf: "center",
-    marginTop: Spacing.sm,
+    paddingVertical: Spacing.md,
   },
 });

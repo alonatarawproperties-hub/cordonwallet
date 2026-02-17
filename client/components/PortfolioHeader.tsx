@@ -14,7 +14,7 @@ import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
-const ICON_SIZE = 24;
+const ICON_SIZE = 22;
 const ICON_HIT_SLOP = 12;
 
 export function PortfolioHeaderTitle() {
@@ -32,14 +32,15 @@ export function PortfolioHeaderTitle() {
   return (
     <>
       <Pressable onPress={handlePress} style={styles.titleContainer} hitSlop={8}>
+        <View style={[styles.statusDot, { backgroundColor: theme.success }]} />
         <ThemedText style={styles.walletName} numberOfLines={1}>
           {walletName}
         </ThemedText>
-        <Feather name="chevron-down" size={14} color={theme.textSecondary} style={styles.chevron} />
+        <Feather name="chevron-down" size={12} color={theme.textSecondary} style={styles.chevron} />
       </Pressable>
-      <WalletSwitcherSheet 
-        visible={switcherVisible} 
-        onClose={() => setSwitcherVisible(false)} 
+      <WalletSwitcherSheet
+        visible={switcherVisible}
+        onClose={() => setSwitcherVisible(false)}
       />
     </>
   );
@@ -55,9 +56,9 @@ export function PortfolioHeaderLeft() {
   }, [navigation]);
 
   return (
-    <Pressable 
-      onPress={handlePress} 
-      hitSlop={ICON_HIT_SLOP} 
+    <Pressable
+      onPress={handlePress}
+      hitSlop={ICON_HIT_SLOP}
       style={styles.leftIconButton}
     >
       <Feather name="settings" size={ICON_SIZE} color={theme.text} />
@@ -78,32 +79,32 @@ export function PortfolioHeaderRight() {
   const handleReceive = useCallback(() => {
     const evmAddress = activeWallet?.addresses?.evm || activeWallet?.address || "";
     const solanaAddress = activeWallet?.addresses?.solana;
-    
+
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    navigation.navigate("Receive", { 
-      walletAddress: evmAddress, 
-      solanaAddress: solanaAddress 
+    navigation.navigate("Receive", {
+      walletAddress: evmAddress,
+      solanaAddress: solanaAddress
     });
   }, [activeWallet, navigation]);
 
   return (
     <View style={styles.rightContainer}>
-      <Pressable 
-        onPress={handleScan} 
-        hitSlop={ICON_HIT_SLOP} 
+      <Pressable
+        onPress={handleScan}
+        hitSlop={ICON_HIT_SLOP}
         style={styles.iconButton}
       >
         <Feather name="maximize" size={ICON_SIZE} color={theme.text} />
       </Pressable>
-      <Pressable 
-        onPress={handleReceive} 
-        hitSlop={ICON_HIT_SLOP} 
+      <Pressable
+        onPress={handleReceive}
+        hitSlop={ICON_HIT_SLOP}
         style={styles.iconButton}
       >
-        <Feather 
-          name="copy" 
-          size={ICON_SIZE} 
-          color={theme.text} 
+        <Feather
+          name="copy"
+          size={ICON_SIZE}
+          color={theme.text}
         />
       </Pressable>
     </View>
@@ -116,8 +117,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  statusDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    marginRight: 6,
+  },
   walletName: {
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: "600",
     maxWidth: 180,
   },
@@ -126,10 +133,10 @@ const styles = StyleSheet.create({
   },
   leftIconButton: {
     marginLeft: Spacing.sm,
-    padding: Spacing.xs,
+    padding: Spacing.sm,
   },
   iconButton: {
-    padding: Spacing.xs,
+    padding: Spacing.sm,
     marginLeft: Spacing.md,
   },
   rightContainer: {
