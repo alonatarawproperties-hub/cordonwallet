@@ -151,11 +151,27 @@ export async function getRouteQuote(params: {
         // to avoid routing bonding-curve tokens through Jupiter and failing on-chain.
         if (!isBuying) {
           console.log("[Route] Pump token sell (detection inconclusive), using Pump route first");
+
+          // Keep an indicative quote for UI estimate when available.
+          // Execution route remains Pump.
+          const pumpFeeAccount = await resolveFeeAccount(outputMint);
+          const pumpIncludeFee = !!pumpFeeAccount;
+          const jupiterFallback = await getQuote({
+            inputMint,
+            outputMint,
+            amount,
+            slippageBps,
+            swapMode: "ExactIn",
+            includePlatformFee: pumpIncludeFee,
+          });
+
           const routeResult: RouteQuoteResult = {
             ok: true,
             route: "pump",
             pumpMeta: { ...pumpMeta, isPump: true, isBondingCurve: true },
             message: "Pump.fun sell fallback for inconclusive detection",
+            quoteResponse: jupiterFallback.ok ? jupiterFallback.quote : undefined,
+            normalized: jupiterFallback.ok ? jupiterFallback.normalized : undefined,
           };
           quoteCache.set(cacheKey, routeResult);
           return routeResult;

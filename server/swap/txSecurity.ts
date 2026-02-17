@@ -150,12 +150,6 @@ export async function validateSwapTxServer(args: {
       }
     }
 
-    if (unknownPrograms.length > 0) {
-      errors.push(
-        `Blocked for safety: unexpected program detected: ${unknownPrograms.map((p) => p.slice(0, 8) + "...").join(", ")}`
-      );
-    }
-
     if (!hasJupiterProgram && !hasPumpProgram) {
       if (routeType === "pump") {
         warnings.push("No Pump.fun program detected in transaction.");
@@ -163,6 +157,18 @@ export async function validateSwapTxServer(args: {
         warnings.push("No Jupiter program detected in transaction.");
       } else {
         warnings.push("No known swap program detected in transaction.");
+      }
+    }
+
+    if (unknownPrograms.length > 0) {
+      const unknownLabel = unknownPrograms.map((p) => p.slice(0, 8) + "...").join(", ");
+
+      // Pump txs may include evolving program ids (new pool/router variants).
+      // Keep strict signer/fee-payer checks, but do not hard-block solely for this.
+      if (routeType === "pump" && hasPumpProgram) {
+        warnings.push(`Pump tx includes additional program(s): ${unknownLabel}`);
+      } else {
+        errors.push(`Blocked for safety: unexpected program detected: ${unknownLabel}`);
       }
     }
   } catch (error: any) {
