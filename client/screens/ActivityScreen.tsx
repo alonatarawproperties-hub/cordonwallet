@@ -344,7 +344,17 @@ export default function ActivityScreen() {
         (tx) => !mergedHashes.has(tx.hash.toLowerCase())
       );
 
-      const allTxs = [...uniqueLocalSolanaTxs, ...explorerTxs, ...mergedSolanaTxs];
+      // Deduplicate explorer txs against Solana API results to prevent
+      // the same transaction appearing twice (both sources hit /api/solana/history)
+      const allSolanaHashes = new Set([
+        ...mergedHashes,
+        ...uniqueLocalSolanaTxs.map((tx) => tx.hash.toLowerCase()),
+      ]);
+      const uniqueExplorerTxs = explorerTxs.filter(
+        (tx) => !allSolanaHashes.has(tx.hash.toLowerCase())
+      );
+
+      const allTxs = [...uniqueLocalSolanaTxs, ...uniqueExplorerTxs, ...mergedSolanaTxs];
       allTxs.sort((a, b) => b.createdAt - a.createdAt);
 
       console.log("[Activity] Total transactions:", allTxs.length);

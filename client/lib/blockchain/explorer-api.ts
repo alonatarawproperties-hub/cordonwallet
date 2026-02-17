@@ -22,21 +22,23 @@ export async function fetchTransactionHistory(
     const data = await response.json();
     if (!Array.isArray(data) || data.length === 0) return [];
 
-    return data.map((tx: any): TxRecord => ({
-      id: tx.signature,
-      chainId: 0,
-      walletAddress,
-      hash: tx.signature,
-      type: tx.tokenMint ? "spl" : "native",
-      activityType: tx.type === "receive" ? "receive" : "send",
-      tokenSymbol: tx.tokenSymbol || "SOL",
-      to: tx.to || "",
-      from: tx.from || "",
-      amount: tx.amount?.toString() || "0",
-      status: tx.err ? "failed" : "confirmed",
-      createdAt: tx.blockTime ? tx.blockTime * 1000 : Date.now(),
-      explorerUrl: `https://solscan.io/tx/${tx.signature}`,
-    }));
+    return data
+      .filter((tx: any) => tx.type !== "unknown")
+      .map((tx: any): TxRecord => ({
+        id: tx.signature,
+        chainId: 0,
+        walletAddress,
+        hash: tx.signature,
+        type: tx.tokenMint ? "spl" : "native",
+        activityType: (tx.type === "receive" || tx.type === "swap") ? tx.type : "send",
+        tokenSymbol: tx.tokenSymbol || "SOL",
+        to: tx.to || "",
+        from: tx.from || "",
+        amount: tx.amount?.toString() || "0",
+        status: tx.err ? "failed" : "confirmed",
+        createdAt: tx.blockTime ? tx.blockTime * 1000 : Date.now(),
+        explorerUrl: `https://solscan.io/tx/${tx.signature}`,
+      }));
   } catch (error) {
     console.error("[ExplorerAPI] Solana history error:", error);
     return [];
