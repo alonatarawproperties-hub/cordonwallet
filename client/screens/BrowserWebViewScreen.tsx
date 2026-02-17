@@ -205,6 +205,8 @@ export default function BrowserWebViewScreen() {
         setSupportMultipleWindows={false}
         javaScriptEnabled
         domStorageEnabled
+        allowsInlineMediaPlayback
+        mediaPlaybackRequiresUserAction={false}
       />
 
       {/* Approval Modal */}

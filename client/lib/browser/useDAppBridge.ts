@@ -265,11 +265,17 @@ export function useDAppBridge(webViewRef: React.RefObject<WebView | null>, pageO
 
   // ---- Approval callbacks (called from the UI) -----------------------------
 
-  const approveRequest = useCallback(() => {
+  const approveRequest = useCallback(async () => {
     const p = pendingPromiseRef.current;
     setPendingApproval(null);
     pendingPromiseRef.current = null;
-    if (p) p.resolve(undefined);
+    if (p) {
+      try {
+        await p.resolve(undefined);
+      } catch (e: any) {
+        console.error("[DAppBridge] approve handler error:", e);
+      }
+    }
   }, []);
 
   const rejectRequest = useCallback(() => {

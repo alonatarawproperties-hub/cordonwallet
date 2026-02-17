@@ -43,11 +43,32 @@ export function buildInjectedJS(opts: {
     var id = nextId();
     return new Promise(function(resolve, reject) {
       _pending[id] = { resolve: resolve, reject: reject };
-      window.ReactNativeWebView.postMessage(JSON.stringify({
-        type: type,
-        id: id,
-        payload: payload || {}
-      }));
+
+      // Guard: ReactNativeWebView may not be available immediately on all
+      // platforms (Android injects it slightly after document-start).
+      // Poll briefly then give up with a clear error.
+      function trySend(attempts) {
+        if (window.ReactNativeWebView && typeof window.ReactNativeWebView.postMessage === 'function') {
+          try {
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+              type: type,
+              id: id,
+              payload: payload || {}
+            }));
+          } catch(e) {
+            delete _pending[id];
+            reject(new Error('Cordon bridge error: ' + e.message));
+          }
+          return;
+        }
+        if (attempts > 0) {
+          setTimeout(function() { trySend(attempts - 1); }, 50);
+        } else {
+          delete _pending[id];
+          reject(new Error('Cordon bridge not available'));
+        }
+      }
+      trySend(20); // Try for up to 1 second (20 * 50ms)
     });
   }
 
