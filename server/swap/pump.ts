@@ -41,19 +41,23 @@ export async function buildPumpTransaction(params: {
     
     // PumpPortal trade-local API:
     //   - For buys: denominatedInSol="true", amount = SOL amount (e.g. 0.1)
-    //   - For sells: denominatedInSol="false", amount = token UI amount (e.g. 123.45)
+    //   - For sells: denominatedInSol="false", amount = token amount
     //   - slippage: percentage value (e.g. 25 = 25%)
     //   - priorityFee: SOL amount (e.g. 0.001)
+    //   - pool: "pump" for bonding curve, "auto" for auto-detect
+    const sellAmount = side === "sell" ? amountTokens : undefined;
     const body: any = {
       publicKey: userPublicKey,
       action: side,
       mint,
       denominatedInSol: side === "buy" ? "true" : "false",
-      amount: side === "buy" ? amountSol : amountTokens,
+      amount: side === "buy" ? amountSol : sellAmount,
       slippage: slippageBps / 100, // bps to percent: 200 bps → 2 (2%)
       priorityFee: priorityFeeCap / 1_000_000_000,
-      pool: "auto",
+      pool: "pump",
     };
+
+    console.log("[Pump] Sending to PumpPortal:", { action: side, mint: mint.slice(0, 8), amount: body.amount, denominatedInSol: body.denominatedInSol, pool: body.pool });
 
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
