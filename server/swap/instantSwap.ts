@@ -16,7 +16,33 @@ import { buildPumpTransaction } from "./pump";
 import { getRouteQuote } from "./route";
 import { swapConfig, type SpeedMode } from "./config";
 import { getToken } from "./tokenlist";
+import { pumpDetectionCache } from "./cache";
 import type { InstantBuildResult } from "./types";
+
+// Pump.fun program errors that indicate the bonding curve tx won't work
+// and we should fall back to Jupiter (token may have graduated, or curve state is stale)
+const PUMP_FALLBACK_ERRORS = new Set([
+  6005, // BondingCurveComplete — token graduated, curve is done
+  6021, // NotEnoughTokensToBuy — curve reserves exhausted
+  6023, // NotEnoughTokensToSell — user balance mismatch / stale tx
+  6004, // MintDoesNotMatchBondingCurve — wrong curve account
+]);
+
+/**
+ * Extract Anchor custom error code from a simulation error object.
+ * Simulation errors look like: { InstructionError: [3, { Custom: 6023 }] }
+ */
+function extractCustomErrorCode(err: any): number | null {
+  try {
+    if (err?.InstructionError) {
+      const detail = err.InstructionError[1];
+      if (typeof detail === "object" && detail.Custom !== undefined) {
+        return detail.Custom;
+      }
+    }
+  } catch {}
+  return null;
+}
 
 const SOL_MINT = "So11111111111111111111111111111111111111112";
 
@@ -122,7 +148,17 @@ export async function instantBuild(params: {
         console.error("[InstantBuild] Pump simulation FAILED:", JSON.stringify(simulation.value.err));
         console.error("[InstantBuild] Logs:", simulation.value.logs?.slice(-5));
 
-        // If simulation shows InstructionError, the tx would fail on-chain
+        const customCode = extractCustomErrorCode(simulation.value.err);
+
+        // If this is a known bonding-curve error, the token may have graduated
+        // or the curve state is stale. Clear detection cache and fall back to Jupiter.
+        if (customCode !== null && PUMP_FALLBACK_ERRORS.has(customCode)) {
+          console.log(`[InstantBuild] Pump error ${customCode} — clearing cache and falling back to Jupiter`);
+          pumpDetectionCache.delete(`pump:${isBuying ? outputMint : inputMint}`);
+          return await buildViaJupiter(params, routeResult);
+        }
+
+        // For other simulation errors (slippage, etc.) return the failure directly
         return {
           ok: false,
           code: "SIMULATION_FAILED",
