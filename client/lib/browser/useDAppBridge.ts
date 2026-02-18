@@ -12,6 +12,7 @@ import type { WebViewMessageEvent } from "react-native-webview";
 import { useWallet } from "@/lib/wallet-context";
 import {
   getMnemonic,
+  getWalletPrivateKey,
   ensureUnlocked,
 } from "@/lib/wallet-engine";
 import { deriveSolanaKeypair } from "@/lib/solana/keys";
@@ -68,9 +69,20 @@ export function useDAppBridge(webViewRef: React.RefObject<WebView | null>, pageO
     if (!unlocked) throw new Error("Wallet is locked");
 
     const mnemonic = await getMnemonic(activeWallet.id);
-    if (!mnemonic) throw new Error("Session expired — please unlock your wallet");
+    if (mnemonic) {
+      return deriveSolanaKeypair(mnemonic);
+    }
 
-    return deriveSolanaKeypair(mnemonic);
+    // Wallet may have been imported via private key (no mnemonic).
+    // Try private key fallback before erroring out.
+    const pk = await getWalletPrivateKey(activeWallet.id);
+    if (pk && pk.type === "solana") {
+      const secretKey = bs58.decode(pk.key);
+      const kp = nacl.sign.keyPair.fromSecretKey(secretKey);
+      return { publicKey: bs58.encode(kp.publicKey), secretKey: kp.secretKey };
+    }
+
+    throw new Error("Wallet is locked — please unlock and try again");
   }, [activeWallet]);
 
   // ---- Request handler (called from onMessage) -----------------------------
