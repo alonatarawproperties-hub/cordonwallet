@@ -197,7 +197,10 @@ export function buildInjectedJS(opts: {
       } else {
         return Promise.reject(new Error('message must be Uint8Array or string'));
       }
-      return sendToNative('signMessage', { message: base64 });
+      return sendToNative('signMessage', { message: base64 }).then(function(result) {
+        // Standard Solana adapter expects signature as Uint8Array, not base58 string
+        return { signature: base58ToBytes(result.signature) };
+      });
     },
 
     signTransaction: function(transaction) {
