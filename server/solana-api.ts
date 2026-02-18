@@ -242,14 +242,25 @@ export async function getSplTokenMetadata(mintAddress: string): Promise<SplToken
             logoUri: pair.info?.imageUrl,
           };
           
-          // If DexScreener has logo, return immediately
+          // If DexScreener has logo, fetch real decimals from the mint account then return
           if (dexScreenerResult.logoUri) {
             console.log(`[Solana API] DexScreener has logo: ${dexScreenerResult.logoUri.slice(0, 50)}`);
+            let decimals = 9;
+            try {
+              const mintPubkey = new PublicKey(mintAddress);
+              const mintInfo = await connection.getParsedAccountInfo(mintPubkey);
+              if (mintInfo.value?.data && "parsed" in mintInfo.value.data) {
+                decimals = mintInfo.value.data.parsed.info.decimals;
+                console.log(`[Solana API] Got real decimals from RPC: ${decimals}`);
+              }
+            } catch (rpcErr) {
+              console.warn("[Solana API] Failed to fetch decimals from RPC, defaulting to 9");
+            }
             return {
               mint: mintAddress,
               name: dexScreenerResult.name,
               symbol: dexScreenerResult.symbol,
-              decimals: 9,
+              decimals,
               logoUri: dexScreenerResult.logoUri,
             };
           }
@@ -282,7 +293,7 @@ export async function getSplTokenMetadata(mintAddress: string): Promise<SplToken
         const imageUri = dasData.result?.content?.links?.image || 
                         dasData.result?.content?.files?.[0]?.uri ||
                         dasData.result?.content?.files?.[0]?.cdn_uri;
-        const decimals = dasData.result?.token_info?.decimals || 9;
+        const decimals = dasData.result?.token_info?.decimals ?? 9;
         
         if (imageUri) {
           console.log(`[Solana API] Got logo from Helius DAS: ${imageUri.slice(0, 50)}`);
