@@ -470,6 +470,16 @@ export function classifyError(error: string): {
     };
   }
 
+  // Pump.fun bonding curve liquidity errors — not retryable with same params
+  if (errorLower.includes("bonding curve") || errorLower.includes("not enough liquidity")) {
+    return {
+      category: "insufficient_funds",
+      userMessage: error,
+      canRetry: false,
+      needsRebuild: false,
+    };
+  }
+
   // Endpoint or route not found — show the actual error, don't mask it
   if (errorLower.includes("not found") || errorLower.includes("no route")) {
     return {

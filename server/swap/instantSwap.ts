@@ -32,8 +32,20 @@ const PUMP_JUPITER_FALLBACK_ERRORS = new Set([
 // instead of hard-blocking based on a potentially stale simulation.
 const PUMP_PROCEED_DESPITE_SIM_ERRORS = new Set([
   6021, // NotEnoughTokensToBuy — RPC may see stale curve reserves
-  6023, // NotEnoughTokensToSell — RPC may see stale user balance
 ]);
+
+// Human-readable messages for known pump.fun on-chain errors
+const PUMP_ERROR_MESSAGES: Record<number, string> = {
+  6000: "Not authorized to perform this action.",
+  6001: "This bonding curve is already initialized.",
+  6002: "Slippage exceeded — the price moved too much. Try increasing slippage.",
+  6003: "Slippage exceeded — you'd receive less SOL than your minimum. Try increasing slippage.",
+  6004: "This token doesn't match the bonding curve. It may have migrated.",
+  6005: "This token has graduated from the bonding curve and moved to a DEX.",
+  6006: "This token hasn't graduated yet — it's still on the bonding curve.",
+  6021: "The bonding curve doesn't have enough tokens to fill your buy. Try a smaller amount.",
+  6023: "Not enough liquidity to sell this token. The bonding curve may be drained or the token abandoned. Try a smaller amount or a different token.",
+};
 
 /**
  * Extract Anchor custom error code from a simulation error object.
@@ -170,20 +182,25 @@ export async function instantBuild(params: {
           return await buildViaJupiter(params, routeResult);
         }
 
-        // Stale-RPC errors (6023/6021): the simulation RPC may not have the
-        // latest state (user just acquired tokens, curve just moved, etc.).
-        // Proceed with the tx — on-chain execution uses the real latest state.
+        // Stale-RPC errors (6021 for buys): the simulation RPC may not have the
+        // latest curve state. Proceed — on-chain execution uses the real state.
         if (customCode !== null && PUMP_PROCEED_DESPITE_SIM_ERRORS.has(customCode)) {
           console.warn(
             `[InstantBuild] Pump simulation error ${customCode} — likely stale RPC, proceeding anyway`
           );
           // fall through to return the transaction below
         } else {
-          // For other simulation errors (slippage, unknown) return failure
+          // Return a human-readable message for known pump errors,
+          // raw detail only for truly unknown codes.
+          const friendlyMessage = customCode !== null
+            ? PUMP_ERROR_MESSAGES[customCode]
+            : undefined;
+
           return {
             ok: false,
             code: "SIMULATION_FAILED",
-            message: `Swap would fail on-chain: ${JSON.stringify(simulation.value.err)}`,
+            message: friendlyMessage
+              || `Swap simulation failed (error ${customCode ?? "unknown"}). The transaction would fail on-chain.`,
           };
         }
       } else {
