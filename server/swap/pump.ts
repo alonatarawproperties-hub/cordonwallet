@@ -52,12 +52,11 @@ export async function buildPumpTransaction(params: {
       amount: side === "buy" ? amountSol : amountTokens,
       slippage: slippageBps / 100, // bps to percent: 200 bps → 2 (2%)
       priorityFee: priorityFeeCap / 1_000_000_000,
-      pool: "pump",
+      pool: "auto",
     };
-    
+
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
-      "Accept": "application/json",
     };
     
     if (swapConfig.pumpPortalApiKey) {
@@ -96,8 +95,19 @@ export async function buildPumpTransaction(params: {
     }
     
     const data = await response.arrayBuffer();
+
+    // Validate response is actual transaction bytes (not JSON error)
+    if (data.byteLength < 100) {
+      console.error("[Pump] Response too small to be a valid transaction:", data.byteLength, "bytes");
+      return {
+        ok: false,
+        code: "PUMP_UNAVAILABLE",
+        message: "Pump API returned invalid transaction data",
+      };
+    }
+
     const base64 = Buffer.from(data).toString("base64");
-    
+
     return {
       ok: true,
       route: "pump",

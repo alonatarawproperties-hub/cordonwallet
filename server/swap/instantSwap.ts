@@ -10,7 +10,7 @@
  * silent rejection by validators. Jupiter's blockhash is fresh enough.
  */
 
-import { Connection } from "@solana/web3.js";
+import { Connection, VersionedTransaction } from "@solana/web3.js";
 import { getQuote, buildSwapTransaction } from "./jupiter";
 import { buildPumpTransaction } from "./pump";
 import { getRouteQuote } from "./route";
@@ -104,6 +104,37 @@ export async function instantBuild(params: {
         code: (buildResult as any).code || "BUILD_FAILED",
         message: (buildResult as any).message || "Failed to build pump transaction",
       };
+    }
+
+    // Simulate the pump transaction to catch invalid/no-op transactions
+    // before sending to the client (pump txs are sent with skipPreflight=true)
+    try {
+      const simConnection = new Connection(swapConfig.solanaRpcUrl, { commitment: "confirmed" });
+      const txBytes = Buffer.from(buildResult.swapTransactionBase64, "base64");
+      const tx = VersionedTransaction.deserialize(txBytes);
+
+      const simulation = await simConnection.simulateTransaction(tx, {
+        sigVerify: false,
+        replaceRecentBlockhash: true,
+      });
+
+      if (simulation.value.err) {
+        console.error("[InstantBuild] Pump simulation FAILED:", JSON.stringify(simulation.value.err));
+        console.error("[InstantBuild] Logs:", simulation.value.logs?.slice(-5));
+
+        // If simulation shows InstructionError, the tx would fail on-chain
+        return {
+          ok: false,
+          code: "SIMULATION_FAILED",
+          message: `Swap would fail on-chain: ${JSON.stringify(simulation.value.err)}`,
+        };
+      }
+
+      console.log("[InstantBuild] Pump simulation OK, units:", simulation.value.unitsConsumed);
+    } catch (simErr: any) {
+      // Don't hard-fail on simulation errors (RPC might be slow)
+      // but log it so we can debug
+      console.warn("[InstantBuild] Pump simulation error (non-fatal):", simErr.message);
     }
 
     // Get lastValidBlockHeight from our RPC (Pump doesn't return it)
