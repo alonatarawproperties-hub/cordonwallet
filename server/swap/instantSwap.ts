@@ -113,6 +113,12 @@ export async function instantBuild(params: {
       // This avoids tiny sells when server token metadata is stale/missing.
       const decimals = inputTokenDecimals ?? token?.decimals ?? 9;
       amountTokens = Number(amount) / Math.pow(10, decimals);
+      console.log("[InstantBuild] Pump sell amount conversion:", {
+        rawAmount: amount,
+        decimalsSource: inputTokenDecimals != null ? "client" : token?.decimals != null ? "tokenlist" : "default(9)",
+        decimals,
+        uiAmount: amountTokens,
+      });
     }
 
     const buildResult = await buildPumpTransaction({
