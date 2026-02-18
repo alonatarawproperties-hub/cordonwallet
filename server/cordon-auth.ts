@@ -1,7 +1,7 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import crypto from "crypto";
 import { db } from "./db";
-import { mobileAuthSessions as mobileAuthSessionsTable } from "../shared/schema";
+import { mobileAuthSessions as mobileAuthSessionsTable, cordonSessions } from "../shared/schema";
 import { eq, and, lt } from "drizzle-orm";
 
 interface AuthCode {
@@ -14,18 +14,7 @@ interface AuthCode {
   used: boolean;
 }
 
-interface Session {
-  id: string;
-  userId: string;
-  email: string;
-  name: string;
-  jwt: string;
-  createdAt: number;
-  expiresAt: number;
-}
-
 const authCodes = new Map<string, AuthCode>();
-const sessions = new Map<string, Session>();
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
 
 const MOBILE_SESSION_EXPIRY_MS = 10 * 60 * 1000;
@@ -565,16 +554,16 @@ export function registerCordonAuthRoutes(app: Express) {
     });
   });
 
-  app.post("/api/auth/cordon/exchange-code", (req: Request, res: Response) => {
+  app.post("/api/auth/cordon/exchange-code", async (req: Request, res: Response) => {
     const ip = req.ip || req.socket.remoteAddress || "unknown";
-    
+
     if (!checkRateLimit(ip)) {
       console.log("[Cordon Auth] Rate limited:", ip);
       return res.status(429).json({ error: "Too many requests", retryAfter: 60 });
     }
 
     const { code } = req.body;
-    
+
     if (!code) {
       return res.status(400).json({ error: "Code required" });
     }
@@ -603,20 +592,23 @@ export function registerCordonAuthRoutes(app: Express) {
 
     const jwt = generateJWT(authCode.userId, authCode.email);
     const sessionId = crypto.randomBytes(16).toString("hex");
-    
-    const session: Session = {
-      id: sessionId,
-      userId: authCode.userId,
-      email: authCode.email,
-      name: authCode.name,
-      jwt,
-      createdAt: Date.now(),
-      expiresAt: Date.now() + SESSION_EXPIRY_MS,
-    };
-    
-    sessions.set(sessionId, session);
 
-    console.log("[Cordon Auth] Code exchanged, session created");
+    try {
+      await db.insert(cordonSessions).values({
+        id: sessionId,
+        userId: authCode.userId,
+        email: authCode.email,
+        name: authCode.name,
+        jwt,
+        createdAt: Date.now(),
+        expiresAt: Date.now() + SESSION_EXPIRY_MS,
+      });
+    } catch (err) {
+      console.error("[Cordon Auth] Failed to persist session:", err);
+      return res.status(500).json({ error: "Failed to create session" });
+    }
+
+    console.log("[Cordon Auth] Code exchanged, session created (DB-persisted)");
 
     res.cookie("cordon_session", sessionId, {
       httpOnly: true,
@@ -639,17 +631,40 @@ export function registerCordonAuthRoutes(app: Express) {
     });
   });
 
-  app.get("/api/auth/cordon/session", (req: Request, res: Response) => {
+  app.get("/api/auth/cordon/session", async (req: Request, res: Response) => {
     const sessionId = req.cookies?.cordon_session;
     const authHeader = req.headers.authorization;
-    
-    let session: Session | undefined;
 
+    // Try DB-persisted session first
     if (sessionId) {
-      session = sessions.get(sessionId);
+      try {
+        const rows = await db.select().from(cordonSessions)
+          .where(eq(cordonSessions.id, sessionId))
+          .limit(1);
+        const session = rows[0];
+
+        if (session && Date.now() <= session.expiresAt) {
+          return res.json({
+            authenticated: true,
+            user: {
+              id: session.userId,
+              email: session.email,
+              name: session.name,
+            },
+          });
+        }
+
+        // Session found but expired — clean it up
+        if (session) {
+          await db.delete(cordonSessions).where(eq(cordonSessions.id, sessionId));
+        }
+      } catch (err) {
+        console.error("[Cordon Auth] Session DB lookup failed:", err);
+      }
     }
 
-    if (!session && authHeader?.startsWith("Bearer ")) {
+    // Fallback: JWT in Authorization header
+    if (authHeader?.startsWith("Bearer ")) {
       const token = authHeader.slice(7);
       const { valid, payload } = verifyJWT(token);
 
@@ -664,27 +679,20 @@ export function registerCordonAuthRoutes(app: Express) {
       }
     }
 
-    if (!session || Date.now() > session.expiresAt) {
-      return res.json({
-        authenticated: false,
-      });
-    }
-
-    res.json({
-      authenticated: true,
-      user: {
-        id: session.userId,
-        email: session.email,
-        name: session.name,
-      },
+    return res.json({
+      authenticated: false,
     });
   });
 
-  app.post("/api/auth/cordon/logout", (req: Request, res: Response) => {
+  app.post("/api/auth/cordon/logout", async (req: Request, res: Response) => {
     const sessionId = req.cookies?.cordon_session;
-    
+
     if (sessionId) {
-      sessions.delete(sessionId);
+      try {
+        await db.delete(cordonSessions).where(eq(cordonSessions.id, sessionId));
+      } catch (err) {
+        console.error("[Cordon Auth] Failed to delete session:", err);
+      }
     }
 
     res.clearCookie("cordon_session", { path: "/" });

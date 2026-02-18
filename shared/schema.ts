@@ -34,6 +34,16 @@ export const tokenSafetyCache = pgTable("token_safety_cache", {
 
 export type TokenSafetyCacheRow = typeof tokenSafetyCache.$inferSelect;
 
+export const cordonSessions = pgTable("cordon_sessions", {
+  id: varchar("id", { length: 64 }).primaryKey(),
+  userId: varchar("user_id", { length: 128 }).notNull(),
+  email: varchar("email", { length: 256 }).notNull(),
+  name: text("name"),
+  jwt: text("jwt").notNull(),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  expiresAt: bigint("expires_at", { mode: "number" }).notNull(),
+});
+
 export const activityLogs = pgTable("activity_logs", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id", { length: 128 }),
