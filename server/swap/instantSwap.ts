@@ -19,13 +19,20 @@ import { getToken } from "./tokenlist";
 import { pumpDetectionCache } from "./cache";
 import type { InstantBuildResult } from "./types";
 
-// Pump.fun program errors that indicate the bonding curve tx won't work
-// and we should fall back to Jupiter (token may have graduated, or curve state is stale)
-const PUMP_FALLBACK_ERRORS = new Set([
+// Pump.fun program errors where the bonding curve route is fundamentally wrong
+// → fall back to Jupiter (token likely graduated or wrong curve)
+const PUMP_JUPITER_FALLBACK_ERRORS = new Set([
   6005, // BondingCurveComplete — token graduated, curve is done
-  6021, // NotEnoughTokensToBuy — curve reserves exhausted
-  6023, // NotEnoughTokensToSell — user balance mismatch / stale tx
   6004, // MintDoesNotMatchBondingCurve — wrong curve account
+]);
+
+// Pump.fun program errors that may be caused by stale RPC state during simulation
+// (e.g., user just bought tokens and confirmed-commitment RPC hasn't caught up).
+// The on-chain execution sees the latest state, so we proceed with the transaction
+// instead of hard-blocking based on a potentially stale simulation.
+const PUMP_PROCEED_DESPITE_SIM_ERRORS = new Set([
+  6021, // NotEnoughTokensToBuy — RPC may see stale curve reserves
+  6023, // NotEnoughTokensToSell — RPC may see stale user balance
 ]);
 
 /**
@@ -106,6 +113,12 @@ export async function instantBuild(params: {
       // This avoids tiny sells when server token metadata is stale/missing.
       const decimals = inputTokenDecimals ?? token?.decimals ?? 9;
       amountTokens = Number(amount) / Math.pow(10, decimals);
+      console.log("[InstantBuild] Pump sell amount conversion:", {
+        rawAmount: amount,
+        decimalsSource: inputTokenDecimals != null ? "client" : token?.decimals != null ? "tokenlist" : "default(9)",
+        decimals,
+        uiAmount: amountTokens,
+      });
     }
 
     const buildResult = await buildPumpTransaction({
@@ -150,23 +163,32 @@ export async function instantBuild(params: {
 
         const customCode = extractCustomErrorCode(simulation.value.err);
 
-        // If this is a known bonding-curve error, the token may have graduated
-        // or the curve state is stale. Clear detection cache and fall back to Jupiter.
-        if (customCode !== null && PUMP_FALLBACK_ERRORS.has(customCode)) {
-          console.log(`[InstantBuild] Pump error ${customCode} — clearing cache and falling back to Jupiter`);
+        // Routing errors: token graduated or wrong curve → fall back to Jupiter
+        if (customCode !== null && PUMP_JUPITER_FALLBACK_ERRORS.has(customCode)) {
+          console.log(`[InstantBuild] Pump routing error ${customCode} — clearing cache, falling back to Jupiter`);
           pumpDetectionCache.delete(`pump:${isBuying ? outputMint : inputMint}`);
           return await buildViaJupiter(params, routeResult);
         }
 
-        // For other simulation errors (slippage, etc.) return the failure directly
-        return {
-          ok: false,
-          code: "SIMULATION_FAILED",
-          message: `Swap would fail on-chain: ${JSON.stringify(simulation.value.err)}`,
-        };
+        // Stale-RPC errors (6023/6021): the simulation RPC may not have the
+        // latest state (user just acquired tokens, curve just moved, etc.).
+        // Proceed with the tx — on-chain execution uses the real latest state.
+        if (customCode !== null && PUMP_PROCEED_DESPITE_SIM_ERRORS.has(customCode)) {
+          console.warn(
+            `[InstantBuild] Pump simulation error ${customCode} — likely stale RPC, proceeding anyway`
+          );
+          // fall through to return the transaction below
+        } else {
+          // For other simulation errors (slippage, unknown) return failure
+          return {
+            ok: false,
+            code: "SIMULATION_FAILED",
+            message: `Swap would fail on-chain: ${JSON.stringify(simulation.value.err)}`,
+          };
+        }
+      } else {
+        console.log("[InstantBuild] Pump simulation OK, units:", simulation.value.unitsConsumed);
       }
-
-      console.log("[InstantBuild] Pump simulation OK, units:", simulation.value.unitsConsumed);
     } catch (simErr: any) {
       // Don't hard-fail on simulation errors (RPC might be slow)
       // but log it so we can debug
