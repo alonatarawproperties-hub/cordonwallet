@@ -160,7 +160,6 @@ export function buildInjectedJS(opts: {
 
   var provider = {
     isCordon: true,
-    isPhantom: true,
 
     get isConnected() { return _state.isConnected; },
     get publicKey() { return makePublicKey(_state.publicKey); },
@@ -249,9 +248,9 @@ export function buildInjectedJS(opts: {
   } catch(e) {}
 
   // ---- Wallet Standard registration ----
-  // Register with the Wallet Standard protocol so dApps using
-  // @wallet-standard/app or @solana/wallet-adapter-react can discover Cordon.
-  (function() {
+  // Deferred to run AFTER the page's own JS initializes, preventing
+  // interference with page rendering in the WebView.
+  setTimeout(function() { try {
     var SOLANA_MAINNET = 'solana:mainnet';
 
     function makeAccount() {
@@ -347,22 +346,15 @@ export function buildInjectedJS(opts: {
       }
     };
 
-    // Registration callback per Wallet Standard protocol
     var register = function(api) { api.register(cordonStandard); };
 
-    // Push to navigator.wallets for apps that initialize after the wallet
-    try {
-      if (!window.navigator.wallets) window.navigator.wallets = [];
-      window.navigator.wallets.push(register);
-    } catch(e) {}
+    if (!window.navigator.wallets) window.navigator.wallets = [];
+    window.navigator.wallets.push(register);
 
-    // Dispatch event for apps already listening
-    try {
-      window.dispatchEvent(new CustomEvent('wallet-standard:register-wallet', {
-        detail: register
-      }));
-    } catch(e) {}
-  })();
+    window.dispatchEvent(new CustomEvent('wallet-standard:register-wallet', {
+      detail: register
+    }));
+  } catch(e) {} }, 0);
 
   true; // Required: injectedJavaScript must end with a truthy expression
 })();`;
