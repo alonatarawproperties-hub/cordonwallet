@@ -359,30 +359,32 @@ export function buildInjectedJS(opts: {
       try { api.register(cordonStandard); } catch(e) {}
     };
 
-    // Push to navigator.wallets ONLY if it already exists (never create it)
+    // Push to navigator.wallets so the dApp discovers us when it initializes.
+    // Our script runs BEFORE the page JS, so navigator.wallets won't exist yet.
+    // We MUST create it — this is the standard pattern from @wallet-standard/wallet.
+    // When the dApp's @wallet-standard/app initializes later, it reads this array.
     try {
-      if (window.navigator && window.navigator.wallets && typeof window.navigator.wallets.push === 'function') {
-        window.navigator.wallets.push(wsRegisterCallback);
-      }
-    } catch(e) {}
+      (window.navigator.wallets = window.navigator.wallets || []).push(wsRegisterCallback);
+    } catch(e) {
+      // navigator might be frozen in some WebView environments — try defineProperty
+      try {
+        if (!window.navigator.wallets) {
+          Object.defineProperty(window.navigator, 'wallets', {
+            value: [wsRegisterCallback],
+            writable: true,
+            configurable: true,
+          });
+        } else {
+          window.navigator.wallets.push(wsRegisterCallback);
+        }
+      } catch(e2) {}
+    }
 
-    // Dispatch registration event for apps already listening
+    // Also dispatch the event for dApps that already initialized their registry
     try {
       window.dispatchEvent(new CustomEvent('wallet-standard:register-wallet', {
         detail: wsRegisterCallback
       }));
-    } catch(e) {}
-
-    // Also listen for late-loading apps that request wallet registrations
-    try {
-      window.addEventListener('wallet-standard:app-ready', function(e) {
-        try {
-          var api = e && e.detail;
-          if (api && typeof api.register === 'function') {
-            api.register(cordonStandard);
-          }
-        } catch(e) {}
-      });
     } catch(e) {}
   } catch(wsErr) {
     // Wallet Standard registration failed — provider still works via window.cordon
