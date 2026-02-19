@@ -28,6 +28,10 @@ export function buildInjectedJS(opts: {
   if (window.__cordonInjected) return;
   window.__cordonInjected = true;
 
+  try { // Top-level guard — if ANYTHING throws, the page must still render
+
+  console.log('[Cordon] injected provider starting');
+
   var _state = ${initialState};
   var _requestId = 0;
   var _pending = {};
@@ -172,7 +176,9 @@ export function buildInjectedJS(opts: {
     get publicKey() { return makePublicKey(_state.publicKey); },
 
     connect: function() {
+      console.log('[Cordon] connect() called');
       return sendToNative('connect').then(function(result) {
+        console.log('[Cordon] connect() resolved, publicKey:', result.publicKey);
         _state.isConnected = true;
         _state.publicKey = result.publicKey;
         var pk = makePublicKey(result.publicKey);
@@ -242,25 +248,30 @@ export function buildInjectedJS(opts: {
 
   // Expose as window.cordon (primary) and window.solana (standard adapter compat)
   window.cordon = provider;
+  console.log('[Cordon] window.cordon set, isCordon:', provider.isCordon);
 
   // Only set window.solana if no other wallet already claimed it.
-  // This avoids clobbering Phantom or Backpack if they somehow also inject.
   if (!window.solana) {
     window.solana = provider;
+    console.log('[Cordon] window.solana set');
   }
 
   // Newer Phantom detection pattern: window.phantom.solana
-  // Many dApps (and @solana/wallet-adapter) check this path.
-  if (!window.phantom) {
-    window.phantom = { solana: provider };
-  } else if (!window.phantom.solana) {
-    window.phantom.solana = provider;
+  try {
+    if (!window.phantom) {
+      window.phantom = { solana: provider };
+    } else if (!window.phantom.solana) {
+      window.phantom.solana = provider;
+    }
+    console.log('[Cordon] window.phantom.solana set');
+  } catch(e) {
+    console.warn('[Cordon] window.phantom setup failed:', e.message);
   }
 
   // Dispatch events so dApps doing lazy detection can pick us up.
-  // 'solana#initialized' is what Phantom dispatches — wallet adapters listen for it.
   try {
     window.dispatchEvent(new Event('solana#initialized'));
+    console.log('[Cordon] solana#initialized dispatched');
   } catch(e) {}
   try {
     window.dispatchEvent(new Event('cordon:ready'));
@@ -400,7 +411,14 @@ export function buildInjectedJS(opts: {
       }));
     } catch(e) {}
   } catch(wsErr) {
-    // Wallet Standard registration failed — provider still works via window.cordon
+    console.warn('[Cordon] Wallet Standard registration failed:', wsErr.message);
+  }
+
+  console.log('[Cordon] injected provider ready');
+
+  } catch(fatalErr) {
+    // Top-level catch — provider failed but page MUST still render
+    console.error('[Cordon] FATAL: injected provider crashed, page will load without wallet:', fatalErr);
   }
 
   true; // Required: injectedJavaScript must end with a truthy expression
