@@ -166,6 +166,7 @@ export function buildInjectedJS(opts: {
 
   var provider = {
     isCordon: true,
+    isPhantom: true,  // Phantom-compat — most Solana dApps detect wallets via this flag
 
     get isConnected() { return _state.isConnected; },
     get publicKey() { return makePublicKey(_state.publicKey); },
@@ -248,7 +249,19 @@ export function buildInjectedJS(opts: {
     window.solana = provider;
   }
 
-  // Dispatch a custom event so dApps doing lazy detection can pick it up
+  // Newer Phantom detection pattern: window.phantom.solana
+  // Many dApps (and @solana/wallet-adapter) check this path.
+  if (!window.phantom) {
+    window.phantom = { solana: provider };
+  } else if (!window.phantom.solana) {
+    window.phantom.solana = provider;
+  }
+
+  // Dispatch events so dApps doing lazy detection can pick us up.
+  // 'solana#initialized' is what Phantom dispatches — wallet adapters listen for it.
+  try {
+    window.dispatchEvent(new Event('solana#initialized'));
+  } catch(e) {}
   try {
     window.dispatchEvent(new Event('cordon:ready'));
   } catch(e) {}
