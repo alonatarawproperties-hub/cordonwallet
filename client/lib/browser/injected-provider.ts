@@ -41,6 +41,7 @@ export function buildInjectedJS(opts: {
   var BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
 
   function base58ToBytes(str) {
+    if (!str || typeof str !== 'string') return new Uint8Array(32);
     var alphabet = BASE58_ALPHABET;
     var bytes = [0];
     for (var i = 0; i < str.length; i++) {
@@ -68,7 +69,17 @@ export function buildInjectedJS(opts: {
     if (!base58Str) return null;
     var _bytes = null;
     function getBytes() {
-      if (!_bytes) _bytes = base58ToBytes(base58Str);
+      if (!_bytes) {
+        _bytes = base58ToBytes(base58Str);
+        // Solana public keys must be exactly 32 bytes
+        if (_bytes.length < 32) {
+          var padded = new Uint8Array(32);
+          padded.set(_bytes, 32 - _bytes.length);
+          _bytes = padded;
+        } else if (_bytes.length > 32) {
+          _bytes = _bytes.slice(_bytes.length - 32);
+        }
+      }
       return _bytes;
     }
     return {
@@ -151,7 +162,7 @@ export function buildInjectedJS(opts: {
     if (event === 'connect') {
       _state.isConnected = true;
       _state.publicKey = typeof data.publicKey === 'string' ? data.publicKey : (data.publicKey && data.publicKey._base58 ? data.publicKey._base58 : data.publicKey);
-      emit(event, { publicKey: makePublicKey(_state.publicKey) });
+      emit(event, makePublicKey(_state.publicKey));
       return;
     } else if (event === 'disconnect') {
       _state.isConnected = false;
@@ -182,7 +193,7 @@ export function buildInjectedJS(opts: {
         _state.isConnected = true;
         _state.publicKey = result.publicKey;
         var pk = makePublicKey(result.publicKey);
-        emit('connect', { publicKey: pk });
+        emit('connect', pk);
         return { publicKey: pk };
       });
     },
@@ -349,6 +360,7 @@ export function buildInjectedJS(opts: {
 
     cordonStandard.features['solana:signMessage'] = {
       version: '1.0.0',
+      supportedTransactionVersions: ['legacy', 0],
       signMessage: function(inputs) {
         if (!Array.isArray(inputs)) inputs = [inputs];
         return Promise.all(inputs.map(function(input) {
@@ -361,6 +373,7 @@ export function buildInjectedJS(opts: {
 
     cordonStandard.features['solana:signTransaction'] = {
       version: '1.0.0',
+      supportedTransactionVersions: ['legacy', 0],
       signTransaction: function(inputs) {
         if (!Array.isArray(inputs)) inputs = [inputs];
         return Promise.all(inputs.map(function(input) {
@@ -371,6 +384,7 @@ export function buildInjectedJS(opts: {
 
     cordonStandard.features['solana:signAndSendTransaction'] = {
       version: '1.0.0',
+      supportedTransactionVersions: ['legacy', 0],
       signAndSendTransaction: function(inputs) {
         if (!Array.isArray(inputs)) inputs = [inputs];
         return Promise.all(inputs.map(function(input) {
