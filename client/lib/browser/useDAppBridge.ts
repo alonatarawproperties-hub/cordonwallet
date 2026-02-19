@@ -55,7 +55,13 @@ export function useDAppBridge(webViewRef: React.RefObject<WebView | null>, pageO
   const respond = useCallback(
     (id: string, error: string | null, result: unknown) => {
       const js = `window.__cordonResponse(${JSON.stringify(id)}, ${JSON.stringify(error)}, ${JSON.stringify(result)}); true;`;
+      // Inject immediately
       webViewRef.current?.injectJavaScript(js);
+      // Retry — injectJavaScript can silently fail during React Native
+      // Modal dismiss animations. __cordonResponse is idempotent (ignores
+      // already-resolved IDs), so double-sending is safe.
+      setTimeout(() => webViewRef.current?.injectJavaScript(js), 150);
+      setTimeout(() => webViewRef.current?.injectJavaScript(js), 500);
     },
     [webViewRef],
   );
@@ -282,6 +288,9 @@ export function useDAppBridge(webViewRef: React.RefObject<WebView | null>, pageO
     setPendingApproval(null);
     pendingPromiseRef.current = null;
     if (p) {
+      // Brief delay so the native Modal dismiss doesn't block
+      // the WebView from receiving the injected JS response.
+      await new Promise((r) => setTimeout(r, 120));
       try {
         await p.resolve(undefined);
       } catch (e: any) {
@@ -290,11 +299,14 @@ export function useDAppBridge(webViewRef: React.RefObject<WebView | null>, pageO
     }
   }, []);
 
-  const rejectRequest = useCallback(() => {
+  const rejectRequest = useCallback(async () => {
     const p = pendingPromiseRef.current;
     setPendingApproval(null);
     pendingPromiseRef.current = null;
-    if (p) p.reject(new Error("User rejected the request"));
+    if (p) {
+      await new Promise((r) => setTimeout(r, 120));
+      p.reject(new Error("User rejected the request"));
+    }
   }, []);
 
   return {

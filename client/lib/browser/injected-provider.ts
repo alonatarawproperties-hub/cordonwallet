@@ -62,12 +62,18 @@ export function buildInjectedJS(opts: {
   // Create a Solana PublicKey-compatible object from a base58 string
   function makePublicKey(base58Str) {
     if (!base58Str) return null;
+    var _bytes = null;
+    function getBytes() {
+      if (!_bytes) _bytes = base58ToBytes(base58Str);
+      return _bytes;
+    }
     return {
       _base58: base58Str,
       toBase58: function() { return base58Str; },
       toString: function() { return base58Str; },
       toJSON: function() { return base58Str; },
-      toBytes: function() { return base58ToBytes(base58Str); },
+      toBytes: function() { return getBytes(); },
+      toBuffer: function() { return getBytes(); },
       equals: function(other) {
         if (!other) return false;
         var otherStr = typeof other === 'string' ? other : (other.toBase58 ? other.toBase58() : String(other));
