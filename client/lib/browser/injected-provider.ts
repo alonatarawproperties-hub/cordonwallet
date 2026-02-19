@@ -247,6 +247,141 @@ export function buildInjectedJS(opts: {
     window.dispatchEvent(new Event('cordon:ready'));
   } catch(e) {}
 
+  // ---- Wallet Standard registration ----
+  // Register with the Wallet Standard protocol so dApps using
+  // @wallet-standard/app or @solana/wallet-adapter-react can discover Cordon.
+  // Wrapped in isolated try/catch — must NEVER crash page JS.
+  try {
+    var SOLANA_MAINNET = 'solana:mainnet';
+
+    function makeWsAccount() {
+      if (!_state.publicKey) return null;
+      try {
+        return Object.freeze({
+          address: _state.publicKey,
+          publicKey: base58ToBytes(_state.publicKey),
+          chains: [SOLANA_MAINNET],
+          features: ['solana:signMessage', 'solana:signTransaction', 'solana:signAndSendTransaction']
+        });
+      } catch(e) { return null; }
+    }
+
+    var cordonStandard = {
+      version: '1.0.0',
+      name: 'Cordon',
+      icon: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTI4IiBoZWlnaHQ9IjEyOCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTI4IiBoZWlnaHQ9IjEyOCIgcng9IjI0IiBmaWxsPSIjMzg4QkZEIi8+PHRleHQgeD0iNjQiIHk9Ijg4IiBmb250LXNpemU9IjcyIiBmb250LWZhbWlseT0ic3lzdGVtLXVpLHNhbnMtc2VyaWYiIGZpbGw9IndoaXRlIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmb250LXdlaWdodD0iYm9sZCI+QzwvdGV4dD48L3N2Zz4=',
+      chains: [SOLANA_MAINNET],
+      accounts: [],
+      features: {}
+    };
+
+    cordonStandard.features['standard:connect'] = {
+      version: '1.0.0',
+      connect: function() {
+        return provider.connect().then(function() {
+          var acct = makeWsAccount();
+          cordonStandard.accounts = acct ? [acct] : [];
+          return { accounts: cordonStandard.accounts };
+        });
+      }
+    };
+
+    cordonStandard.features['standard:disconnect'] = {
+      version: '1.0.0',
+      disconnect: function() {
+        return provider.disconnect().then(function() {
+          cordonStandard.accounts = [];
+        });
+      }
+    };
+
+    cordonStandard.features['standard:events'] = {
+      version: '1.0.0',
+      on: function(event, listener) {
+        if (event === 'change') {
+          var handler = function() {
+            var acct = makeWsAccount();
+            cordonStandard.accounts = acct ? [acct] : [];
+            try { listener({ accounts: cordonStandard.accounts }); } catch(e) {}
+          };
+          provider.on('connect', handler);
+          provider.on('disconnect', handler);
+          provider.on('accountChanged', handler);
+          return function() {
+            provider.off('connect', handler);
+            provider.off('disconnect', handler);
+            provider.off('accountChanged', handler);
+          };
+        }
+        return function() {};
+      }
+    };
+
+    cordonStandard.features['solana:signMessage'] = {
+      version: '1.0.0',
+      signMessage: function(inputs) {
+        if (!Array.isArray(inputs)) inputs = [inputs];
+        return Promise.all(inputs.map(function(input) {
+          return provider.signMessage(input.message).then(function(result) {
+            return { signedMessage: input.message, signature: result.signature };
+          });
+        }));
+      }
+    };
+
+    cordonStandard.features['solana:signTransaction'] = {
+      version: '1.0.0',
+      signTransaction: function(inputs) {
+        if (!Array.isArray(inputs)) inputs = [inputs];
+        return Promise.all(inputs.map(function(input) {
+          return provider.signTransaction(input.transaction);
+        }));
+      }
+    };
+
+    cordonStandard.features['solana:signAndSendTransaction'] = {
+      version: '1.0.0',
+      signAndSendTransaction: function(inputs) {
+        if (!Array.isArray(inputs)) inputs = [inputs];
+        return Promise.all(inputs.map(function(input) {
+          return provider.signAndSendTransaction(input.transaction, input.options || {});
+        }));
+      }
+    };
+
+    var wsRegisterCallback = function(api) {
+      try { api.register(cordonStandard); } catch(e) {}
+    };
+
+    // Push to navigator.wallets ONLY if it already exists (never create it)
+    try {
+      if (window.navigator && window.navigator.wallets && typeof window.navigator.wallets.push === 'function') {
+        window.navigator.wallets.push(wsRegisterCallback);
+      }
+    } catch(e) {}
+
+    // Dispatch registration event for apps already listening
+    try {
+      window.dispatchEvent(new CustomEvent('wallet-standard:register-wallet', {
+        detail: wsRegisterCallback
+      }));
+    } catch(e) {}
+
+    // Also listen for late-loading apps that request wallet registrations
+    try {
+      window.addEventListener('wallet-standard:app-ready', function(e) {
+        try {
+          var api = e && e.detail;
+          if (api && typeof api.register === 'function') {
+            api.register(cordonStandard);
+          }
+        } catch(e) {}
+      });
+    } catch(e) {}
+  } catch(wsErr) {
+    // Wallet Standard registration failed — provider still works via window.cordon
+  }
+
   true; // Required: injectedJavaScript must end with a truthy expression
 })();`;
 }

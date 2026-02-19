@@ -121,9 +121,9 @@ export function useDAppBridge(webViewRef: React.RefObject<WebView | null>, pageO
             resolve: () => {
               const pubKey = activeWallet.addresses!.solana;
               respond(id, null, { publicKey: pubKey });
-              // Emit connect event
-              const js = `window.__cordonEvent('connect', { publicKey: ${JSON.stringify(pubKey)} }); true;`;
-              webViewRef.current?.injectJavaScript(js);
+              // Note: connect event is emitted by the injected provider's
+              // connect().then() handler — no need to also call __cordonEvent
+              // here (double-emit confuses some wallet adapters).
             },
             reject: (err) => respond(id, err.message, null),
           };
