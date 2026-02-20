@@ -5,6 +5,7 @@ import { HeaderButton } from "@react-navigation/elements";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { Feather } from "@expo/vector-icons";
 import * as WebBrowser from "expo-web-browser";
+import * as Linking from "expo-linking";
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
 import { useLayoutEffect, useState } from "react";
@@ -117,7 +118,12 @@ export default function TransactionDetailScreen({ route, navigation }: Props) {
   };
 
   const handleViewExplorer = async () => {
-    await WebBrowser.openBrowserAsync(explorerUrl);
+    const url = explorerUrl || `https://solscan.io/tx/${hash}`;
+    try {
+      await WebBrowser.openBrowserAsync(url);
+    } catch {
+      await Linking.openURL(url);
+    }
   };
 
   useLayoutEffect(() => {
