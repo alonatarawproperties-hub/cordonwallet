@@ -1,7 +1,7 @@
 /**
  * Setup Fee Accounts — Creates ATAs on the treasury wallet for fee collection.
  *
- * Run from Replit shell:
+ * Run from shell:
  *   node server/swap/setupFeeAccounts.mjs
  *
  * Requires:
@@ -63,7 +63,7 @@ async function main() {
 
   const payerKey = process.env.FEE_PAYER_PRIVATE_KEY;
   if (!payerKey) {
-    console.log("\nTo create them, add FEE_PAYER_PRIVATE_KEY to Replit secrets");
+    console.log("\nTo create them, add FEE_PAYER_PRIVATE_KEY to environment secrets");
     console.log("(any wallet with ~0.01 SOL — base58 private key).");
     console.log("Then re-run: node server/swap/setupFeeAccounts.mjs");
     return;
