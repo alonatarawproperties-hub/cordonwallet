@@ -490,6 +490,7 @@ export default function PortfolioScreen() {
           iconColor="#A78BFA"
           onPress={() => navigation.navigate("ManageCrypto")}
           theme={theme}
+          disabled
         />
       </View>
 
