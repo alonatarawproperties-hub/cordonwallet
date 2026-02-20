@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { Wallet, Bundle, NetworkId, PolicySettings, Transaction, Approval, TokenBalance } from "./types";
-import { listWallets, getActiveWallet, setActiveWalletById, renameWallet as renameWalletEngine, WalletRecord } from "./wallet-engine";
+import { listWallets, getActiveWallet, setActiveWalletById, renameWallet as renameWalletEngine, deleteVault, WalletRecord } from "./wallet-engine";
 import { resetPortfolioCache } from "./portfolio-cache";
 
 interface WalletContextType {
@@ -217,6 +217,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = async () => {
+    await deleteVault();
     await AsyncStorage.multiRemove(Object.values(STORAGE_KEYS));
     setWallets([]);
     setBundles([]);
