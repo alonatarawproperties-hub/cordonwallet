@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from "react";
-import { View, StyleSheet, Pressable, TextInput, Keyboard, Modal } from "react-native";
+import { View, StyleSheet, Pressable, TextInput, Keyboard } from "react-native";
 import { RouteProp, useNavigation, useRoute } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -14,6 +14,9 @@ import { normalizeUrl, useBrowserStore } from "@/store/browserStore";
 import { useWallet } from "@/lib/wallet-context";
 import { buildInjectedJS } from "@/lib/browser/injected-provider";
 import { useDAppBridge } from "@/lib/browser/useDAppBridge";
+import { BrowserConnectSheet } from "@/components/BrowserConnectSheet";
+import { BrowserSignSheet } from "@/components/BrowserSignSheet";
+import { decodeSolanaTransaction } from "@/lib/solana/decoder";
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 type RouteProps = RouteProp<RootStackParamList, "BrowserWebView">;
@@ -98,23 +101,38 @@ export default function BrowserWebViewScreen() {
     }
   }, [addRecent, currentUrl, pageTitle]);
 
-  // Label for the approval type
-  const approvalTypeLabel = useMemo(() => {
-    if (!pendingApproval) return "";
-    switch (pendingApproval.type) {
-      case "connect":
-        return "Connect Wallet";
-      case "signMessage":
-        return "Sign Message";
-      case "signTransaction":
-        return "Sign Transaction";
-      case "signAndSendTransaction":
-        return "Sign & Send Transaction";
-      case "signAllTransactions":
-        return "Sign All Transactions";
-      default:
-        return "Request";
+  // Decode base64 message to human-readable string for the sign sheet
+  const decodedMessage = useMemo(() => {
+    if (!pendingApproval || pendingApproval.type !== "signMessage") return "";
+    try {
+      return atob(pendingApproval.payload.message as string);
+    } catch {
+      return String(pendingApproval.payload.message ?? "");
     }
+  }, [pendingApproval]);
+
+  // Drainer detection for transaction sign requests
+  const drainerCheck = useMemo(() => {
+    if (!pendingApproval) return null;
+    const txData =
+      pendingApproval.type === "signTransaction" || pendingApproval.type === "signAndSendTransaction"
+        ? (pendingApproval.payload.transaction as string | undefined)
+        : pendingApproval.type === "signAllTransactions"
+          ? ((pendingApproval.payload.transactions as string[]) ?? [])[0]
+          : undefined;
+    if (!txData) return null;
+    try {
+      const decoded = decodeSolanaTransaction(txData);
+      return decoded.drainerDetection;
+    } catch {
+      return null;
+    }
+  }, [pendingApproval]);
+
+  // Determine sign type for the sign sheet
+  const signType = useMemo((): "message" | "transaction" => {
+    if (pendingApproval?.type === "signMessage") return "message";
+    return "transaction";
   }, [pendingApproval]);
 
   return (
@@ -211,109 +229,39 @@ export default function BrowserWebViewScreen() {
         userAgent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
       />
 
-      {/* Approval Modal */}
-      <Modal
-        visible={!!pendingApproval}
-        transparent
-        animationType="slide"
-        onRequestClose={rejectRequest}
-      >
-        <View style={styles.modalOverlay}>
-          <View
-            style={[
-              styles.modalContent,
-              {
-                backgroundColor: theme.backgroundRoot,
-                paddingBottom: insets.bottom + Spacing.lg,
-              },
-            ]}
-          >
-            {/* Header */}
-            <View style={styles.modalHeader}>
-              <View
-                style={[
-                  styles.modalIconContainer,
-                  { backgroundColor: theme.accent + "20" },
-                ]}
-              >
-                <Feather
-                  name={pendingApproval?.type === "connect" ? "link-2" : "edit-3"}
-                  size={24}
-                  color={theme.accent}
-                />
-              </View>
-              <ThemedText type="h3" style={styles.modalTitle}>
-                {approvalTypeLabel}
-              </ThemedText>
-              <ThemedText
-                type="caption"
-                style={[styles.modalOrigin, { color: theme.textSecondary }]}
-                numberOfLines={1}
-              >
-                {pendingApproval?.origin}
-              </ThemedText>
-            </View>
+      {/* Connect approval sheet */}
+      {pendingApproval?.type === "connect" && (
+        <BrowserConnectSheet
+          visible
+          siteName={pageTitle}
+          siteUrl={currentUrl}
+          chain="solana"
+          walletAddress={activeWallet?.addresses?.solana ?? ""}
+          onConnect={approveRequest}
+          onDeny={rejectRequest}
+        />
+      )}
 
-            {/* Detail */}
-            <View
-              style={[
-                styles.modalDetail,
-                { backgroundColor: theme.backgroundDefault },
-              ]}
-            >
-              <ThemedText type="body" style={{ textAlign: "center" }}>
-                {pendingApproval?.origin}{" "}
-                {pendingApproval?.detail}
-              </ThemedText>
-              {activeWallet?.addresses?.solana ? (
-                <ThemedText
-                  type="caption"
-                  style={{
-                    color: theme.textSecondary,
-                    textAlign: "center",
-                    marginTop: Spacing.xs,
-                  }}
-                  numberOfLines={1}
-                >
-                  {activeWallet.addresses.solana.slice(0, 8)}...
-                  {activeWallet.addresses.solana.slice(-6)}
-                </ThemedText>
-              ) : null}
-            </View>
-
-            {/* Buttons */}
-            <View style={styles.modalButtons}>
-              <Pressable
-                onPress={rejectRequest}
-                style={[
-                  styles.modalBtn,
-                  styles.modalBtnReject,
-                  { borderColor: theme.border },
-                ]}
-              >
-                <ThemedText type="body" style={{ fontWeight: "600" }}>
-                  Reject
-                </ThemedText>
-              </Pressable>
-              <Pressable
-                onPress={approveRequest}
-                style={[
-                  styles.modalBtn,
-                  styles.modalBtnApprove,
-                  { backgroundColor: theme.accent },
-                ]}
-              >
-                <ThemedText
-                  type="body"
-                  style={{ fontWeight: "600", color: "#FFFFFF" }}
-                >
-                  Approve
-                </ThemedText>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
+      {/* Sign approval sheet */}
+      {pendingApproval && pendingApproval.type !== "connect" && (
+        <BrowserSignSheet
+          visible
+          siteName={pageTitle}
+          siteUrl={currentUrl}
+          chain="solana"
+          signType={signType}
+          message={decodedMessage}
+          transactionData={
+            pendingApproval.type === "signAllTransactions"
+              ? ((pendingApproval.payload.transactions as string[]) ?? [])[0]
+              : (pendingApproval.payload.transaction as string | undefined)
+          }
+          isDrainerBlocked={drainerCheck?.isBlocked}
+          drainerType={drainerCheck?.attackType ?? undefined}
+          onSign={approveRequest}
+          onReject={rejectRequest}
+        />
+      )}
     </View>
   );
 }
@@ -368,54 +316,4 @@ const styles = StyleSheet.create({
   controlBtnDisabled: {
     opacity: 0.45,
   },
-  // Approval modal styles
-  modalOverlay: {
-    flex: 1,
-    justifyContent: "flex-end",
-    backgroundColor: "rgba(0,0,0,0.5)",
-  },
-  modalContent: {
-    borderTopLeftRadius: BorderRadius.xl,
-    borderTopRightRadius: BorderRadius.xl,
-    paddingTop: Spacing.lg,
-    paddingHorizontal: Spacing.lg,
-  },
-  modalHeader: {
-    alignItems: "center",
-    gap: Spacing.sm,
-    marginBottom: Spacing.lg,
-  },
-  modalIconContainer: {
-    width: 56,
-    height: 56,
-    borderRadius: BorderRadius.md,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  modalTitle: {
-    fontWeight: "700",
-  },
-  modalOrigin: {
-    fontSize: 13,
-  },
-  modalDetail: {
-    borderRadius: BorderRadius.md,
-    padding: Spacing.lg,
-    marginBottom: Spacing.lg,
-  },
-  modalButtons: {
-    flexDirection: "row",
-    gap: Spacing.md,
-  },
-  modalBtn: {
-    flex: 1,
-    height: 50,
-    borderRadius: BorderRadius.md,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  modalBtnReject: {
-    borderWidth: 1,
-  },
-  modalBtnApprove: {},
 });
