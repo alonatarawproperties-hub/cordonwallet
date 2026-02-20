@@ -1,7 +1,7 @@
 /**
  * Setup Fee Accounts — Creates ATAs on the treasury wallet for fee collection.
  *
- * Run once from Replit shell:
+ * Run once from shell:
  *   npx tsx server/swap/setupFeeAccounts.ts
  *
  * Requires:
