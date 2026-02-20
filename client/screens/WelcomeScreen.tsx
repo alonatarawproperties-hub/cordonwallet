@@ -62,7 +62,7 @@ export default function WelcomeScreen({ navigation }: Props) {
             <Feather name="cpu" size={24} color={theme.warning} />
           </View>
           <View style={styles.featureText}>
-            <ThemedText type="h4">AI Explainer</ThemedText>
+            <ThemedText type="h4">Transaction Explainer</ThemedText>
             <ThemedText type="small" style={{ color: theme.textSecondary }}>
               Plain-English transaction explanations
             </ThemedText>

@@ -27,17 +27,6 @@ function setupCors(app: express.Application) {
     // Production domain
     origins.add("https://app.cordonwallet.com");
 
-    // Replit deployment domains
-    if (process.env.REPLIT_DEV_DOMAIN) {
-      origins.add(`https://${process.env.REPLIT_DEV_DOMAIN}`);
-    }
-
-    if (process.env.REPLIT_DOMAINS) {
-      process.env.REPLIT_DOMAINS.split(",").forEach((d) => {
-        origins.add(`https://${d.trim()}`);
-      });
-    }
-
     // Local development
     if (process.env.NODE_ENV !== "production") {
       origins.add("http://localhost:3000");

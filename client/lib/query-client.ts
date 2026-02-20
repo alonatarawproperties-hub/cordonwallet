@@ -23,8 +23,6 @@ export function getApiHeaders(extra?: Record<string, string>): Record<string, st
 /**
  * Gets the base URL for the Express API server.
  * Priority: process.env.EXPO_PUBLIC_DOMAIN > Constants.expoConfig.extra.apiDomain > fallback
- * In development on Replit (.replit.dev), Express runs on port 5000.
- * In production (.replit.app or custom domains), the reverse proxy handles routing.
  * @returns {string} The API base URL
  */
 export function getApiUrl(): string {
@@ -49,10 +47,6 @@ export function getApiUrl(): string {
   }
 
   const normalized = host.startsWith("http") ? host : `https://${host}`;
-
-  if (normalized.includes(".replit.dev")) {
-    return `${normalized}:5000`;
-  }
 
   return normalized;
 }

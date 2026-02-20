@@ -90,7 +90,7 @@ export function ScamExplainerModal({
 
             <View style={styles.section}>
               <ThemedText type="h4" style={{ color: theme.text }}>
-                AI Analysis
+                Pattern Analysis
               </ThemedText>
               <ThemedText type="body" style={{ color: theme.textSecondary, lineHeight: 22 }}>
                 This address pattern matches known phishing and scam addresses that have been reported by the crypto community. Sending funds to this address will likely result in permanent loss.

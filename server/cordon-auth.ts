@@ -711,26 +711,16 @@ export function registerCordonAuthRoutes(app: Express) {
       return res.status(500).json({ error: "Failed to create session" });
     }
     
-    // Replit routes external port 80 to Expo (8081), but Express is on port 5000
-    // We need to construct a URL that explicitly targets the Express backend using :5000
     const protocol = req.get("x-forwarded-proto") || req.protocol || "https";
     const forwardedHost = req.get("x-forwarded-host") || req.get("host") || "";
-    
-    // Extract hostname without port
+
     const hostname = forwardedHost.split(":")[0];
     const expressPort = process.env.PORT || "5000";
-    
-    // For Replit development (.replit.dev), add :5000 to route to Express instead of Expo
-    // For production (.replit.app) and custom domains, no port needed
+
     let baseUrl: string;
-    if (hostname.includes(".replit.dev")) {
-      // Development: use hostname:5000 format (Expo is on port 80)
-      baseUrl = `${protocol}://${hostname}:${expressPort}`;
-    } else if (hostname === "localhost" || hostname === "127.0.0.1") {
-      // Local development
+    if (hostname === "localhost" || hostname === "127.0.0.1") {
       baseUrl = `${protocol}://${hostname}:${expressPort}`;
     } else {
-      // Production (.replit.app) and custom domains: no port needed
       baseUrl = `${protocol}://${hostname}`;
     }
     

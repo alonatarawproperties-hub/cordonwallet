@@ -1,5 +1,5 @@
 #!/bin/bash
-# Expo Start Script for Replit - Tunnel mode for Expo Go
+# Expo Start Script - Tunnel mode for Expo Go
 
 echo ""
 echo "╔══════════════════════════════════════════════════════════════╗"
@@ -8,10 +8,6 @@ echo "╠═══════════════════════�
 echo "║  Scan the QR code below with Expo Go to test on your phone   ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo ""
-
-# Set environment variables for Replit
-# Raw domain without port - getApiUrl() adds :5000 for dev environments
-export EXPO_PUBLIC_DOMAIN="${REPLIT_DEV_DOMAIN}"
 
 # EXPO_TOKEN is required for tunnel mode authentication
 # Get one from: https://expo.dev/accounts/[your-username]/settings/access-tokens
